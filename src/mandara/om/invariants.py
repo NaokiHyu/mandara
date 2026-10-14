@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol
 
+from mandara.om.encoding_traits import ENCODING_TARGETS
 from mandara.om.model import (
     AliasEntry,
     Column,
@@ -22,6 +23,8 @@ from mandara.om.model import (
     ReviewStatus,
     Table,
     TableKind,
+    Unit,
+    ValueType,
     Vocabulary,
 )
 from mandara.om.ontology import SELF, Ontology
@@ -30,7 +33,7 @@ from mandara.om.relation_traits import RELATION_TRAITS
 
 class Rule(Enum):
     UNKNOWN_DOMAIN = "列ドメインが語彙に無い"
-    UNKNOWN_VALUE = "閉じた集合に無い値（レビュー状態、表種別、関係型）"
+    UNKNOWN_VALUE = "閉じた集合に無い値（レビュー状態、表種別、関係型、値の型、単位、物理的な表現）"
     KEY_MISMATCH = "辞書のキーと要素の name が食い違っている"
     APPROVED_WITHOUT_REVIEW = "approved なのに reviewed_by / reviewed_at が無い"
     PROPOSED_WITHOUT_PROVENANCE = "proposed なのに confidence / evidence / inferred_by が無い"
@@ -46,6 +49,7 @@ class Rule(Enum):
     RELATION_SHAPE = "関係の型と、その関係が持つフィールドが合っていない"
     SHARED_KEY_MISMATCH = "shared_key の is-a が、両側の主キー同士で結ばれていない"
     ENUM_SHAPE = "enum の値の定義が不正"
+    ENCODING_MISMATCH = "列の encoding の変換先の型が、列ドメインの型と違う"
 
 
 @dataclass(frozen=True)
@@ -80,6 +84,8 @@ def _check_vocabulary(vocabulary: Vocabulary) -> Iterator[Violation]:
     yield from _check_keys(aliases, "vocabulary.aliases")
     for name, domain in domains.items():
         loc = f"vocabulary.column_domains.{name}"
+        if domain.type not in _VALUE_TYPES:
+            yield Violation(Rule.UNKNOWN_VALUE, loc, f"type={domain.type!r}")
         values = domain.values or []
         if domain.type == "enum":
             if not values:
@@ -90,6 +96,9 @@ def _check_vocabulary(vocabulary: Vocabulary) -> Iterator[Violation]:
                 yield from _check_annotation(value, f"{loc}.values[{i}]")
         elif values:
             yield Violation(Rule.ENUM_SHAPE, loc, f"type が {domain.type!r} なのに values がある")
+
+
+_VALUE_TYPES = {t.value for t in ValueType}
 
 
 class _Named(Protocol):
@@ -117,6 +126,7 @@ def _check_ids(tables: tuple[Table, ...]) -> Iterator[Violation]:
 # ---------------------------------------------------------------- 表
 
 _TABLE_KINDS = {k.value for k in TableKind}
+_UNITS = {u.value for u in Unit}
 
 
 def _check_table(table: Table, ontology: Ontology) -> Iterator[Violation]:
@@ -171,6 +181,12 @@ def _check_column(
     domain = domains.get(column.domain) if column.domain is not None else None
     if column.domain is not None and domain is None:
         yield Violation(Rule.UNKNOWN_DOMAIN, loc, f"domain={column.domain!r}")
+    if column.encoding is not None:
+        target = ENCODING_TARGETS.get(column.encoding)
+        if target is None:
+            yield Violation(Rule.UNKNOWN_VALUE, loc, f"encoding={column.encoding!r}")
+        elif domain is not None and domain.type != target:
+            yield Violation(Rule.ENCODING_MISMATCH, loc, f"encoding={column.encoding} は {target} に変換する。domain.type={domain.type}")
 
     requires_unit = domain is not None and bool(domain.requires_unit)
     unit = column.unit
@@ -180,6 +196,8 @@ def _check_column(
         return
     if domain is not None and not requires_unit:
         yield Violation(Rule.UNIT_UNEXPECTED, loc, f"domain={column.domain!r}")
+    if unit.fixed is not None and unit.fixed not in _UNITS:
+        yield Violation(Rule.UNKNOWN_VALUE, f"{loc}.unit", f"fixed={unit.fixed!r}")
     sources = [s for s in (unit.fixed, unit.column) if s is not None]
     if len(sources) != 1:
         yield Violation(Rule.UNIT_AMBIGUOUS, f"{loc}.unit", f"{len(sources)} 個指定されている")

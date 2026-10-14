@@ -43,8 +43,9 @@ columns:
     - 列名 modifieddate
     inferred_by: gold-draft
 relations:
-- id: rel_subcategory_partof_category
-  type: part-of
+- id: rel_subcategory_category
+  type: has
+  has_kind: reference
   target: tbl_production_productcategory
   via:
   - from: productcategoryid
@@ -56,6 +57,7 @@ relations:
   - FK 制約
   - 分類の階層
   inferred_by: gold-draft
+  note: 分類の階層。サブカテゴリはカテゴリの部分ではないので part-of にしない
 status: proposed
 confidence: 0.9
 evidence:

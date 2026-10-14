@@ -1,4 +1,4 @@
-"""生成物（src/mandara/om の model.py, relation_traits.py）がメタモデル①と食い違っていないこと。"""
+"""生成物（src/mandara/om の model.py, relation_traits.py, encoding_traits.py）がメタモデル①と食い違っていないこと。"""
 
 import subprocess
 from pathlib import Path
@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).parent.parent
-GENERATED = ("model.py", "relation_traits.py")
+GENERATED = ("model.py", "relation_traits.py", "encoding_traits.py")
 
 
 @pytest.fixture(scope="module")

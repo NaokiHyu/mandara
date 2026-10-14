@@ -52,7 +52,8 @@ columns:
     - 列コメント
     inferred_by: gold-draft
   spatiallocation:
-    domain: geo_point_binary
+    domain: geo_point
+    encoding: sqlserver_geography
     status: proposed
     confidence: 0.85
     evidence:

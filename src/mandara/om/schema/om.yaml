@@ -81,6 +81,52 @@ enums:
       valid_to:
       technical:
         description: 業務の意味を持たない列（行の技術ID、監査用の日時・更新者）。UI・ツール面・推論から既定で外す
+  ValueType:
+    description: >-
+      列ドメインの値の意味の型。物理的な表現（バイナリ形式、文字コードなど）は含めない。
+      物理的な表現は列の encoding に書く。意味の型への変換は encoding ごとのコーデック（Adapters の中で、DB コネクタから独立したもの）の責務とする
+    permissible_values:
+      identifier:
+      code:
+        description: 外部の体系に従うコード（国コード、単位コードなど）。値の一覧は持たない
+      enum:
+        description: 値の一覧（values）を語彙に持つ
+      text:
+      integer:
+      ratio:
+      quantity:
+        description: 単位を伴う量
+      money:
+        description: 通貨を単位とする金額
+      date:
+      datetime:
+      geo.point:
+        description: 地理上の点（緯度・経度）。UI では地図に出す
+      geo.latitude:
+      geo.longitude:
+      media.image:
+      media.audio:
+      media.document:
+      document.xml:
+        description: XML の文書。物理的な表現を名前に含んでいるので見直す（om-backlog M）
+  Unit:
+    description: 固定の単位（UnitSource.fixed）。足すときは①を変える
+    permissible_values:
+      USD:
+      JPY:
+      each:
+        description: 個数
+      day:
+      hour:
+  SourceEncoding:
+    description: >-
+      ソース上の値の物理的な表現が、意味の型（ValueType）の標準的な表現と違うときに書く。
+      具体例のあるものだけを置く。各値の annotations の decodes_to は、変換先の ValueType
+    permissible_values:
+      sqlserver_geography:
+        description: SQL Server の geography 型のバイナリ（SRID 4 バイト、版、属性、緯度・経度の float64）
+        annotations:
+          decodes_to: geo.point
   IsARealization:
     description: >-
       論理的な is-a が、ソースでどう実装されているか（C3）。
@@ -148,7 +194,7 @@ classes:
       - description
     attributes:
       type:
-        description: 値の型（identifier, money, quantity, datetime, enum, geo.latitude, media.image など）
+        range: ValueType
         required: true
       role:
         range: DomainRole
@@ -261,11 +307,15 @@ classes:
         description: 量の単位の出所（C5）。fixed / column のちょうど1つ
         range: UnitSource
         inlined: true
+      encoding:
+        description: ソース上の値の物理的な表現。意味の型の標準的な表現と同じなら書かない
+        range: SourceEncoding
 
   UnitSource:
     attributes:
       fixed:
-        description: 固定の単位（例 USD, kg）
+        description: 固定の単位
+        range: Unit
       column:
         description: 同じ表で単位を持つ列
 

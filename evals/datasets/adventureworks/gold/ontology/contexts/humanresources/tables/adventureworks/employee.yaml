@@ -144,8 +144,9 @@ relations:
   - FK employee.businessentityid → person
   - PK = FK（共有 PK）
   inferred_by: gold-draft
-- id: rel_employee_org_parent
-  type: part-of
+- id: rel_employee_reports_to
+  type: has
+  has_kind: reference
   role: reports_to
   target: self
   via_function: fn_hierarchy_path_parent
@@ -155,7 +156,7 @@ relations:
   evidence:
   - '列コメント: Where the employee is located in corporate hierarchy'
   inferred_by: gold-draft
-  note: 組織の木。親はパス文字列の接頭辞から関数で導く（C4）。報告関係を part-of で表すのが妥当かは要レビュー
+  note: 上司への参照。従業員は上司の部分ではないので part-of にしない。親はパス文字列の接頭辞から関数で導く（C4）
 status: proposed
 confidence: 0.9
 evidence:

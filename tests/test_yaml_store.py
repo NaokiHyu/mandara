@@ -21,6 +21,17 @@ status: rejected
 """
 
 
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [("{domain: key,", "{domain: key, encoding: wkb,"), ("kind: domain", "kind: view")],
+    ids=["encoding", "kind"],
+)
+def test_value_outside_closed_set_is_rejected_on_read(old: str, new: str) -> None:
+    """閉じた集合（①の enum）の外の値は、読み込みの境界でエラーになる。Domain の検査まで届かない。"""
+    with pytest.raises(ValueError, match="validation error"):
+        parse_table(MINIMAL.replace(old, new))
+
+
 def test_minimal_table_is_readable() -> None:
     assert list(parse_table(MINIMAL).columns or {}) == ["id"]
 

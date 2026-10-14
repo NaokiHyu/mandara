@@ -25,9 +25,12 @@ from mandara.om.model import (
     Relation,
     RelationType,
     ReviewStatus,
+    SourceEncoding,
     Table,
     TableKind,
+    Unit,
     UnitSource,
+    ValueType,
     Vocabulary,
 )
 from mandara.om.ontology import Ontology
@@ -135,12 +138,12 @@ MUTATIONS: dict[Rule, Mutation] = {
         _table("tbl_mp", relations=[_rel("rel_mp", RelationType.part_of, "tbl_md", [("id", "id")])]),
     ),
     Rule.UNIT_MISSING: lambda o: _add(o, _table("tbl_m", columns=[_col("id"), _col("price", domain="amount")])),
-    Rule.UNIT_UNEXPECTED: lambda o: _add(o, _table("tbl_m", columns=[_col("id", unit=UnitSource(fixed="USD"))])),
+    Rule.UNIT_UNEXPECTED: lambda o: _add(o, _table("tbl_m", columns=[_col("id", unit=UnitSource(fixed=Unit.USD))])),
     Rule.UNIT_AMBIGUOUS: lambda o: _add(
         o,
         _table("tbl_m", columns=[
             _col("id"), _col("u", domain="unit_code"),
-            _col("price", domain="amount", unit=UnitSource(fixed="USD", column="u")),
+            _col("price", domain="amount", unit=UnitSource(fixed=Unit.USD, column="u")),
         ]),
     ),
     Rule.RELATION_SHAPE: lambda o: _add(
@@ -153,11 +156,14 @@ MUTATIONS: dict[Rule, Mutation] = {
             _rel("rel_mt", RelationType.is_a, "tbl_ms", [("x", "other")], realized_by=IsARealization.shared_key)
         ]),
     ),
+    Rule.ENCODING_MISMATCH: lambda o: _add(o, _table("tbl_m", columns=[
+        _col("id"), _col("place", domain="label").model_copy(update={"encoding": SourceEncoding.sqlserver_geography}),
+    ])),
     Rule.ENUM_SHAPE: lambda o: replace(
         o,
         vocabulary=o.vocabulary.model_copy(update={"column_domains": {
             **(o.vocabulary.column_domains or {}),
-            "dup": ColumnDomain(name="dup", type="enum", values=[
+            "dup": ColumnDomain(name="dup", type=ValueType.enum, values=[
                 EnumValue(code="1", label="a", status=R), EnumValue(code="1", label="b", status=R),
             ]),
         }}),
@@ -175,3 +181,24 @@ def test_broken_ontology_is_detected(rule: Rule, data: st.DataObject) -> None:
     ontology = data.draw(ontologies())
     rules = {v.rule for v in check(MUTATIONS[rule](ontology))}
     assert rule in rules
+
+
+
+UNKNOWN_VALUE_PATHS: dict[str, Mutation] = {
+    "type": lambda o: replace(o, vocabulary=o.vocabulary.model_copy(update={"column_domains": {
+        **(o.vocabulary.column_domains or {}),
+        "x": ColumnDomain(name="x", type=ValueType.text).model_copy(update={"type": "geo.point.binary"}),
+    }})),
+    "unit.fixed": lambda o: _add(o, _table("tbl_m", columns=[
+        _col("id"), _col("price", domain="amount", unit=UnitSource.model_construct(fixed="kg")),
+    ])),
+    "encoding": lambda o: _add(o, _table("tbl_m", columns=[_col("id").model_copy(update={"encoding": "wkb"})])),
+}
+
+
+@pytest.mark.parametrize("path", list(UNKNOWN_VALUE_PATHS))
+@given(data=st.data())
+def test_closed_vocabulary_values_are_checked(path: str, data: st.DataObject) -> None:
+    """UNKNOWN_VALUE の壊し方は status だけなので、値の型・単位・物理的な表現の経路は個別に見る。"""
+    ontology = data.draw(ontologies())
+    assert Rule.UNKNOWN_VALUE in {v.rule for v in check(UNKNOWN_VALUE_PATHS[path](ontology))}

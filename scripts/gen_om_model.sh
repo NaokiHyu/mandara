@@ -2,6 +2,7 @@
 # OM メタモデル①（LinkML）から、Domain が使う生成物を作る。生成物は手で編集しない。
 #   - model.py           … pydantic の型（gen-pydantic）
 #   - relation_traits.py … 関係型の推移性と逆関係（①の enum の annotations。gen-pydantic は落とすので別に出す）
+#   - encoding_traits.py … 物理的な表現ごとの変換先の型（同上）
 # 使い方: scripts/gen_om_model.sh [出力ディレクトリ]（既定 src/mandara/om）
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -41,5 +42,25 @@ for name, body in values.items():
     if not isinstance(transitive, bool) or not isinstance(inverse, str):
         raise SystemExit(f"RelationType.{name} の annotations が不正: {ann!r}")
     print(f"    {name!r}: RelationTraits(transitive={transitive}, inverse={inverse!r}),")
+print("}")
+PY
+
+(cd "$ROOT" && uv run python - "$SCHEMA_REL" "$HEADER" > "$OUT_DIR/encoding_traits.py") <<'PY'
+import sys
+import yaml
+
+schema_path, header = sys.argv[1], sys.argv[2]
+schema = yaml.safe_load(open(schema_path, encoding="utf-8"))
+values = schema["enums"]["SourceEncoding"]["permissible_values"]
+value_types = schema["enums"]["ValueType"]["permissible_values"]
+print(header)
+print('"""物理的な表現（SourceEncoding）ごとの、変換先の意味の型（ValueType の値）。"""')
+print()
+print("ENCODING_TARGETS: dict[str, str] = {")
+for name, body in values.items():
+    target = (body.get("annotations") or {}).get("decodes_to")
+    if target not in value_types:
+        raise SystemExit(f"SourceEncoding.{name} の decodes_to が ValueType に無い: {target!r}")
+    print(f"    {name!r}: {target!r},")
 print("}")
 PY

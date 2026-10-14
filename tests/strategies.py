@@ -3,7 +3,7 @@
 生成するのは不変条件（4.5）を満たす OM だけ。壊すのはテスト側（mutation）の責務。
 - 推移的な関係（is-a / part-of / derived-from）で他の表を指すときは、添字の小さい表にしか向けないので循環は生まれない
 - 列名には YAML 1.1 で真偽値や null に化ける名前（on / no / null など）や日本語も混ぜる
-- 複合主キー、代替キー、役割、単位の列参照、self への関係（via_function / derived-from）も生成する
+- 複合主キー、代替キー、役割、単位の列参照、物理的な表現、self への関係（via_function / derived-from）も生成する
 - 生成する列名（c… と TRICKY_NAMES）は、外部キー列（ref…）と単位列（…__unit）と重ならない
 """
 
@@ -26,23 +26,27 @@ from mandara.om.model import (
     Relation,
     RelationType,
     ReviewStatus,
+    SourceEncoding,
     Table,
     TableKind,
+    Unit,
     UnitSource,
+    ValueType,
     Vocabulary,
 )
 from mandara.om.ontology import SELF, Ontology
 
 VOCABULARY = Vocabulary(
     column_domains={
-        "key": ColumnDomain(name="key", type="identifier"),
-        "label": ColumnDomain(name="label", type="text"),
-        "unit_code": ColumnDomain(name="unit_code", type="code"),
-        "amount": ColumnDomain(name="amount", type="money", additivity=Additivity.additive, requires_unit=True),
-        "at": ColumnDomain(name="at", type="datetime", role=DomainRole.event_time),
+        "key": ColumnDomain(name="key", type=ValueType.identifier),
+        "label": ColumnDomain(name="label", type=ValueType.text),
+        "unit_code": ColumnDomain(name="unit_code", type=ValueType.code),
+        "amount": ColumnDomain(name="amount", type=ValueType.money, additivity=Additivity.additive, requires_unit=True),
+        "at": ColumnDomain(name="at", type=ValueType.datetime, role=DomainRole.event_time),
+        "point": ColumnDomain(name="point", type=ValueType("geo.point")),
         "state": ColumnDomain(
             name="state",
-            type="enum",
+            type=ValueType.enum,
             values=[
                 EnumValue(
                     code="1", label="open", status=ReviewStatus.approved, reviewed_by="alice", reviewed_at=date(2026, 10, 1)
@@ -55,7 +59,7 @@ VOCABULARY = Vocabulary(
     }
 )
 
-PLAIN_DOMAINS = ("label", "at", "state")
+PLAIN_DOMAINS = ("label", "at", "state", "point")
 TRICKY_NAMES = ("on", "no", "yes", "null", "true", "False", "~", "名前", "a b", "1")
 
 texts = st.text(alphabet=st.characters(codec="utf-8", exclude_categories=("Cs", "Cc")), min_size=1, max_size=12)
@@ -106,12 +110,13 @@ def ontologies(draw: st.DrawFn, max_tables: int = 5) -> Ontology:
             unit = None
             if domain == "amount":
                 if draw(st.booleans()):
-                    unit = UnitSource(fixed=draw(st.sampled_from(("USD", "JPY", "each"))))
+                    unit = UnitSource(fixed=draw(st.sampled_from(tuple(Unit))))
                 else:
                     unit_col = f"{c}__unit"
                     columns[unit_col] = annotate(Column(name=unit_col, domain="unit_code", status=_PLACEHOLDER))
                     unit = UnitSource(column=unit_col)
-            columns[c] = annotate(Column(name=c, domain=domain, unit=unit, status=_PLACEHOLDER))
+            encoding = draw(st.none() | st.sampled_from(tuple(SourceEncoding))) if domain == "point" else None
+            columns[c] = annotate(Column(name=c, domain=domain, unit=unit, encoding=encoding, status=_PLACEHOLDER))
 
         alternates = draw(
             st.lists(st.lists(st.sampled_from(sorted(columns)), min_size=1, max_size=2, unique=True), max_size=2)
@@ -154,10 +159,16 @@ def ontologies(draw: st.DrawFn, max_tables: int = 5) -> Ontology:
                 )
             relations.append(annotate(relation))
 
-        if kind != TableKind.derived and draw(st.booleans()):  # derived は part-of の全体側になれない
+        if draw(st.booleans()):
+            # 自己参照の木（部品表のような part-of、上司のような参照）。derived は part-of の全体側になれない
+            tree_type = draw(st.sampled_from((RelationType.has, RelationType.part_of)))
+            if kind == TableKind.derived:
+                tree_type = RelationType.has
             tree = Relation(
                 id=f"rel_t{i}_tree",
-                type=RelationType.part_of,
+                type=tree_type,
+                has_kind=HasKind.reference if tree_type == RelationType.has else None,
+                role=draw(st.none() | st.from_regex(r"[a-z]{1,8}", fullmatch=True)),
                 target=SELF,
                 via_function="fn_path_parent",
                 status=_PLACEHOLDER,
@@ -203,11 +214,11 @@ def vocabularies(draw: st.DrawFn) -> Vocabulary:
                 EnumValue(code=c, label=draw(texts), status=_PLACEHOLDER).model_copy(update=draw(provenance()))
                 for c in codes
             ]
-            domains[name] = ColumnDomain(name=name, type="enum", description=draw(st.none() | texts), values=values)
+            domains[name] = ColumnDomain(name=name, type=ValueType.enum, description=draw(st.none() | texts), values=values)
         else:
             domains[name] = ColumnDomain(
                 name=name,
-                type=draw(st.sampled_from(("identifier", "text", "money", "quantity"))),
+                type=draw(st.sampled_from(tuple(t for t in ValueType if t != ValueType.enum))),
                 additivity=draw(st.none() | st.sampled_from(tuple(Additivity))),
                 requires_unit=draw(st.none() | st.booleans()),
             )

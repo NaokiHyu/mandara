@@ -188,9 +188,9 @@ column_domains:
   revision_number:
     description: 改訂の回数
     type: integer
-  geo_point_binary:
-    description: SQL Server geography 形式の点（lat/lon は変換関数で導出する）
-    type: geo.point.binary
+  geo_point:
+    description: 地理上の点（緯度・経度）
+    type: geo.point
   xml_document:
     description: XML の文書
     type: document.xml

@@ -171,6 +171,71 @@ class DomainRole(str, Enum):
     """
 
 
+class ValueType(str, Enum):
+    """
+    列ドメインの値の意味の型。物理的な表現（バイナリ形式、文字コードなど）は含めない。 物理的な表現は列の encoding に書く。意味の型への変換は encoding ごとのコーデック（Adapters の中で、DB コネクタから独立したもの）の責務とする
+    """
+    identifier = "identifier"
+    code = "code"
+    """
+    外部の体系に従うコード（国コード、単位コードなど）。値の一覧は持たない
+    """
+    enum = "enum"
+    """
+    値の一覧（values）を語彙に持つ
+    """
+    text = "text"
+    integer = "integer"
+    ratio = "ratio"
+    quantity = "quantity"
+    """
+    単位を伴う量
+    """
+    money = "money"
+    """
+    通貨を単位とする金額
+    """
+    date = "date"
+    datetime = "datetime"
+    geoFULL_STOPpoint = "geo.point"
+    """
+    地理上の点（緯度・経度）。UI では地図に出す
+    """
+    geoFULL_STOPlatitude = "geo.latitude"
+    geoFULL_STOPlongitude = "geo.longitude"
+    mediaFULL_STOPimage = "media.image"
+    mediaFULL_STOPaudio = "media.audio"
+    mediaFULL_STOPdocument = "media.document"
+    documentFULL_STOPxml = "document.xml"
+    """
+    XML の文書。物理的な表現を名前に含んでいるので見直す（om-backlog M）
+    """
+
+
+class Unit(str, Enum):
+    """
+    固定の単位（UnitSource.fixed）。足すときは①を変える
+    """
+    USD = "USD"
+    JPY = "JPY"
+    each = "each"
+    """
+    個数
+    """
+    day = "day"
+    hour = "hour"
+
+
+class SourceEncoding(str, Enum):
+    """
+    ソース上の値の物理的な表現が、意味の型（ValueType）の標準的な表現と違うときに書く。 具体例のあるものだけを置く。各値の annotations の decodes_to は、変換先の ValueType
+    """
+    sqlserver_geography = "sqlserver_geography"
+    """
+    SQL Server の geography 型のバイナリ（SRID 4 バイト、版、属性、緯度・経度の float64）
+    """
+
+
 class IsARealization(str, Enum):
     """
     論理的な is-a が、ソースでどう実装されているか（C3）。 具体例のあるものだけを置く。排他的な参照・区分列は AW で裏付けが取れていないので未定義
@@ -215,7 +280,7 @@ class ColumnDomain(ConfiguredBaseModel):
 
     name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain', 'AliasEntry', 'Table', 'Column']} })
     description: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain']} })
-    type: str = Field(default=..., description="""値の型（identifier, money, quantity, datetime, enum, geo.latitude, media.image など）""", json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain', 'Relation']} })
+    type: ValueType = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain', 'Relation']} })
     role: Optional[DomainRole] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain', 'Relation']} })
     additivity: Optional[Additivity] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain']} })
     requires_unit: Optional[bool] = Field(default=None, description="""true なら、この列ドメインを使う列は unit（量と単位の組、C5）を宣言しなければならない""", json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain']} })
@@ -307,6 +372,7 @@ class Column(Annotation):
     domain: Optional[str] = Field(default=None, description="""vocabulary の column_domains のキー""", json_schema_extra = { "linkml_meta": {'domain_of': ['Column']} })
     pii: Optional[bool] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Column']} })
     unit: Optional[UnitSource] = Field(default=None, description="""量の単位の出所（C5）。fixed / column のちょうど1つ""", json_schema_extra = { "linkml_meta": {'domain_of': ['Column']} })
+    encoding: Optional[SourceEncoding] = Field(default=None, description="""ソース上の値の物理的な表現。意味の型の標準的な表現と同じなら書かない""", json_schema_extra = { "linkml_meta": {'domain_of': ['Column']} })
     status: ReviewStatus = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation']} })
     confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0, json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation']} })
     evidence: Optional[list[str]] = Field(default=None, description="""主張台帳（6.6）の主張ID""", json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation']} })
@@ -319,7 +385,7 @@ class Column(Annotation):
 class UnitSource(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
 
-    fixed: Optional[str] = Field(default=None, description="""固定の単位（例 USD, kg）""", json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource']} })
+    fixed: Optional[Unit] = Field(default=None, description="""固定の単位""", json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource']} })
     column: Optional[str] = Field(default=None, description="""同じ表で単位を持つ列""", json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource']} })
 
 

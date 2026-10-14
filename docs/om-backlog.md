@@ -233,8 +233,18 @@ AW には、is-a の物理的な実装パターンが少なくとも3つある�
 - gold を正規形にした（コメントは README に移した）
 - 仕様 4.1 / 4.2 を合意した形に揃えた
 
+2026-10-14 の判断で済んだもの：
+- [x] `ColumnDomain.type` と `unit.fixed` を①の enum（ValueType / Unit）にした。不明な値は UNKNOWN_VALUE
+- [x] 意味の型 `geo.point` と、列の `encoding`（SourceEncoding。今は sqlserver_geography だけ）に分けた。変換はソースの Adapter の責務
+- [x] product → subcategory、subcategory → category、employee の上司を has（reference）にした。分類への所属や上司は全体と部分ではない
+- [x] encoding の変換先の型を①に持ち（decodes_to → encoding_traits.py）、列ドメインの型と違えば ENCODING_MISMATCH。変換は DB コネクタではなく encoding ごとのコーデックの責務と仕様に明記
+- [x] 仕様 10.4 の「品目→品目分類」を part-of のドリルダウン例から外し、未決（15.2）にした
+
 要相談：
-- [ ] `ColumnDomain.type`（identifier / money / geo.point.binary …）と `unit.fixed`（USD / each / hour …）が自由文字列のまま。閉じた語彙として①の enum にするか、語彙データとして検査するか
-- [ ] `geo_point_binary` は「SQL Server geography 形式」という物理的な符号化を、意味のドメインに持ち込んでいる。意味は geo.point にして、符号化はソース側（Adapter や変換関数の入力）に置くべきか
-- [ ] gold の意味の判断（人のレビュー待ち）：product → subcategory を part-of にした（分類への所属は全体と部分ではない、という指摘あり。209 行は subcategory が NULL）。employee の reports_to を part-of にした
+- [ ] 分類の階層（製品 → サブカテゴリ → カテゴリ）を has で書くと、ドリルダウン階層（10.x、「品目→品目分類」）として拾えない。分類専用の関係型（例 `classified-as`、推移的）を①に足すか、has のまま UI 側で階層とみなすか
+- [ ] gold に良い part-of の例が少ない（今は 注文明細 → 注文、州 → 国）。部品表（production.billofmaterials：製品の自己参照の part-of）を gold に足すか
+- [ ] 住所 → 州を has のままにするか（州 → 国 は part-of にしている。地理の包含を part-of とみるなら揃える）
+- [ ] 閉じた集合の外の値は読み込みで OmLoadError になり、UNKNOWN_VALUE として集まらない（既存の status / kind も同じ）。読み込みの境界で拒否する今の形でよいか（仕様 15.2）
+- [ ] `document.xml` も物理的な表現（XML）を型の名前に含んでいる。geo と同じく、意味の型と encoding に分けるか
+- [ ] 仕様 7.6 付近の表（`type: money` ＋ `currency`）が、量と単位の分離（unit）の前の書き方のまま
 - [ ] enum の code と観測値を照合するときの正規化（PostgreSQL の真偽値は t / f、gold は "true" / "false"）。ソースの Adapter の責務として決める
