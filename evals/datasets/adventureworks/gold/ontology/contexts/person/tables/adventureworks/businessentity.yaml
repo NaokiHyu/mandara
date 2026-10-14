@@ -1,0 +1,37 @@
+id: tbl_person_businessentity
+name: person.businessentity
+source: adventureworks
+context: person
+kind: domain
+identity:
+  primary:
+  - businessentityid
+columns:
+  businessentityid:
+    domain: business_entity_id
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - PK
+    - 列コメント
+    inferred_by: gold-draft
+  rowguid:
+    domain: row_uuid
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - 列名 rowguid、型 uuid、全表に存在
+    inferred_by: gold-draft
+  modifieddate:
+    domain: modified_at
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - 列名 modifieddate、全表に存在
+    inferred_by: gold-draft
+status: proposed
+confidence: 0.8
+evidence:
+- '表コメント: 人・店舗・仕入先の共通の上位'
+- person / store / employee 等が businessentityid を共有 PK として参照
+inferred_by: gold-draft

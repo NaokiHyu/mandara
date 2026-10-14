@@ -1,4 +1,4 @@
-# Mandara（仮称）仕様書 v0.3
+# Mandara（仮称）仕様書 v0.4
 
 雑に積まれたRDB・ファイル群・メディア・既存システムのAPIから、AI推論と人間レビューを経て**オントロジカルメタデータ**を半自動生成し、それをgit管理されたファイルとして保持する。生成されたオントロジー層は、データを自前で持たず（ゼロコピー）、DWH・ナレッジDBとして使えると同時に、DDDスタイルのプログラミングインターフェース・セマンティックモデル・UIを自動で提供し、AIにも認可付きで操作権を与える。書き込みは既存システムの書き込み経路（同期呼び出し：API・ストアドプロシージャ、または非同期の受入表）だけを通す。
 
@@ -32,8 +32,8 @@
 | 語彙 | OMで使用を許可されたアノテーション値の閉じた集合 |
 | コンテキスト | DDDの境界づけられたコンテキスト。同名概念が別物であることを許す単位 |
 | ドメインオブジェクト | domain種別の表から生成される、メソッドを持つ型 |
-| 型つきモデルコード（TMC） | Typed Model Code。OMから生成した型と、その上に手で書くメソッドからなるコード層。OMが「何があるか」、TMCが「どう振る舞うか」を担う（7章） |
-| クエリ / コマンド | 副作用のないメソッド / 状態を変えるメソッド |
+| 型つきモデルコード（TMC） | Typed Model Code。OMから自動生成した型と、その上に人が書く小さな参照透過な関数（メソッド）からなるコード層。OMが「何があるか」、TMCが「どう振る舞うか」を担う（7章） |
+| クエリ / コマンド | 値を返すメソッド / 実行したい操作を `Command` の値として返すメソッド。どちらも参照透過で、実際の読み書きは実行環境が行う（7.3） |
 | モデラー | OMとその周辺の宣言を提案するAI。生成パイプライン（6章）として動く |
 | ビルダー | TMCのコードを書くAI。開発者の道具として動く。Mandaraの外のツールでもよい（3.3） |
 | オペレーター | TMCを使って業務を動かすAI。認可と承認キューの下で動く（8章） |
@@ -121,7 +121,7 @@ Mandaraで働くAIは、役割で3つに分ける。層に対応しており、�
 ビルダーは役割であって、Mandaraの部品とは限らない。ブラウザ内のワークベンチに組み込んだエージェントでも、git＋エディタ＋市販のコーディングエージェントという手元の組み合わせでもよい（9.5）。外のビルダーをMandaraは制御できないので、縛りはツールの中ではなくリポジトリの入口に置く。
 
 - **入口はPRだけ**。保護ブランチへの直接の書き込みは禁止する
-- **検査はCIで行う**。バリデーション（4.5）、TMCの型の再生成とコンパイル（7.6）、評価（17章）
+- **検査はCIで行う**。バリデーション（4.5）、TMCの型の再生成と型検査（7.6）、評価（17章）
 - **`status: approved` への変更は人のものだけを通す**。ビルダーのコミットに承認の書き込みが含まれていれば、CIで落とす
 - **文脈はリポジトリから渡す**。OMのスキーマ、生成済みの型、規約を書いたファイルを置き、外のビルダーが読めば正しく書けるようにする
 - **ソースには直結させない**。データを見る必要があるときは、Mandaraのツール面を通し、読み取り専用のクエリと `dry-run` だけを開発者の認可の範囲で許す。ソースの資格情報は渡さない
@@ -169,10 +169,10 @@ column_domains:
   customer_id: { type: identifier, description: "顧客の正本ID" }
   lat:         { type: geo.latitude }
   lon:         { type: geo.longitude }
-  money_jpy:   { type: money, currency: JPY, additivity: additive }
-  quantity:    { type: quantity, additivity: additive }
-  unit_price:  { type: money, currency: JPY, additivity: non-additive }
-  balance_jpy: { type: money, currency: JPY, additivity: semi-additive }
+  money:       { type: money, additivity: additive, requires_unit: true }        # 単位（通貨）は列の unit で指定する（4.2）
+  quantity:    { type: quantity, additivity: additive, requires_unit: true }
+  unit_price:  { type: money, additivity: non-additive, requires_unit: true }
+  balance:     { type: money, additivity: semi-additive, requires_unit: true }
   occurred_at: { type: datetime, role: event_time }
   valid_from:  { type: datetime, role: valid_from }
   valid_to:    { type: datetime, role: valid_to }
@@ -180,6 +180,10 @@ column_domains:
   image:       { type: media.image }
   audio:       { type: media.audio }
   document:    { type: media.document }
+  row_uuid:    { type: identifier, role: technical, description: "行の技術的な一意ID（rowguid 等）。業務上の識別には使わない" }
+  created_at:  { type: datetime, role: technical, description: "行の作成日時（監査用）" }
+  modified_at: { type: datetime, role: technical, description: "行の最終更新日時（監査用。modifieddate 等）" }
+  modified_by: { type: identifier, role: technical, description: "行の最終更新者（監査用）" }
 
 additivities: [additive, semi-additive, non-additive]   # 10.4 参照
 
@@ -196,7 +200,7 @@ command_backends:                                      # 7.4 参照。この2種
   handoff:   "非同期。既存システムが取りに来る受入表・受入ファイルに書く。受入表のキー・完了判定・却下行の宣言が必須"
 ```
 
-列ドメインは「同じ意味」を表す。同じ型でも意味が違えば別ドメインにする（例：`order_date` と `ship_date`）。尺度になりうるドメインは `additivity` を持つ。
+列ドメインは「同じ意味」を表す。同じ型でも意味が違えば別ドメインにする（例：`order_date` と `ship_date`）。尺度になりうるドメインは `additivity` を持つ。`role: technical` のドメイン（行の技術ID、監査用の日時・更新者）は業務の意味を持たない列を表し、UI・オペレーターのツール面・セマンティックモデルでは既定で隠す。関係や同一性の推論にも使わない。
 
 ### 4.2 表メタデータ（`contexts/<context>/tables/<source>/<table>.yaml`）
 
@@ -211,8 +215,9 @@ reviewed_by: alice
 reviewed_at: 2026-10-11
 
 identity:
-  primary: order_id
-  alternates: [legacy_order_no]
+  primary: [order_id]                 # 列の配列。複合キーは複数の列を並べる（1つの値として扱うのは生成される型の側）
+  alternates:
+    - columns: [legacy_order_no]
 
 backend:                    # この表へのコマンドの既定経路（7.4）。省略時は読み取り専用
   default: call
@@ -233,7 +238,8 @@ columns:
     domain: customer_id
     status: approved
   amount:
-    domain: money_jpy
+    domain: money                     # 量と単位を分ける。単位は unit で、固定値か同じ表の列を指す
+    unit: { fixed: JPY }
     status: proposed
     confidence: 0.88
     evidence:
@@ -247,20 +253,24 @@ columns:
     status: approved
 
 relations:
-  - type: has
+  - id: rel_01HXZ...         # 関係の安定ID。同じ表への複数の参照を区別する
+    type: has
     has_kind: reference
-    target: tbl_01HXZ...     # crm.customers
-    via: customer_id
+    role: orderer            # 参照の役割（任意。同じ表を複数回参照するときに使う）
+    target: tbl_01HXZ...     # crm.customers。自己参照は self
+    via: [{ from: customer_id, to: customer_id }]   # 列の対応。列で結べない関係は via_function に決定的関数の ID を書く
     cardinality: n:1
     status: proposed
     confidence: 0.92
     evidence:
       - "値の包含率 99.8%（orders.customer_id ⊂ customers.id）"
       - "列名一致"
-    temporal:
-      valid_from: null
-      valid_to: null
 ```
+
+列・関係の書き方の補足：
+- is-a には、ソースでの実装パターンを `realized_by` で書ける。今あるのは `shared_key`（下位の表が上位の表と同じ主キーを持つ）だけ。排他的な参照や区分列などは、具体例で裏付けが取れてから足す
+- `role: technical` のドメイン（4.1）の列は、業務の意味を持たない
+- enum の列ドメインは、値ごとに `code`・`label`・`observed`（データで観測されたか）と注釈の共通フィールド（4.4）を持ち、値ごとにレビューする。値の集合はデータからではなく、宣言と証拠から決める
 
 ### 4.3 コンテキストとコンテキストマップ（`contexts/<context>/context.yaml`, `context-map.yaml`）
 
@@ -318,7 +328,7 @@ ontology/
           orders.yaml
           customers.yaml
       methods/
-        orders.scala            # ユーザー定義メソッド（クエリ／コマンド）。TMC（7章）
+        orders.scala            # ユーザー定義メソッド（参照透過な関数）。TMC（7章）。言語は 7.6
       adapters/
         orders.ship.yaml        # コマンドアダプタ：コマンド→既存APIの写像（7.4）
       metrics/
@@ -516,19 +526,26 @@ LLMは構造化できない最後の層だけに使う。
 
 ## 7. プログラミングインターフェース（型つきモデルコード、TMC）
 
-プログラミングインターフェースの実体を**型つきモデルコード（Typed Model Code、TMC）**と呼ぶ。TMCは、OMから生成した型と、その上に手で書くメソッドからなる。OMが「何があるか」を表すデータで、TMCが「どう振る舞うか」を表すコードである。第一言語は Scala 3（7.6）。
+プログラミングインターフェースの実体を**型つきモデルコード（Typed Model Code、TMC）**と呼ぶ。TMCは、OMから**自動生成した型**と、その上に人が書く**小さな参照透過な関数（メソッド）**からなる。OMが「何があるか」を表すデータで、TMCが「どう振る舞うか」を表すコードである。
 
-### 7.1 ドメインオブジェクト
-`kind: domain` の表ごとに型を生成する。関係は型つきの参照として現れる。
+人は型を書かず、I/O も書かない。読み込み、書き込み、認可、承認、冪等性、再試行は実行環境が担う（functional core, imperative shell）。メソッドは「値を受け取り、値を返す」ことだけをする。言語は固定しない（7.6）。
 
-```scala
-val customer = Customer.get(CustomerId("C-1001"))
-customer.orders            // has 1:n → コレクション
-customer.region.parent     // part-of → 親
-customer.isA[Account]      // is-a 判定（推移的）
+### 7.1 ドメインオブジェクトとグラフ問い合わせ
+- `kind: domain` の表ごとに型を生成する。関係は型つきの参照として現れる
+- ドメインオブジェクトは**不変の値**で、読み込んだ時点の `as_of` を持つ
+- 読みは、OMから自動で提供する**汎用のグラフ問い合わせ**で行う。関係のたどり、is-a 判定、part-of の上下を含み、ユーザーのコードなしで動く。人間UI（9.4）、オペレーター（8章）、対話的な問い合わせ面（REPL）はすべてこれを使う
+
+```
+# 記法は例。具体的な構文は言語ごとの型生成（7.6）で決まる
+Customer.get(CustomerId("C-1001"))
+  .orders                  # has 1:n → コレクション
+  .region.parent           # part-of → 親
+Customer.isA(Account)      # is-a 判定（推移的）
 ```
 
 ### 7.2 デフォルトメソッド
+汎用のグラフ問い合わせとコマンドアダプタ（7.4）から提供する。ユーザーのコードは要らない。
+
 | 種別 | メソッド | 備考 |
 |---|---|---|
 | クエリ | `get`, `find`, `list`, `count` | 全種別 |
@@ -538,25 +555,41 @@ customer.isA[Account]      // is-a 判定（推移的）
 | コマンド | `create`, `update`, `delete` | domain / relation のみ。event / derived は不可。表の `backend.default` 経由で実行され、`backend` の無い表（読み取り専用）には生成されない |
 | コマンド | `link(rel, target)`, `unlink` | relation |
 
-### 7.3 ユーザー定義メソッド
-`contexts/<context>/methods/<table>.scala` に定義する。クエリかコマンドかを必ず宣言する。
+### 7.3 ユーザー定義メソッド（参照透過な関数）
+`contexts/<context>/methods/<table>.<拡張子>` に定義する。クエリかコマンドかを必ず宣言する。
 
 ```scala
-// contexts/sales/methods/orders.scala
-extension (self: Order)
-  @command(backend = "call", reversible = false, approval = "required")
-  def ship(carrier: Carrier): Command[Shipment] =
-    ???                      // 実装はアダプタ（adapters/orders.ship.yaml）への委譲
+// contexts/sales/methods/orders.scala（例。言語は 7.6）
 
-  @query
-  def outstandingBalance: Query[Money[JPY]] =
-    ???
+// クエリ：必要な部分グラフを宣言し、値を返す
+@query(reads = "self { totaldue, customer { creditlimit } }")
+def overCreditLimit(self: Order): Boolean =
+  self.totaldue > self.customer.creditlimit
+
+// コマンド：実行したい操作を Command の値として返す。送信は実行環境が行う
+@command(backend = "call", reversible = false, approval = "required")
+def ship(self: Order, carrier: Carrier): Either[ShipError, Command[Shipment]] =
+  if self.status != OrderStatus.Approved then Left(ShipError.NotApproved(self.status))
+  else Right(Command.adapter("Order.ship", carrier = carrier))   // adapters/orders.ship.yaml
 ```
 
-- `@query` は副作用を持てない（実行環境で書き込みを禁止する）
+形の規則：
+- **メソッドは参照透過な関数**。入力は自分（`self`）、宣言した部分グラフ、引数だけで、同じ入力には常に同じ値を返す。現在時刻や乱数が要るときは引数として受け取る。副作用を持たないことは、型（I/O に届く API を生成しない）、静的検査（I/O・時刻・乱数・グローバル状態に触る API の禁止）、実行環境（資格情報もネットワークも無い隔離実行）の3段で保証する。どれか1つに頼らない
+- **読む範囲は先に宣言する**（`reads`）。実行環境が部分グラフを取得し、不変のスナップショットとして `as_of` つきで渡す。関数の中で関係を遅延で読むこと（隠れた I/O）は許さない。宣言していないフィールドや関係に触ったらエラーにする（できれば型エラー、できなければ実行時エラー）。NULL や空で黙って続行しない
+- **部分グラフには件数の上限がある**。上限を超えたら、切り詰めずにエラーにする
+- **集計は書かない**。合計、平均、統計は `metric.query`（10.4.5）に押し下げる。メソッドが担うのはオブジェクト単位の業務ロジックまで（ゼロコピーと性能のため）
+- **コマンドは `Command` の値を返す**。どのコマンドアダプタ（7.4）を、どの引数で呼ぶかという意図の記述である。認可（8.2）、承認キュー（8.3）、冪等キー、`call` / `handoff` の実行は実行環境が担う。承認キューが「意図のログ」であることと同じ形になる
+- 前提条件を満たさないときは、値としてのエラー（`Either` など、言語の慣習に従う）を返す。例外で抜けない
+
+宣言と継承：
 - `@command` は `backend`、`reversible`、`approval`、`limits` を宣言する。`backend` を省略すると表の `backend.default` に従う
 - is-a の上位で定義したメソッドは下位に継承される
 - OM・メソッド・アダプタ・表示アノテーションは**同じPR**で変更する。CIで整合性を検証する
+
+参照透過であることの帰結：
+- 法則を Property-based テストで検証できる。入力が値だけなので、生成器から直接テストできる
+- 結果をキャッシュしやすい。キャッシュは実行環境の責務で、キーは 3.1 第2段に揃える：主体の認可スコープ、メソッド、引数、スナップショットの同一性（ソースごとの `as_of` または版）、OM版、ポリシー版。スコープを外すと行レベル認可が破れる。コマンド成功時の無効化も 3.1 第2段に従う
+- そのままオペレーターのツール（8.1）として公開でき、隔離実行（16.5）もしやすい
 
 ### 7.4 実行モデル（読みと書きの分離）
 
@@ -675,35 +708,40 @@ watch の評価とオペレーターの起動は Temporal のワークフロー�
 
 #### 方針
 - **OMが正、型は派生**。TMCの型はOMから生成し、手では書かない。手で書くのはメソッド（7.3）だけ
+- **スキーマは LinkML で2段に持つ**
+  - ① **OMのメタモデル**：「表の注釈とは何か」（`kind`、`grain`、`status`、`confidence`、`evidence` など）。Mandara 自身が持ち、人が書く。4.5 のバリデーションの一部はここから導く
+  - ② **ドメインのスキーマ**：承認済みのOMから出力する、そのオントロジーのクラス・関係・列挙。人は書かない。各言語の型、OWL / JSON Schema などのエクスポート（10.3）は②から生成する
 - **OMそのものはコードにしない**。OMを書くのはモデラーの提案とレビューUIであり（6.4）、注釈ごとに `status`・`confidence`・`evidence` を持つ。データのままにしておくことで、機械的な書き換えと注釈単位のdiffが保てる
-- **型で前倒しする**。「同じ型でも意味が違えば別ドメイン」（4.1）、「`@query` は副作用を持てない」（7.3）、「event / derived はコマンド不可」（7.2）を、実行時の検査に加えてコンパイル時にも保証する
+- **型で前倒しする**。「同じ型でも意味が違えば別ドメイン」（4.1）、「クエリはコマンドを実行できない」（7.3）、「event / derived はコマンド不可」（7.2）を、実行時の検査に加えて、言語が許す範囲で型検査の時点でも保証する。型で保証できない言語では、同じ規則を実行時の検査で守る
 
-#### OM → 型の対応（Scala 3）
+#### OM → 型の対応
 
-| OM | 生成される型 |
+| OM | 生成される型（言語ごとの表現は型生成の差し込み口が決める） |
 |---|---|
-| 列ドメイン（`customer_id`、`order_id`） | opaque type（`CustomerId`、`OrderId`）。取り違えはコンパイルエラー |
-| `type: money` ＋ `currency` | `Money[JPY]`。通貨の違う加算はコンパイルエラー |
+| 列ドメイン（`customer_id`、`order_id`） | 名前つきの別の型（Scala の opaque type、Python の `NewType` など）。取り違えは型エラー |
+| `type: money` ＋ `currency` | 通貨つきの金額型。通貨の違う加算は型エラー |
 | `additivity` | 加法の尺度だけが合計を持つ。単価や残高には `sum` が生えない |
-| `type: enum` ＋ ラベル | `enum`。分岐の網羅性を検査する |
-| 基数、NULL許容 | 値、`Option`、コレクションの区別 |
-| `is-a` | trait の継承。上位のメソッドは下位で使える |
+| `type: enum` ＋ ラベル | 列挙型。分岐の網羅性を検査する |
+| 基数、NULL許容 | 値、省略可能な値、コレクションの区別 |
+| `is-a` | 継承。上位のメソッドは下位で使える |
 | `part-of` | `parts`／`whole` を持つ型 |
 | 表種別 `event`／`derived` | コマンドを持たない型 |
-| `@query`／`@command` | 戻り値の型 `Query[A]`／`Command[A]`。クエリの中からコマンドは呼べない |
-| コンテキスト | パッケージ。`sales.Customer` と `billing.Customer` は別の型で、変換はコンテキストマップ（4.3）から生成した関数だけが行う |
+| `@query`／`@command` | 戻り値は値／`Command` の値。クエリは `Command` を返せない |
+| コンテキスト | 名前空間。`sales.Customer` と `billing.Customer` は別の型で、変換はコンテキストマップ（4.3）から生成した関数だけが行う |
 | `temporal` | `history(at)` を持つ型 |
 
 #### 規則
 - 型は `status: approved` の注釈だけから生成する。`proposed` は型に現れない
-- CIで型を再生成し、既存のメソッドがコンパイルできなければマージを止める。7.3 の整合性検証はこれで行う
+- CIで②と型を再生成し、既存のメソッドが型検査を通らなければマージを止める。7.3 の整合性検証はこれで行う
 - ゼロコピーなので、型はスキーマではなくソースを見るレンズである。型に合わない値（enum に無い値、NULLのはずがない列のNULL）は読み込み時に検出し、例外ではなく値として返す。「不明」値の意味論は15章
 - コマンドの戻り値の型は既存APIの応答で決まる。アダプタ（7.4）の `map` に戻り値側の写像も宣言する
 
 #### 言語
-- **第一言語は Scala 3**。書き込み先の既存システム（JDBC、SOAP、各社コネクタ）とTemporalがJVMの上にあること、REPLがあること、opaque type・`enum`・trait にOMが素直に落ちることが理由
-- 型生成は差し込み口（16.1）にする。OMが正なので、生成先の言語は後から足せる。Kotlin など他のJVM言語はScala向けの次の候補
-- Rust は、変換関数とプラグインの隔離実行（16.5）の候補として残す。所有権による状態遷移の保証とWASMでのサンドボックスが利点
+- **言語は固定しない**。選定基準は、その部品が使う手法に適合するライブラリがあるかどうか。型は②から言語ごとに生成する（差し込み口 16.1）ので、言語を足しても型を二重に書かない
+- 言語を変えてよいのはプロセス境界だけで、そこには言語非依存の契約（OMファイル、主張台帳、ツール面／クエリAPI）がある
+- **OMの生成と検証（6章）は Python**。SQL パーサ（sqlglot）、LLM による推論、統計、評価（17章）の資産が揃っているため
+- **メソッド（7.3）は Scala 3**。DDD の記述に関数型の表現力（ADT、opaque type、enum、網羅性検査）を使うため。ただし Scala も副作用を型だけでは防げないので、7.3 の3段（型・静的検査・隔離実行）で保証する
+- Rust は、変換関数とプラグインの隔離実行（16.5）の候補として残す。WASMでのサンドボックスが利点
 
 ---
 
@@ -861,7 +899,7 @@ overrides:
 - 実装は再帰CTEまたはDatalog。開世界推論・OWL完全推論は対象外
 
 ### 10.3 エクスポート（出口の確保）
-- OM → RDFS/OWL（語彙はクラス・プロパティへ）
+- OM → RDFS/OWL（語彙はクラス・プロパティへ）。ドメインのスキーマ（LinkML、7.6 の②）の生成器を使う
 - OM → R2RML（既存RDBを仮想的にRDFとして見せる）
 - OM → グラフDB用のロード定義（ノード・エッジのマッピング）
 - OM → セマンティックモデル（10.4）
@@ -899,7 +937,7 @@ OM から、集計・統計のためのディメンショナルモデル（セ�
 id: met_01J...
 name: 売上
 fact: tbl_01HXY...                 # sales.orders（domain、grain: 1行=1注文）
-measure: amount                    # domain: money_jpy, additivity: additive
+measure: amount                    # domain: money, additivity: additive
 aggregation: sum
 filters:
   - "status != 'cancelled'"
@@ -922,7 +960,7 @@ evidence:
 #### 10.4.5 オペレーターによる集計・統計
 - オペレーターに渡すツールは生 SQL ではなく、メトリクス単位の問い合わせ：`metric.query(metric, by=[...], filter=..., grain=...)`
 - `grain` と `additivity` がモデルにあるため、ファンアウトや半加法尺度の誤集計を**型で**防ぐ
-- 統計処理（前年比、季節調整、異常検知、検定）は `derived` 層の `@query` メソッドとして定義し、7章と同じ認可に従う
+- 統計処理（前年比、季節調整、異常検知、検定）は、`metric.query` の結果を入力に取る `@query` メソッド（7.3）として `derived` 層に定義し、7章と同じ認可に従う。集計そのものはメソッドの中で行わない
 - 結果には来歴を付ける：使用したメトリクス定義の ID とバージョン、粒度、フィルタ、「不明」値の扱い
 - メトリクス定義・統計メソッドは OM と同じ PR で変更し、既存の BI 集計との差分を CI で検出する
 
@@ -1076,7 +1114,7 @@ Foundry はソースを自社ストレージに取り込み、オントロジー
 
 ### フェーズ0：MVP
 - ソース：PostgreSQL 1つ + ファイル1フォルダ（CSV/Markdown）
-- OM：表種別、列ドメイン、is-a / part-of / has（基数つき）、grain
+- OM：表種別、列ドメイン、is-a / part-of / has（基数つき）、grain。OMのメタモデル（7.6 の①）を LinkML で定義する
 - パイプライン：接続→プロファイル→推論→PR作成→バリデーション
 - 主張台帳：スキーマ制約とSQLパーサ（JOIN／CASE）の2抽出器。関係検出はA群とアンカー結合
 - UI：データソース指定（9.2）と、質問形式のOMレビュー（9.3）。この2画面が無いとレビューが回らないため、MVPに含める
@@ -1084,8 +1122,8 @@ Foundry はソースを自社ストレージに取り込み、オントロジー
 - 差し込み口（16章）を最初から切り、最小の4パック（16.6）で動かす
 
 ### フェーズ1：実行可能化
-- ドメインオブジェクト生成とデフォルトメソッド（クエリのみ）
-- ユーザー定義クエリ
+- 承認済みOMからドメインのスキーマ（LinkML、7.6 の②）を出力し、型を生成する
+- 汎用のグラフ問い合わせとデフォルトメソッド（7.1、7.2）。ユーザーのコードは要らない
 - OpenAPI 1つを読み、コマンドアダプタを提案。`call` バックエンドのコマンド実行、冪等キー、アウトボックス
 - 認可ポリシーと監査ログ
 - AIツール面（MCP互換）
@@ -1093,6 +1131,7 @@ Foundry はソースを自社ストレージに取り込み、オントロジー
 
 ### フェーズ2：面の提供
 - オントロジーUI（9.4）：表示アノテーション、既定パターン、承認カード
+- ユーザー定義メソッド（7.3、参照透過な関数）。メソッドの言語はここで決める
 - DDDワークベンチ（9.5）：ブラウザ内とローカルの両方、`dry-run`
 - 監視と通知（7.5）：transition / arrival から。anomaly はフェーズ3のメトリクス後
 - 複数コンテキストとコンテキストマップ
@@ -1116,13 +1155,22 @@ Foundry はソースを自社ストレージに取り込み、オントロジー
 
 ## 15. 未決事項
 
+### 15.1 深い設計上の未解決問題
+小手先の規則で埋めず、設計思想として決着させる必要があるもの。
+
+- **コマンドの認可の単位**（7.3、8.2）：認可は「主体 × メソッド」で定義しているが、実際に実行されるのはメソッドが返す `Command` の値（どのアダプタを、どの行に、どの引数で）である。あるメソッドが別のアダプタを指す `Command` を返せるなら、メソッドへの許可が、実際に実行されるアダプタへの許可にすり替わる。認可と承認を、メソッドに対して行うのか、返された `Command` の値に対して行うのか、両方なのか。メソッド名とアダプタ名（`Order.ship`）の関係、1つのメソッドが複数の `Command` を返す場合（サガ）も含めて決める
+- **判断した時点と実行する時点のずれ**（7.3、8.3、3.1）：メソッドの前提条件はスナップショットの `as_of` 時点で評価されるが、実行は承認キューを通った後（数時間後もありうる）。実行直前に最新のソースで再評価するのか、検証は既存システムに任せるのか。承認者が見た判断材料と、実際に送信される内容がずれることをどう扱うか。コマンドを返すメソッドの `reads` がレプリカ（3.1 第3段）を経由してよいか、部分グラフが複数ソースにまたがるときの `as_of` の一貫性も含めて決める
+
+### 15.2 その他
 - 安定IDの採番方式（ULID想定）と、ソース側で表が分割・統合された場合の追跡
 - 語彙のドメイン型（`geo.latitude` など）の初期セットをどこまで標準で持つか
-- TMC（7.6）の生成物をリポジトリにコミットするか、ビルド時に生成するか
+- ドメインのスキーマ（7.6 の②）と生成した型をリポジトリにコミットするか、ビルド時に生成するか
+- メソッド（7.3）の副作用禁止を静的に検査する手段（scalafix の規則、capture checking など）
+- 部分グラフの宣言（`reads`）の記法。GraphQL の fragment 風にするか、LinkML のパス式に寄せるか。件数の上限の既定値
 - 外のビルダー（3.3）のコミットをどう識別するか（専用アカウント、署名、コミットの付記）。識別できない場合に `status: approved` の書き込みをどう防ぐか
 - 外のビルダーに文脈を渡す規約ファイルの形式と、Mandaraのツール面をビルダーに開く範囲
 - モデラーとビルダーが同じ宣言に別の提案を出したときの扱い
-- TMCの効果型（`Query`／`Command`）の実装。既存の効果ライブラリ（ZIO、Cats Effect）に載せるか、自前の薄い型にするか
+- `Command` の値の表現（言語をまたいで同じ形にするか）と、前提条件エラーの型
 - 状態遷移（受注→出荷→取消）と不変条件をOMの注釈として持つか。持てば、状態ごとの型と検証コードをTMCに生成できる
 - 変換関数（11章）の実装言語。Pythonのままにするか、隔離実行のためにRust／WASMへ寄せるか
 - OMレビューUIの「質問」への変換ルール。提案の種類ごとに問いの型をどこまで標準化するか
@@ -1164,7 +1212,7 @@ Mandaraのコアは小さく保ち、種別ごとの知識・型・画面・接�
 | ビュー | OMのパターン → UI部品、およびその合成 | 9.4 |
 | コマンドバックエンド | `call` / `handoff` の製品別実装（SAP RFC・BAPI、Salesforce、kintone、受入表の規約） | 7.4 |
 | エクスポータ | OM → Ossie / OWL / R2RML / グラフ / カタログ | 10.3、10.4.4、12 |
-| 型生成 | OM → TMCの型。言語ごと（Scala 3 が最初） | 7.6 |
+| 型生成 | ドメインのスキーマ（LinkML）→ TMCの型。言語ごと | 7.6 |
 | 知識パック | 語彙の種、`aliases`、公開コード表、関係の事前分布、メトリクス雛形 | 6.6.1 |
 
 ### 16.2 3つの統一
@@ -1188,7 +1236,7 @@ contributes:
   functions:    [functions/*.yaml]
   views:        [views/equipment.yaml]   # 合成：map + gallery + inspection_timeline
   metrics:      [metrics/*.yaml]         # 雛形
-  methods:      [methods/*.scala]        # 雛形（TMC）
+  methods:      [methods/*]              # 雛形（TMC、7.3）
   backends:     []
   exporters:    []
 ```
@@ -1396,5 +1444,6 @@ Palantirを中心に確認した範囲。網羅調査ではない。
 
 | 版 | 日付 | 変更 |
 |---|---|---|
+| v0.4 | 2026-10-14 | TMC を「自動生成した型＋参照透過な関数」に変更。メソッドは読む部分グラフを宣言して不変のスナップショットを受け取り、コマンドは `Command` の値を返す。集計はメソッドに書かず `metric.query` に押し下げる。スキーマは LinkML で2段（OMのメタモデル／ドメインのスキーマ）に持つ。言語は固定せず、手法への適合で選ぶ（OMの生成と検証は Python、メソッドは Scala 3）。副作用の禁止は型・静的検査・隔離実行の3段で保証する。列ドメインに `role: technical`（行の技術ID、監査列）を追加。コマンドの認可単位と、判断と実行の時点のずれを、深い未解決問題（15.1）として記録。ユーザー定義メソッドをフェーズ2へ移動。表メタデータの形を変更（主キー・代替キー・via を列の配列に、関係に安定 ID と role、量と単位の分離、is-a の realized_by、enum の値ごとのレビュー）。関連：2章、3.3、4.1、4.2、5章、7.1〜7.3、7.6、10.3、10.4.5、14章、15章、16章 |
 | v0.3 | 2026-10-12 | コマンドバックエンドを `call`（同期呼び出し）と `handoff`（非同期の受入表）の2種に限定。`procedure` は `call` に統合、`batch` は `handoff` に置換、`sql` と `ui` は廃止。受入経路の無い表は読み取り専用とし、コマンド・UIボタン・AIツールを生成しない。関連：1章、2章、3章、4.1、4.2、4.5、6.1、7.2〜7.4、8.2、9.4、12.1、12.3、13章、14章、15章、16章、付録A |
 | v0.2 | 2026-10-11 | 競合分析・先行研究・テスト方法・拡張アーキテクチャを追加 |

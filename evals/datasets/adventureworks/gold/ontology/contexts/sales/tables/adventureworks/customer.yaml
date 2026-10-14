@@ -1,0 +1,86 @@
+id: tbl_sales_customer
+name: sales.customer
+source: adventureworks
+context: sales
+kind: domain
+identity:
+  primary:
+  - customerid
+columns:
+  customerid:
+    domain: customer_id
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - PK
+    inferred_by: gold-draft
+  personid:
+    domain: business_entity_id
+    status: proposed
+    confidence: 0.9
+    evidence:
+    - FK → person
+    inferred_by: gold-draft
+  storeid:
+    domain: business_entity_id
+    status: proposed
+    confidence: 0.9
+    evidence:
+    - FK → store
+    inferred_by: gold-draft
+  territoryid:
+    domain: sales_territory_id
+    status: proposed
+    confidence: 0.9
+    evidence:
+    - FK → salesterritory（範囲外）
+    inferred_by: gold-draft
+  rowguid:
+    domain: row_uuid
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - 列名 rowguid
+    inferred_by: gold-draft
+  modifieddate:
+    domain: modified_at
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - 列名 modifieddate
+    inferred_by: gold-draft
+relations:
+- id: rel_customer_person
+  type: has
+  has_kind: reference
+  role: person
+  target: tbl_person_person
+  via:
+  - from: personid
+    to: businessentityid
+  cardinality: n:1
+  status: proposed
+  confidence: 0.85
+  evidence:
+  - FK 制約
+  inferred_by: gold-draft
+- id: rel_customer_store
+  type: has
+  has_kind: reference
+  role: store
+  target: tbl_sales_store
+  via:
+  - from: storeid
+    to: businessentityid
+  cardinality: n:1
+  status: proposed
+  confidence: 0.85
+  evidence:
+  - FK 制約
+  inferred_by: gold-draft
+status: proposed
+confidence: 0.85
+evidence:
+- 表コメント
+inferred_by: gold-draft
+note: personid と storeid は排他ではない。personid のみ 18,484 行、storeid のみ 701 行、両方 635 行（店舗顧客＋担当窓口の人と読める）、両方 NULL は 0 行。 「人か店舗のどちらか」という排他的参照（is-a の実装パターン）ではなく、役割の違う2本の参照として表した。

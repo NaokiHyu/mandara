@@ -1,0 +1,126 @@
+id: tbl_sales_salesorderdetail
+name: sales.salesorderdetail
+source: adventureworks
+context: sales
+kind: domain
+grain: 1行 = 1受注明細（受注の中の1製品）
+identity:
+  primary:
+  - salesorderid
+  - salesorderdetailid
+  alternates:
+  - columns:
+    - salesorderdetailid
+columns:
+  salesorderid:
+    domain: sales_order_id
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - PK の一部
+    - FK → salesorderheader
+    inferred_by: gold-draft
+  salesorderdetailid:
+    domain: sales_order_detail_id
+    status: proposed
+    confidence: 0.9
+    evidence:
+    - PK の一部
+    - '列コメント: One incremental unique number per product sold'
+    inferred_by: gold-draft
+  carriertrackingnumber:
+    domain: carrier_tracking_number
+    status: proposed
+    confidence: 0.85
+    evidence:
+    - 列コメント
+    inferred_by: gold-draft
+  orderqty:
+    domain: order_quantity
+    unit:
+      fixed: each
+    status: proposed
+    confidence: 0.8
+    evidence:
+    - '列コメント: Quantity ordered per product'
+    inferred_by: gold-draft
+  productid:
+    domain: product_id
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - FK → product
+    inferred_by: gold-draft
+  specialofferid:
+    domain: special_offer_id
+    status: proposed
+    confidence: 0.9
+    evidence:
+    - 複合 FK (specialofferid, productid) → specialofferproduct（範囲外）
+    inferred_by: gold-draft
+  unitprice:
+    domain: unit_price
+    unit:
+      fixed: USD
+    status: proposed
+    confidence: 0.8
+    evidence:
+    - 列コメント
+    - product.listprice と同じ尺度
+    inferred_by: gold-draft
+  unitpricediscount:
+    domain: discount_rate
+    status: proposed
+    confidence: 0.8
+    evidence:
+    - 値は 0〜0.4 の 9 種類で、率と読める
+    - 列コメントは Discount amount（金額）と書いている（衝突）
+    inferred_by: gold-draft
+  rowguid:
+    domain: row_uuid
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - 列名 rowguid
+    inferred_by: gold-draft
+  modifieddate:
+    domain: modified_at
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - 列名 modifieddate
+    inferred_by: gold-draft
+relations:
+- id: rel_salesorderdetail_partof_header
+  type: part-of
+  target: tbl_sales_salesorderheader
+  via:
+  - from: salesorderid
+    to: salesorderid
+  cardinality: n:1
+  status: proposed
+  confidence: 0.9
+  evidence:
+  - FK 制約
+  - PK の先頭が親の PK
+  inferred_by: gold-draft
+- id: rel_salesorderdetail_product
+  type: has
+  has_kind: reference
+  target: tbl_production_product
+  via:
+  - from: productid
+    to: productid
+  cardinality: n:1
+  status: proposed
+  confidence: 0.85
+  evidence:
+  - '列コメント: Foreign key to Product.ProductID'
+  - product への直接の FK は無い。FK は (specialofferid, productid) → specialofferproduct の複合キー経由
+  inferred_by: gold-draft
+status: proposed
+confidence: 0.8
+evidence:
+- 表コメント
+- 受注ヘッダの部分
+inferred_by: gold-draft

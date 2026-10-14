@@ -1,0 +1,63 @@
+id: tbl_production_productsubcategory
+name: production.productsubcategory
+source: adventureworks
+context: production
+kind: domain
+identity:
+  primary:
+  - productsubcategoryid
+columns:
+  productsubcategoryid:
+    domain: product_subcategory_id
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - PK
+    inferred_by: gold-draft
+  productcategoryid:
+    domain: product_category_id
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - FK → productcategory
+    inferred_by: gold-draft
+  name:
+    domain: display_name
+    status: proposed
+    confidence: 0.9
+    evidence:
+    - 列コメント
+    inferred_by: gold-draft
+  rowguid:
+    domain: row_uuid
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - 列名 rowguid
+    inferred_by: gold-draft
+  modifieddate:
+    domain: modified_at
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - 列名 modifieddate
+    inferred_by: gold-draft
+relations:
+- id: rel_subcategory_partof_category
+  type: part-of
+  target: tbl_production_productcategory
+  via:
+  - from: productcategoryid
+    to: productcategoryid
+  cardinality: n:1
+  status: proposed
+  confidence: 0.85
+  evidence:
+  - FK 制約
+  - 分類の階層
+  inferred_by: gold-draft
+status: proposed
+confidence: 0.9
+evidence:
+- 表コメント
+inferred_by: gold-draft

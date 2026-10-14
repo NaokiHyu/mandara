@@ -1,0 +1,253 @@
+id: tbl_sales_salesorderheader
+name: sales.salesorderheader
+source: adventureworks
+context: sales
+kind: domain
+grain: 1行 = 1受注
+identity:
+  primary:
+  - salesorderid
+columns:
+  salesorderid:
+    domain: sales_order_id
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - PK
+    inferred_by: gold-draft
+  revisionnumber:
+    domain: revision_number
+    status: proposed
+    confidence: 0.8
+    evidence:
+    - 列コメント
+    inferred_by: gold-draft
+  orderdate:
+    domain: order_date
+    status: proposed
+    confidence: 0.9
+    evidence:
+    - 列コメント
+    inferred_by: gold-draft
+  duedate:
+    domain: due_date
+    status: proposed
+    confidence: 0.9
+    evidence:
+    - 列コメント
+    inferred_by: gold-draft
+  shipdate:
+    domain: ship_date
+    status: proposed
+    confidence: 0.9
+    evidence:
+    - 列コメント
+    inferred_by: gold-draft
+  status:
+    domain: order_status
+    status: proposed
+    confidence: 0.85
+    evidence:
+    - 列コメントに 1〜6 の意味
+    - 観測値は 5 のみ
+    inferred_by: gold-draft
+  onlineorderflag:
+    domain: online_order_flag
+    status: proposed
+    confidence: 0.9
+    evidence:
+    - 列コメント
+    inferred_by: gold-draft
+  purchaseordernumber:
+    domain: purchase_order_number
+    status: proposed
+    confidence: 0.85
+    evidence:
+    - 列コメント
+    inferred_by: gold-draft
+  accountnumber:
+    domain: account_number
+    status: proposed
+    confidence: 0.8
+    evidence:
+    - 列コメント
+    inferred_by: gold-draft
+  customerid:
+    domain: customer_id
+    status: proposed
+    confidence: 0.9
+    evidence:
+    - FK → customer
+    - 列コメントは Customer.BusinessEntityID と書いているが、customer の PK は customerid（衝突）
+    inferred_by: gold-draft
+  salespersonid:
+    domain: business_entity_id
+    status: proposed
+    confidence: 0.85
+    evidence:
+    - FK → salesperson（範囲外）
+    inferred_by: gold-draft
+  territoryid:
+    domain: sales_territory_id
+    status: proposed
+    confidence: 0.9
+    evidence:
+    - FK → salesterritory（範囲外）
+    inferred_by: gold-draft
+  billtoaddressid:
+    domain: address_id
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - FK → address
+    inferred_by: gold-draft
+  shiptoaddressid:
+    domain: address_id
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - FK → address
+    inferred_by: gold-draft
+  shipmethodid:
+    domain: ship_method_id
+    status: proposed
+    confidence: 0.9
+    evidence:
+    - FK → shipmethod（範囲外）
+    inferred_by: gold-draft
+  creditcardid:
+    domain: credit_card_id
+    pii: true
+    status: proposed
+    confidence: 0.85
+    evidence:
+    - FK → creditcard（範囲外）
+    inferred_by: gold-draft
+  creditcardapprovalcode:
+    domain: credit_card_approval_code
+    pii: true
+    status: proposed
+    confidence: 0.8
+    evidence:
+    - 列コメント
+    inferred_by: gold-draft
+  currencyrateid:
+    domain: currency_rate_id
+    status: proposed
+    confidence: 0.85
+    evidence:
+    - FK → currencyrate（範囲外）
+    inferred_by: gold-draft
+  subtotal:
+    domain: money
+    unit:
+      fixed: USD
+    status: proposed
+    confidence: 0.75
+    evidence:
+    - '列コメント: SUM(LineTotal)'
+    - 為替レートつきの受注でも単価/定価の比が通貨で変わらない（金額は換算されていない）
+    - currencyrate の換算元はすべて USD
+    inferred_by: gold-draft
+  taxamt:
+    domain: money
+    unit:
+      fixed: USD
+    status: proposed
+    confidence: 0.75
+    evidence:
+    - 列コメント
+    - subtotal と同じ通貨と推定
+    inferred_by: gold-draft
+  freight:
+    domain: money
+    unit:
+      fixed: USD
+    status: proposed
+    confidence: 0.75
+    evidence:
+    - 列コメント
+    - subtotal と同じ通貨と推定
+    inferred_by: gold-draft
+  totaldue:
+    domain: money
+    unit:
+      fixed: USD
+    status: proposed
+    confidence: 0.75
+    evidence:
+    - '列コメント: Subtotal + TaxAmt + Freight'
+    inferred_by: gold-draft
+  comment:
+    domain: free_comment
+    status: proposed
+    confidence: 0.8
+    evidence:
+    - 列コメント
+    inferred_by: gold-draft
+  rowguid:
+    domain: row_uuid
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - 列名 rowguid
+    inferred_by: gold-draft
+  modifieddate:
+    domain: modified_at
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - 列名 modifieddate
+    inferred_by: gold-draft
+relations:
+- id: rel_salesorderheader_customer
+  type: has
+  has_kind: reference
+  target: tbl_sales_customer
+  via:
+  - from: customerid
+    to: customerid
+  cardinality: n:1
+  status: proposed
+  confidence: 0.95
+  evidence:
+  - FK 制約
+  inferred_by: gold-draft
+- id: rel_salesorderheader_billto
+  type: has
+  has_kind: reference
+  role: bill_to
+  target: tbl_person_address
+  via:
+  - from: billtoaddressid
+    to: addressid
+  cardinality: n:1
+  status: proposed
+  confidence: 0.95
+  evidence:
+  - FK 制約
+  - 列名 billto
+  - '列コメント: Customer billing address'
+  inferred_by: gold-draft
+- id: rel_salesorderheader_shipto
+  type: has
+  has_kind: reference
+  role: ship_to
+  target: tbl_person_address
+  via:
+  - from: shiptoaddressid
+    to: addressid
+  cardinality: n:1
+  status: proposed
+  confidence: 0.95
+  evidence:
+  - FK 制約
+  - 列名 shipto
+  - '列コメント: Customer shipping address'
+  inferred_by: gold-draft
+status: proposed
+confidence: 0.85
+evidence:
+- 表コメント
+- status 列でライフサイクル（受付→承認→出荷）を持つので event ではなく domain
+inferred_by: gold-draft

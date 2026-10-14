@@ -1,0 +1,315 @@
+id: https://w3id.org/mandara/om
+name: mandara_om
+title: Mandara OM メタモデル（①）
+description: >-
+  オントロジカルメタデータ（OM）の形を定義する。仕様 4章、7.6 の①。
+  ここに書くのは「注釈とは何か」であり、個々のオントロジーの中身（顧客、注文など）ではない。
+  構造的な語彙（表種別、関係型など）は Mandara の意味論に結びつくので enum として持つ。
+  拡張できる語彙（列ドメイン、enum の値、表記揺れ）はデータ（vocabulary.yaml）として持つ。
+version: 0.1.0
+license: Apache-2.0
+prefixes:
+  linkml: https://w3id.org/linkml/
+  om: https://w3id.org/mandara/om/
+default_prefix: om
+default_range: string
+imports:
+  - linkml:types
+
+enums:
+  ReviewStatus:
+    description: 注釈のレビュー状態（4.4）
+    permissible_values:
+      proposed:
+      approved:
+      rejected:
+  TableKind:
+    description: 表種別（4.1）
+    permissible_values:
+      domain:
+        description: ものを表す表。ライフサイクルを持ちうる。コマンド可
+      relation:
+        description: もの同士の関係を表す表（n:m 中間表）。属性を持ってよい。コマンド可
+      event:
+        description: 出来事を表す表。不変・追記のみ。コマンド不可
+      derived:
+        description: 計算・集計で導出された表。コマンド不可
+  RelationType:
+    description: 関係型（4.1）。推移性と逆関係は各値の annotations に持つ
+    permissible_values:
+      is-a:
+        description: 分類階層。下位は上位の性質を継承する
+        annotations:
+          transitive: true
+          inverse: has-subtype
+      part-of:
+        description: 構成階層。全体と部分
+        annotations:
+          transitive: true
+          inverse: has-part
+      has:
+        description: 属性または参照。細分は has_kind で指定
+        annotations:
+          transitive: false
+          inverse: belongs-to
+      derived-from:
+        description: 導出元。列や表が、どのソースからどの関数で生まれたか
+        annotations:
+          transitive: true
+          inverse: source-of
+  HasKind:
+    permissible_values:
+      attribute:
+      reference:
+  Cardinality:
+    permissible_values:
+      "1:1":
+      "1:n":
+      "n:1":
+      "n:m":
+  Additivity:
+    description: 尺度の加法性（10.4）
+    permissible_values:
+      additive:
+      semi-additive:
+      non-additive:
+  DomainRole:
+    description: 列ドメインの役割
+    permissible_values:
+      event_time:
+      valid_from:
+      valid_to:
+      technical:
+        description: 業務の意味を持たない列（行の技術ID、監査用の日時・更新者）。UI・ツール面・推論から既定で外す
+  IsARealization:
+    description: >-
+      論理的な is-a が、ソースでどう実装されているか（C3）。
+      具体例のあるものだけを置く。排他的な参照・区分列は AW で裏付けが取れていないので未定義
+    permissible_values:
+      shared_key:
+        description: 下位の表が上位の表と同じ主キーを持ち、それで参照する
+
+slots:
+  # --- 注釈の共通フィールド（4.4） ---
+  status:
+    range: ReviewStatus
+    required: true
+  confidence:
+    range: float
+    minimum_value: 0.0
+    maximum_value: 1.0
+  evidence:
+    description: 主張台帳（6.6）の主張ID
+    multivalued: true
+  inferred_by:
+    description: 提案者のモデル名と版、実行ID
+  reviewed_by:
+  reviewed_at:
+    range: date
+  note:
+
+  name:
+    identifier: true
+  description:
+
+classes:
+  Annotation:
+    mixin: true
+    description: すべての注釈が持つ共通フィールド（4.4）
+    slots:
+      - status
+      - confidence
+      - evidence
+      - inferred_by
+      - reviewed_by
+      - reviewed_at
+      - note
+
+  # ---------------------------------------------------------------- 語彙
+  Vocabulary:
+    tree_root: true
+    description: vocabulary.yaml。拡張できる語彙の閉じた集合
+    attributes:
+      column_domains:
+        range: ColumnDomain
+        multivalued: true
+        inlined: true
+        inlined_as_list: false
+      aliases:
+        range: AliasEntry
+        multivalued: true
+        inlined: true
+        inlined_as_list: false
+
+  ColumnDomain:
+    description: 列ドメイン。「同じ意味」を表す
+    slots:
+      - name
+      - description
+    attributes:
+      type:
+        description: 値の型（identifier, money, quantity, datetime, enum, geo.latitude, media.image など）
+        required: true
+      role:
+        range: DomainRole
+      additivity:
+        range: Additivity
+      requires_unit:
+        description: true なら、この列ドメインを使う列は unit（量と単位の組、C5）を宣言しなければならない
+        range: boolean
+      values:
+        description: type が enum のときの値の一覧（C6）。値の集合はデータからではなく、宣言・証拠から決める
+        range: EnumValue
+        multivalued: true
+        inlined: true
+        inlined_as_list: true
+
+  EnumValue:
+    mixins:
+      - Annotation
+    attributes:
+      code:
+        description: >-
+          ソース上の値の文字列表現。ファイルには文字列で書く（数値の 1 は拒否し、"1" と書く）。
+          観測値との照合時の正規化（真偽値の表記など）はソースの Adapter の責務
+        required: true
+      label:
+        required: true
+      meaning:
+        description: 語彙や公開オントロジーの概念への参照（CURIE）
+      observed:
+        description: データで観測されたか。値の集合の根拠にはしない
+        range: boolean
+
+  AliasEntry:
+    slots:
+      - name
+    attributes:
+      terms:
+        multivalued: true
+        required: true
+
+  # ---------------------------------------------------------------- 表
+  Table:
+    tree_root: true
+    description: contexts/<context>/tables/<source>/<table>.yaml（4.2）
+    mixins:
+      - Annotation
+    attributes:
+      id:
+        identifier: true
+        description: 安定ID。改名しても変わらない
+        pattern: "^tbl_[0-9A-Za-z_]+$"
+      name:
+        description: ソース上の名前（schema.table）
+        required: true
+      source:
+        required: true
+      context:
+        required: true
+      kind:
+        range: TableKind
+        required: true
+      grain:
+        description: 1行が何を表すか（10.4）
+      identity:
+        range: Identity
+        inlined: true
+      columns:
+        range: Column
+        multivalued: true
+        inlined: true
+        inlined_as_list: false
+      relations:
+        range: Relation
+        multivalued: true
+        inlined: true
+        inlined_as_list: true
+
+  Identity:
+    description: >-
+      同一性（C1）。複合キーは列の配列としてそのまま書く。1つの値として扱うのは生成される型の側の責務
+    attributes:
+      primary:
+        multivalued: true
+        required: true
+        minimum_cardinality: 1
+      alternates:
+        range: KeyColumns
+        multivalued: true
+        inlined: true
+        inlined_as_list: true
+
+  KeyColumns:
+    attributes:
+      columns:
+        multivalued: true
+        required: true
+        minimum_cardinality: 1
+
+  Column:
+    mixins:
+      - Annotation
+    slots:
+      - name
+    attributes:
+      domain:
+        description: vocabulary の column_domains のキー
+      pii:
+        range: boolean
+      unit:
+        description: 量の単位の出所（C5）。fixed / column のちょうど1つ
+        range: UnitSource
+        inlined: true
+
+  UnitSource:
+    attributes:
+      fixed:
+        description: 固定の単位（例 USD, kg）
+      column:
+        description: 同じ表で単位を持つ列
+
+  # ---------------------------------------------------------------- 関係
+  Relation:
+    mixins:
+      - Annotation
+    attributes:
+      id:
+        description: 関係の安定ID。同じ表への複数の参照（C2）を区別する
+        required: true
+        pattern: "^rel_[0-9A-Za-z_]+$"
+      type:
+        range: RelationType
+        required: true
+      has_kind:
+        range: HasKind
+      role:
+        description: 参照の役割（C2。例 bill_to / ship_to）
+      target:
+        description: 参照先の表の安定ID。自己参照は self と書き、自分の安定ID は書かない
+        required: true
+      via:
+        description: 結合に使う列の対応。複合キーなら複数
+        range: ColumnPair
+        multivalued: true
+        inlined: true
+        inlined_as_list: true
+      via_function:
+        description: 列の等値で結べない関係（C4。パス文字列の木など）を結ぶ決定的関数の安定ID
+      cardinality:
+        range: Cardinality
+      realized_by:
+        description: is-a の物理的な実装パターン（C3）
+        range: IsARealization
+      columns:
+        description: derived-from で導出される列
+        multivalued: true
+      function:
+        description: derived-from の変換関数の安定ID
+
+  ColumnPair:
+    attributes:
+      from:
+        required: true
+      to:
+        required: true

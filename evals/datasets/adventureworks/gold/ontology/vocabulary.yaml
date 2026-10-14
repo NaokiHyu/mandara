@@ -1,0 +1,564 @@
+column_domains:
+  business_entity_id:
+    description: 人・店舗・仕入先・従業員に共通の識別子（BusinessEntity）
+    type: identifier
+  address_id:
+    description: 住所の識別子
+    type: identifier
+  state_province_id:
+    description: 州・県の識別子
+    type: identifier
+  customer_id:
+    description: 顧客の識別子
+    type: identifier
+  sales_order_id:
+    description: 受注の識別子
+    type: identifier
+  sales_order_detail_id:
+    description: 受注明細の識別子（明細ごとに全体で増える番号）
+    type: identifier
+  product_id:
+    description: 製品の識別子
+    type: identifier
+  product_subcategory_id:
+    description: 製品サブカテゴリの識別子
+    type: identifier
+  product_category_id:
+    description: 製品カテゴリの識別子
+    type: identifier
+  product_model_id:
+    description: 製品モデルの識別子
+    type: identifier
+  special_offer_id:
+    description: 販促の識別子
+    type: identifier
+  sales_territory_id:
+    description: 販売テリトリーの識別子
+    type: identifier
+  ship_method_id:
+    description: 配送方法の識別子
+    type: identifier
+  credit_card_id:
+    description: クレジットカードの識別子
+    type: identifier
+  currency_rate_id:
+    description: 為替レートの識別子
+    type: identifier
+  country_region_code:
+    description: 国・地域コード（ISO 3166-1 alpha-2）
+    type: code
+  state_province_code:
+    description: 州・県コード（ISO 3166-2 の下位部分）
+    type: code
+  unit_measure_code:
+    description: 単位コード（production.unitmeasure）
+    type: code
+  product_number:
+    description: 製品番号（業務上の一意な番号）
+    type: code
+  account_number:
+    description: 会計上の口座番号
+    type: code
+  purchase_order_number:
+    description: 顧客側の発注番号
+    type: code
+  carrier_tracking_number:
+    description: 配送業者の追跡番号
+    type: code
+  credit_card_approval_code:
+    description: カード会社の承認コード
+    type: code
+  national_id_number:
+    description: 国民識別番号（社会保障番号など）。秘密情報
+    type: code
+  login_id:
+    description: ネットワークのログインID
+    type: code
+  display_name:
+    description: その行が表すものの表示名（国名、製品名、店舗名など）
+    type: text
+  job_title:
+    description: 職名
+    type: text
+  person_given_name:
+    description: 人の名
+    type: text
+  person_middle_name:
+    description: 人のミドルネーム
+    type: text
+  person_family_name:
+    description: 人の姓
+    type: text
+  person_title:
+    description: 敬称（Mr. / Ms. など）
+    type: text
+  person_suffix:
+    description: 接尾辞（Jr. / Sr. など）
+    type: text
+  address_line:
+    description: 住所の番地行
+    type: text
+  city_name:
+    description: 市区町村名
+    type: text
+  postal_code:
+    description: 郵便番号
+    type: code
+  product_color:
+    description: 製品の色
+    type: text
+  product_size:
+    description: 製品のサイズ（S/M/L や数値。数値のときの単位は別列）
+    type: text
+  free_comment:
+    description: 自由記述のコメント
+    type: text
+  hierarchy_path:
+    description: 木の中の位置を /1/2/ 形式のパス文字列で表したもの（hierarchyid 由来）
+    type: text
+  order_date:
+    description: 受注日
+    type: datetime
+    role: event_time
+  due_date:
+    description: 納期
+    type: datetime
+  ship_date:
+    description: 出荷日
+    type: datetime
+  birth_date:
+    description: 生年月日
+    type: date
+  hire_date:
+    description: 入社日
+    type: date
+  sell_start_date:
+    description: 販売開始日
+    type: datetime
+  sell_end_date:
+    description: 販売終了日
+    type: datetime
+  discontinued_date:
+    description: 製造中止日
+    type: datetime
+  money:
+    description: 合計してよい金額
+    type: money
+    additivity: additive
+    requires_unit: true
+  unit_price:
+    description: 単価。合計しない
+    type: money
+    additivity: non-additive
+    requires_unit: true
+  standard_cost:
+    description: 標準原価（1個あたり）。合計しない
+    type: money
+    additivity: non-additive
+    requires_unit: true
+  discount_rate:
+    description: 割引率（0〜1）
+    type: ratio
+    additivity: non-additive
+  order_quantity:
+    description: 注文数量
+    type: quantity
+    additivity: additive
+    requires_unit: true
+  stock_threshold:
+    description: 在庫の閾値（安全在庫、発注点）。合計しない
+    type: quantity
+    additivity: non-additive
+    requires_unit: true
+  hours_balance:
+    description: 残時間（休暇・病欠）。時点の残高なので時間方向に合計しない
+    type: quantity
+    additivity: semi-additive
+    requires_unit: true
+  product_weight:
+    description: 製品の重量
+    type: quantity
+    additivity: additive
+    requires_unit: true
+  lead_time_days:
+    description: 所要日数
+    type: quantity
+    additivity: non-additive
+    requires_unit: true
+  revision_number:
+    description: 改訂の回数
+    type: integer
+  geo_point_binary:
+    description: SQL Server geography 形式の点（lat/lon は変換関数で導出する）
+    type: geo.point.binary
+  xml_document:
+    description: XML の文書
+    type: document.xml
+  row_uuid:
+    description: 行の技術的な一意ID（rowguid）。業務上の識別には使わない
+    type: identifier
+    role: technical
+  modified_at:
+    description: 行の最終更新日時（監査用）
+    type: datetime
+    role: technical
+  order_status:
+    description: 受注の状態
+    type: enum
+    values:
+    - code: '1'
+      label: In process
+      observed: false
+      status: proposed
+      confidence: 0.85
+      evidence:
+      - 列コメント salesorderheader.status
+      inferred_by: gold-draft
+    - code: '2'
+      label: Approved
+      observed: false
+      status: proposed
+      confidence: 0.85
+      evidence:
+      - 列コメント salesorderheader.status
+      inferred_by: gold-draft
+    - code: '3'
+      label: Backordered
+      observed: false
+      status: proposed
+      confidence: 0.85
+      evidence:
+      - 列コメント salesorderheader.status
+      inferred_by: gold-draft
+    - code: '4'
+      label: Rejected
+      observed: false
+      status: proposed
+      confidence: 0.85
+      evidence:
+      - 列コメント salesorderheader.status
+      inferred_by: gold-draft
+    - code: '5'
+      label: Shipped
+      observed: true
+      status: proposed
+      confidence: 0.9
+      evidence:
+      - 列コメント salesorderheader.status
+      - 全 31,465 行が 5
+      inferred_by: gold-draft
+    - code: '6'
+      label: Cancelled
+      observed: false
+      status: proposed
+      confidence: 0.85
+      evidence:
+      - 列コメント salesorderheader.status
+      inferred_by: gold-draft
+  person_type:
+    description: 人の主な種別
+    type: enum
+    values:
+    - code: SC
+      label: Store Contact
+      status: proposed
+      confidence: 0.85
+      evidence:
+      - 列コメント person.persontype
+      inferred_by: gold-draft
+    - code: IN
+      label: Individual customer
+      status: proposed
+      confidence: 0.85
+      evidence:
+      - 列コメント person.persontype
+      inferred_by: gold-draft
+    - code: SP
+      label: Sales person
+      status: proposed
+      confidence: 0.85
+      evidence:
+      - 列コメント person.persontype
+      inferred_by: gold-draft
+    - code: EM
+      label: Employee
+      status: proposed
+      confidence: 0.85
+      evidence:
+      - 列コメント person.persontype
+      inferred_by: gold-draft
+    - code: VC
+      label: Vendor contact
+      status: proposed
+      confidence: 0.85
+      evidence:
+      - 列コメント person.persontype
+      inferred_by: gold-draft
+    - code: GC
+      label: General contact
+      status: proposed
+      confidence: 0.85
+      evidence:
+      - 列コメント person.persontype
+      inferred_by: gold-draft
+  email_promotion:
+    description: メール販促の受信希望
+    type: enum
+    values:
+    - code: '0'
+      label: Does not wish to receive
+      observed: true
+      status: proposed
+      confidence: 0.85
+      evidence:
+      - 列コメント person.emailpromotion
+      inferred_by: gold-draft
+    - code: '1'
+      label: Wishes to receive from AdventureWorks
+      observed: true
+      status: proposed
+      confidence: 0.9
+      evidence:
+      - 列コメント person.emailpromotion
+      inferred_by: gold-draft
+    - code: '2'
+      label: Wishes to receive from AdventureWorks and selected partners
+      observed: true
+      status: proposed
+      confidence: 0.9
+      evidence:
+      - 列コメント person.emailpromotion
+      inferred_by: gold-draft
+  name_style:
+    description: 氏名の並び順
+    type: enum
+    values:
+    - code: 'false'
+      label: Western（名・姓）
+      status: proposed
+      confidence: 0.85
+      evidence:
+      - 列コメント person.namestyle
+      inferred_by: gold-draft
+    - code: 'true'
+      label: Eastern（姓・名）
+      status: proposed
+      confidence: 0.85
+      evidence:
+      - 列コメント person.namestyle
+      inferred_by: gold-draft
+  marital_status:
+    type: enum
+    values:
+    - code: M
+      label: Married
+      status: proposed
+      confidence: 0.9
+      evidence:
+      - 列コメント employee.maritalstatus
+      inferred_by: gold-draft
+    - code: S
+      label: Single
+      status: proposed
+      confidence: 0.9
+      evidence:
+      - 列コメント employee.maritalstatus
+      inferred_by: gold-draft
+  gender:
+    type: enum
+    values:
+    - code: M
+      label: Male
+      status: proposed
+      confidence: 0.9
+      evidence:
+      - 列コメント employee.gender
+      inferred_by: gold-draft
+    - code: F
+      label: Female
+      status: proposed
+      confidence: 0.9
+      evidence:
+      - 列コメント employee.gender
+      inferred_by: gold-draft
+  product_line:
+    type: enum
+    values:
+    - code: R
+      label: Road
+      status: proposed
+      confidence: 0.9
+      evidence:
+      - 列コメント product.productline
+      inferred_by: gold-draft
+    - code: M
+      label: Mountain
+      status: proposed
+      confidence: 0.9
+      evidence:
+      - 列コメント product.productline
+      inferred_by: gold-draft
+    - code: T
+      label: Touring
+      status: proposed
+      confidence: 0.9
+      evidence:
+      - 列コメント product.productline
+      inferred_by: gold-draft
+    - code: S
+      label: Standard
+      status: proposed
+      confidence: 0.9
+      evidence:
+      - 列コメント product.productline
+      inferred_by: gold-draft
+  product_class:
+    type: enum
+    values:
+    - code: H
+      label: High
+      status: proposed
+      confidence: 0.9
+      evidence:
+      - 列コメント product.class
+      inferred_by: gold-draft
+    - code: M
+      label: Medium
+      status: proposed
+      confidence: 0.9
+      evidence:
+      - 列コメント product.class
+      inferred_by: gold-draft
+    - code: L
+      label: Low
+      status: proposed
+      confidence: 0.9
+      evidence:
+      - 列コメント product.class
+      inferred_by: gold-draft
+  product_style:
+    type: enum
+    values:
+    - code: W
+      label: Womens
+      status: proposed
+      confidence: 0.9
+      evidence:
+      - 列コメント product.style
+      inferred_by: gold-draft
+    - code: M
+      label: Mens
+      status: proposed
+      confidence: 0.9
+      evidence:
+      - 列コメント product.style
+      inferred_by: gold-draft
+    - code: U
+      label: Universal
+      status: proposed
+      confidence: 0.9
+      evidence:
+      - 列コメント product.style
+      inferred_by: gold-draft
+  online_order_flag:
+    type: enum
+    values:
+    - code: 'false'
+      label: Placed by sales person
+      status: proposed
+      confidence: 0.9
+      evidence:
+      - 列コメント salesorderheader.onlineorderflag
+      inferred_by: gold-draft
+    - code: 'true'
+      label: Placed online by customer
+      status: proposed
+      confidence: 0.9
+      evidence:
+      - 列コメント salesorderheader.onlineorderflag
+      inferred_by: gold-draft
+  salaried_flag:
+    type: enum
+    values:
+    - code: 'false'
+      label: Hourly
+      status: proposed
+      confidence: 0.9
+      evidence:
+      - 列コメント employee.salariedflag
+      inferred_by: gold-draft
+    - code: 'true'
+      label: Salaried
+      status: proposed
+      confidence: 0.9
+      evidence:
+      - 列コメント employee.salariedflag
+      inferred_by: gold-draft
+  active_flag:
+    type: enum
+    values:
+    - code: 'false'
+      label: Inactive
+      status: proposed
+      confidence: 0.9
+      evidence:
+      - 列コメント employee.currentflag
+      inferred_by: gold-draft
+    - code: 'true'
+      label: Active
+      status: proposed
+      confidence: 0.9
+      evidence:
+      - 列コメント employee.currentflag
+      inferred_by: gold-draft
+  make_flag:
+    type: enum
+    values:
+    - code: 'false'
+      label: Purchased
+      status: proposed
+      confidence: 0.9
+      evidence:
+      - 列コメント product.makeflag
+      inferred_by: gold-draft
+    - code: 'true'
+      label: Manufactured in-house
+      status: proposed
+      confidence: 0.9
+      evidence:
+      - 列コメント product.makeflag
+      inferred_by: gold-draft
+  salable_flag:
+    type: enum
+    values:
+    - code: 'false'
+      label: Not salable
+      status: proposed
+      confidence: 0.9
+      evidence:
+      - 列コメント product.finishedgoodsflag
+      inferred_by: gold-draft
+    - code: 'true'
+      label: Salable
+      status: proposed
+      confidence: 0.9
+      evidence:
+      - 列コメント product.finishedgoodsflag
+      inferred_by: gold-draft
+  state_code_availability:
+    type: enum
+    values:
+    - code: 'false'
+      label: StateProvinceCode exists
+      status: proposed
+      confidence: 0.85
+      evidence:
+      - 列コメント stateprovince.isonlystateprovinceflag
+      inferred_by: gold-draft
+    - code: 'true'
+      label: StateProvinceCode unavailable（国コードで代用）
+      status: proposed
+      confidence: 0.85
+      evidence:
+      - 列コメント stateprovince.isonlystateprovinceflag
+      inferred_by: gold-draft

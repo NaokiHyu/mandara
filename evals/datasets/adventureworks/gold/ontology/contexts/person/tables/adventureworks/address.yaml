@@ -1,0 +1,95 @@
+id: tbl_person_address
+name: person.address
+source: adventureworks
+context: person
+kind: domain
+identity:
+  primary:
+  - addressid
+columns:
+  addressid:
+    domain: address_id
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - PK
+    inferred_by: gold-draft
+  addressline1:
+    domain: address_line
+    pii: true
+    status: proposed
+    confidence: 0.9
+    evidence:
+    - 列コメント
+    inferred_by: gold-draft
+  addressline2:
+    domain: address_line
+    pii: true
+    status: proposed
+    confidence: 0.9
+    evidence:
+    - 列コメント
+    inferred_by: gold-draft
+  city:
+    domain: city_name
+    status: proposed
+    confidence: 0.9
+    evidence:
+    - 列コメント
+    inferred_by: gold-draft
+  stateprovinceid:
+    domain: state_province_id
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - FK → stateprovince
+    inferred_by: gold-draft
+  postalcode:
+    domain: postal_code
+    status: proposed
+    confidence: 0.9
+    evidence:
+    - 列コメント
+    inferred_by: gold-draft
+  spatiallocation:
+    domain: geo_point_binary
+    status: proposed
+    confidence: 0.85
+    evidence:
+    - '列コメント: Latitude and longitude'
+    - 22 バイト、先頭 E6100000010C（SRID 4326 の点）
+    inferred_by: gold-draft
+  rowguid:
+    domain: row_uuid
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - 列名 rowguid
+    inferred_by: gold-draft
+  modifieddate:
+    domain: modified_at
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - 列名 modifieddate
+    inferred_by: gold-draft
+relations:
+- id: rel_address_stateprovince
+  type: has
+  has_kind: reference
+  target: tbl_person_stateprovince
+  via:
+  - from: stateprovinceid
+    to: stateprovinceid
+  cardinality: n:1
+  status: proposed
+  confidence: 0.95
+  evidence:
+  - FK 制約
+  inferred_by: gold-draft
+  note: 住所が州に含まれる、と見て part-of にする案もある。地理の階層（国→州→住所）をドリルダウンに使うなら part-of のほうがよい。要レビュー
+status: proposed
+confidence: 0.9
+evidence:
+- 表コメント
+inferred_by: gold-draft

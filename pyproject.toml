@@ -1,0 +1,31 @@
+[project]
+name = "mandara"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "pydantic>=2.14.1",
+    "pyyaml>=6.0.3",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.0,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.169.0",
+    "linkml==1.12.1",
+    "pyright>=1.1.414",
+    "pytest>=9.1.1",
+]
+
+[tool.pyright]
+include = ["src", "tests"]
+exclude = ["src/mandara/om/model.py"]
+typeCheckingMode = "strict"
+pythonVersion = "3.13"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

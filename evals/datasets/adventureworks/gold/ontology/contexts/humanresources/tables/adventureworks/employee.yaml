@@ -1,0 +1,163 @@
+id: tbl_humanresources_employee
+name: humanresources.employee
+source: adventureworks
+context: humanresources
+kind: domain
+grain: 1行 = 1従業員
+identity:
+  primary:
+  - businessentityid
+  alternates:
+  - columns:
+    - nationalidnumber
+  - columns:
+    - loginid
+columns:
+  businessentityid:
+    domain: business_entity_id
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - PK
+    - FK → person
+    inferred_by: gold-draft
+  nationalidnumber:
+    domain: national_id_number
+    pii: true
+    status: proposed
+    confidence: 0.9
+    evidence:
+    - '列コメント: social security number'
+    inferred_by: gold-draft
+    note: pii よりも強い「秘密」の区分が要る（バックログ C8）
+  loginid:
+    domain: login_id
+    pii: true
+    status: proposed
+    confidence: 0.85
+    evidence:
+    - 列コメント
+    inferred_by: gold-draft
+  jobtitle:
+    domain: job_title
+    status: proposed
+    confidence: 0.9
+    evidence:
+    - 列コメント
+    inferred_by: gold-draft
+  birthdate:
+    domain: birth_date
+    pii: true
+    status: proposed
+    confidence: 0.9
+    evidence:
+    - 列コメント
+    inferred_by: gold-draft
+  maritalstatus:
+    domain: marital_status
+    pii: true
+    status: proposed
+    confidence: 0.9
+    evidence:
+    - 列コメントに値の一覧
+    inferred_by: gold-draft
+  gender:
+    domain: gender
+    pii: true
+    status: proposed
+    confidence: 0.9
+    evidence:
+    - 列コメントに値の一覧
+    inferred_by: gold-draft
+  hiredate:
+    domain: hire_date
+    status: proposed
+    confidence: 0.9
+    evidence:
+    - 列コメント
+    inferred_by: gold-draft
+  salariedflag:
+    domain: salaried_flag
+    status: proposed
+    confidence: 0.9
+    evidence:
+    - 列コメント
+    inferred_by: gold-draft
+  vacationhours:
+    domain: hours_balance
+    unit:
+      fixed: hour
+    status: proposed
+    confidence: 0.8
+    evidence:
+    - '列コメント: available vacation hours'
+    inferred_by: gold-draft
+  sickleavehours:
+    domain: hours_balance
+    unit:
+      fixed: hour
+    status: proposed
+    confidence: 0.8
+    evidence:
+    - '列コメント: available sick leave hours'
+    inferred_by: gold-draft
+  currentflag:
+    domain: active_flag
+    status: proposed
+    confidence: 0.9
+    evidence:
+    - 列コメント
+    inferred_by: gold-draft
+  rowguid:
+    domain: row_uuid
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - 列名 rowguid
+    inferred_by: gold-draft
+  modifieddate:
+    domain: modified_at
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - 列名 modifieddate
+    inferred_by: gold-draft
+  organizationnode:
+    domain: hierarchy_path
+    status: proposed
+    confidence: 0.8
+    evidence:
+    - '列コメント: corporate hierarchy'
+    - 値は / /1/ /1/1/ の形（hierarchyid の変換）
+    inferred_by: gold-draft
+relations:
+- id: rel_employee_isa_person
+  type: is-a
+  target: tbl_person_person
+  via:
+  - from: businessentityid
+    to: businessentityid
+  realized_by: shared_key
+  status: proposed
+  confidence: 0.85
+  evidence:
+  - FK employee.businessentityid → person
+  - PK = FK（共有 PK）
+  inferred_by: gold-draft
+- id: rel_employee_org_parent
+  type: part-of
+  role: reports_to
+  target: self
+  via_function: fn_hierarchy_path_parent
+  cardinality: n:1
+  status: proposed
+  confidence: 0.6
+  evidence:
+  - '列コメント: Where the employee is located in corporate hierarchy'
+  inferred_by: gold-draft
+  note: 組織の木。親はパス文字列の接頭辞から関数で導く（C4）。報告関係を part-of で表すのが妥当かは要レビュー
+status: proposed
+confidence: 0.9
+evidence:
+- 表コメント
+inferred_by: gold-draft
