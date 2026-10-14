@@ -29,6 +29,9 @@ column_domains:
   product_model_id:
     description: 製品モデルの識別子
     type: identifier
+  bill_of_materials_id:
+    description: 部品表の行の識別子
+    type: identifier
   special_offer_id:
     description: 販促の識別子
     type: identifier
@@ -141,6 +144,14 @@ column_domains:
   discontinued_date:
     description: 製造中止日
     type: datetime
+  valid_from:
+    description: 有効期間の開始
+    type: datetime
+    role: valid_from
+  valid_to:
+    description: 有効期間の終了（NULL は現在も有効）
+    type: datetime
+    role: valid_to
   money:
     description: 合計してよい金額
     type: money
@@ -185,6 +196,14 @@ column_domains:
     type: quantity
     additivity: non-additive
     requires_unit: true
+  component_quantity:
+    description: 組立品1つに要る構成部品の量。組立品ごとの比なので合計しない
+    type: quantity
+    additivity: non-additive
+    requires_unit: true
+  tree_depth:
+    description: 木の中での深さ（根が 0）
+    type: integer
   revision_number:
     description: 改訂の回数
     type: integer

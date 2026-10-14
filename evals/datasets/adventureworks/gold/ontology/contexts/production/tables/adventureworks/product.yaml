@@ -210,8 +210,7 @@ columns:
     inferred_by: gold-draft
 relations:
 - id: rel_product_subcategory
-  type: has
-  has_kind: reference
+  type: classified-as
   target: tbl_production_productsubcategory
   via:
   - from: productsubcategoryid
@@ -223,7 +222,7 @@ relations:
   - FK 制約
   - '列コメント: Product is a member of this product subcategory'
   inferred_by: gold-draft
-  note: 分類への所属。全体と部分ではない（サブカテゴリは製品の集まりではなく、製品を分ける側の階層）ので part-of にしない。is-a（製品はサブカテゴリの一種）でもない
+  note: 分類への所属。全体と部分ではない（サブカテゴリは製品を分ける側の階層）ので part-of にしない。is-a（製品はサブカテゴリの一種）でもない。209 行は subcategory が NULL（分類されていない）
 status: proposed
 confidence: 0.9
 evidence:

@@ -34,6 +34,7 @@ from mandara.om.model import (
     Vocabulary,
 )
 from mandara.om.ontology import Ontology
+from mandara.om.relation_traits import RELATION_TRAITS
 from mandara.omstore.yaml_store import dump_table, dump_vocabulary, parse_table, parse_vocabulary
 
 from tests.strategies import ontologies, vocabularies
@@ -202,3 +203,25 @@ def test_closed_vocabulary_values_are_checked(path: str, data: st.DataObject) ->
     """UNKNOWN_VALUE の壊し方は status だけなので、値の型・単位・物理的な表現の経路は個別に見る。"""
     ontology = data.draw(ontologies())
     assert Rule.UNKNOWN_VALUE in {v.rule for v in check(UNKNOWN_VALUE_PATHS[path](ontology))}
+
+
+def _cycle_edge(rel_id: str, rtype: str, target: str) -> Relation:
+    if rtype == RelationType.derived_from.value:
+        return Relation.model_validate(
+            {"id": rel_id, "type": rtype, "target": target, "function": "fn_x", "columns": ["id"], "status": R}
+        )
+    extra = {"realized_by": IsARealization.shared_key} if rtype == RelationType.is_a.value else {}
+    return _rel(rel_id, RelationType(rtype), target, [("id", "id")], **extra)
+
+
+@pytest.mark.parametrize("rtype", [k for k, t in RELATION_TRAITS.items() if t.transitive])
+@given(data=st.data())
+def test_cycle_is_detected_for_every_transitive_type(rtype: str, data: st.DataObject) -> None:
+    """循環の検出が、①で推移的とされたすべての関係型に効いていること（関係型を足したら自動で対象になる）。"""
+    ontology = _add(
+        data.draw(ontologies()),
+        _table("tbl_ma", relations=[_cycle_edge("rel_ma", rtype, "tbl_mb")]),
+        _table("tbl_mb", relations=[_cycle_edge("rel_mb", rtype, "tbl_ma")]),
+    )
+    cycles = [v for v in check(ontology) if v.rule == Rule.CYCLE]
+    assert cycles and all(v.detail.startswith(f"{rtype}:") for v in cycles)

@@ -1,0 +1,125 @@
+id: tbl_production_billofmaterials
+name: production.billofmaterials
+source: adventureworks
+context: production
+kind: relation
+grain: 1行 = ある期間に、ある組立品に使われる1つの構成部品（構成の1行）。組立品が NULL の行は最上位の製品そのもの
+identity:
+  primary:
+  - billofmaterialsid
+  alternates:
+  - columns:
+    - productassemblyid
+    - componentid
+    - startdate
+columns:
+  billofmaterialsid:
+    domain: bill_of_materials_id
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - PK
+    - '列コメント: Primary key for BillOfMaterials records'
+    inferred_by: gold-draft
+  productassemblyid:
+    domain: product_id
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - FK → product
+    - '列コメント: Parent product identification number'
+    inferred_by: gold-draft
+    note: NULL を許す。NULL の 103 行は bomlevel 0 で、最上位の製品を表す（CHECK 制約）
+  componentid:
+    domain: product_id
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - FK → product
+    - '列コメント: Component identification number'
+    inferred_by: gold-draft
+  startdate:
+    domain: valid_from
+    status: proposed
+    confidence: 0.85
+    evidence:
+    - '列コメント: Date the component started being used in the assembly item'
+    inferred_by: gold-draft
+  enddate:
+    domain: valid_to
+    status: proposed
+    confidence: 0.85
+    evidence:
+    - '列コメント: Date the component stopped being used in the assembly item'
+    - CHECK enddate > startdate OR enddate IS NULL
+    inferred_by: gold-draft
+  unitmeasurecode:
+    domain: unit_measure_code
+    status: proposed
+    confidence: 0.9
+    evidence:
+    - FK → unitmeasure（範囲外）
+    - '列コメント: Standard code identifying the unit of measure for the quantity'
+    inferred_by: gold-draft
+  bomlevel:
+    domain: tree_depth
+    status: proposed
+    confidence: 0.75
+    evidence:
+    - '列コメント: Indicates the depth the component is from its parent'
+    - 値は 0〜4。0 は組立品が NULL の行だけ（CHECK 制約）
+    inferred_by: gold-draft
+    note: 組立品の木から導ける値を、ソースが持っている
+  perassemblyqty:
+    domain: component_quantity
+    unit:
+      column: unitmeasurecode
+    status: proposed
+    confidence: 0.85
+    evidence:
+    - '列コメント: Quantity of the component needed to create the assembly'
+    - 単位は EA / OZ / IN が混在（別列）
+    inferred_by: gold-draft
+  modifieddate:
+    domain: modified_at
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - 列名 modifieddate
+    inferred_by: gold-draft
+relations:
+- id: rel_billofmaterials_partof_assembly
+  type: part-of
+  role: assembly
+  target: tbl_production_product
+  via:
+  - from: productassemblyid
+    to: productid
+  cardinality: n:1
+  status: proposed
+  confidence: 0.85
+  evidence:
+  - FK 制約
+  - '表コメント: the heirarchical relationship between a parent product and its components'
+  inferred_by: gold-draft
+  note: 構成の1行は、組立品の構成の部分。製品と製品の part-of（部品 → 組立品）は、この関係と rel_billofmaterials_component の合成で、①には直接書けない
+- id: rel_billofmaterials_component
+  type: has
+  has_kind: reference
+  role: component
+  target: tbl_production_product
+  via:
+  - from: componentid
+    to: productid
+  cardinality: n:1
+  status: proposed
+  confidence: 0.9
+  evidence:
+  - FK 制約
+  inferred_by: gold-draft
+status: proposed
+confidence: 0.9
+evidence:
+- '表コメント: Items required to make bicycles and bicycle subassemblies'
+inferred_by: gold-draft
+note: 製品の自己参照の木（部品表）を、期間つきの中間表で持つ。代替キーは PostgreSQL 版では制約が無く、データでのみ一意（2679 行で重複 0）。組立品の NULL を同じ値とみなした一意で、UNIQUE 制約ではこの意味は保証されない

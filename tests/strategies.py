@@ -1,7 +1,7 @@
 """妥当な OM を生成する Hypothesis の戦略。
 
 生成するのは不変条件（4.5）を満たす OM だけ。壊すのはテスト側（mutation）の責務。
-- 推移的な関係（is-a / part-of / derived-from）で他の表を指すときは、添字の小さい表にしか向けないので循環は生まれない
+- 推移的な関係（is-a / part-of / classified-as / derived-from）で他の表を指すときは、添字の小さい表にしか向けないので循環は生まれない
 - 列名には YAML 1.1 で真偽値や null に化ける名前（on / no / null など）や日本語も混ぜる
 - 複合主キー、代替キー、役割、単位の列参照、物理的な表現、self への関係（via_function / derived-from）も生成する
 - 生成する列名（c… と TRICKY_NAMES）は、外部キー列（ref…）と単位列（…__unit）と重ならない
@@ -127,7 +127,7 @@ def ontologies(draw: st.DrawFn, max_tables: int = 5) -> Ontology:
         for k, t in enumerate(targets):
             target = tables[t]
             target_pk = target.identity.primary if target.identity is not None else []
-            choices = [RelationType.has, RelationType.part_of]
+            choices = [RelationType.has, RelationType.part_of, RelationType.classified_as]
             if len(target_pk) == len(primary):
                 choices.append(RelationType.is_a)
             rtype = draw(st.sampled_from(choices))
@@ -160,9 +160,9 @@ def ontologies(draw: st.DrawFn, max_tables: int = 5) -> Ontology:
             relations.append(annotate(relation))
 
         if draw(st.booleans()):
-            # 自己参照の木（部品表のような part-of、上司のような参照）。derived は part-of の全体側になれない
-            tree_type = draw(st.sampled_from((RelationType.has, RelationType.part_of)))
-            if kind == TableKind.derived:
+            # 自己参照の木（部品表のような part-of、分類の木、上司のような参照）。derived は part-of の全体側になれない
+            tree_type = draw(st.sampled_from((RelationType.has, RelationType.part_of, RelationType.classified_as)))
+            if kind == TableKind.derived and tree_type == RelationType.part_of:
                 tree_type = RelationType.has
             tree = Relation(
                 id=f"rel_t{i}_tree",

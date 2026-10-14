@@ -38,7 +38,7 @@ enums:
     description: 関係型（4.1）。推移性と逆関係は各値の annotations に持つ
     permissible_values:
       is-a:
-        description: 分類階層。下位は上位の性質を継承する
+        description: 型の階層。下位の型は上位の型の一種で、上位の性質を継承する
         annotations:
           transitive: true
           inverse: has-subtype
@@ -47,6 +47,13 @@ enums:
         annotations:
           transitive: true
           inverse: has-part
+      classified-as:
+        description: >-
+          分類への所属。ものから分類へ、下位の分類から上位の分類へ（製品 → サブカテゴリ → カテゴリ）。
+          全体と部分（part-of）でも、型の一種（is-a）でもない。ドリルダウン階層になる
+        annotations:
+          transitive: true
+          inverse: classifies
       has:
         description: 属性または参照。細分は has_kind で指定
         annotations:

@@ -13,7 +13,7 @@ TABLE_FILES = sorted(GOLD.glob("contexts/*/tables/*/*.yaml"))
 
 def test_gold_has_no_violations() -> None:
     ontology = load_ontology(GOLD)
-    assert len(ontology.tables) == 13
+    assert len(ontology.tables) == 14
     assert check(ontology) == []
 
 

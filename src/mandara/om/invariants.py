@@ -41,7 +41,7 @@ class Rule(Enum):
     DUPLICATE_ID = "安定ID が重複している"
     UNKNOWN_TARGET = "関係の参照先の表が存在しない"
     UNKNOWN_COLUMN = "存在しない列を指している"
-    CYCLE = "推移的な関係（is-a / part-of / derived-from）が表をまたいで循環している"
+    CYCLE = "推移的な関係（is-a / part-of / classified-as / derived-from）が表をまたいで循環している"
     DERIVED_AS_WHOLE = "derived の表が part-of の全体側になっている"
     UNIT_MISSING = "単位が要るドメインなのに unit が無い"
     UNIT_UNEXPECTED = "単位の要らないドメインに unit がある"

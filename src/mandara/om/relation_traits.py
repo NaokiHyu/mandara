@@ -13,6 +13,7 @@ class RelationTraits:
 RELATION_TRAITS: dict[str, RelationTraits] = {
     'is-a': RelationTraits(transitive=True, inverse='has-subtype'),
     'part-of': RelationTraits(transitive=True, inverse='has-part'),
+    'classified-as': RelationTraits(transitive=True, inverse='classifies'),
     'has': RelationTraits(transitive=False, inverse='belongs-to'),
     'derived-from': RelationTraits(transitive=True, inverse='source-of'),
 }

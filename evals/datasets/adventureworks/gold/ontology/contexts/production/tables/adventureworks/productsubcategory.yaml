@@ -44,8 +44,7 @@ columns:
     inferred_by: gold-draft
 relations:
 - id: rel_subcategory_category
-  type: has
-  has_kind: reference
+  type: classified-as
   target: tbl_production_productcategory
   via:
   - from: productcategoryid
