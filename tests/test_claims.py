@@ -26,16 +26,15 @@ from mandara.om.model import (
     SourceRef,
     TypeFamily,
 )
-from mandara.omstore.yaml_store import (
+from mandara.omstore.claim_store import (
     InvalidClaimsError,
-    OmLoadError,
-    decode_name,
     dump_claims,
-    encode_name,
     load_claim_ledger,
     parse_claims,
     write_claim_ledger,
 )
+from mandara.omstore.codec import OmLoadError
+from mandara.omstore.tree import decode_name, encode_name
 
 from tests.strategies import claim_ledgers, claims
 
@@ -281,14 +280,14 @@ def test_missing_ledger_is_an_error(tmp_path: Path) -> None:
         load_claim_ledger(tmp_path / "nothing", "src")
 
 
-@given(st.text(min_size=1))
+@given(st.text(min_size=1, max_size=20))  # 1文字最大 4 バイト → 12 文字。20 文字なら上限 240 に収まる
 def test_name_encoding_roundtrip(name: str) -> None:
     encoded = encode_name(name)
     assert decode_name(encoded) == name
     assert set(encoded) <= set("abcdefghijklmnopqrstuvwxyz0123456789_-%ABCDEF")
 
 
-@given(st.text(min_size=1), st.text(min_size=1))
+@given(st.text(min_size=1, max_size=20), st.text(min_size=1, max_size=20))
 def test_name_encoding_is_case_insensitive_safe(a: str, b: str) -> None:
     """大文字小文字を区別しないファイルシステムでも、違う名前は違うファイルになる。"""
     if a != b:
@@ -348,3 +347,23 @@ def test_symlink_in_ledger_is_not_followed_or_deleted(tmp_path: Path) -> None:
     with pytest.raises(OmLoadError, match="シンボリックリンク"):
         write_claim_ledger(root, "src", [_claim("t")])
     assert (precious / "data.yaml").exists()
+
+
+def test_too_long_name_is_an_error() -> None:
+    with pytest.raises(ValueError, match="長すぎる"):
+        encode_name("名" * 100)  # 1文字 3 バイト → 900 文字に符号化される
+
+
+def test_failed_write_leaves_existing_ledger_and_no_debris(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = tmp_path / "claims"
+    write_claim_ledger(root, "src", [_claim("t")])
+
+    def fail(*_: object, **__: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Path, "write_text", fail)
+    with pytest.raises(OSError, match="disk full"):
+        write_claim_ledger(root, "src", [_claim("u")])
+    monkeypatch.undo()
+    assert [c.subject.table for c in load_claim_ledger(root, "src")] == ["t"]
+    assert [p.name for p in tmp_path.iterdir()] == ["claims"]

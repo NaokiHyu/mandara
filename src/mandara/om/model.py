@@ -429,7 +429,7 @@ class Table(Annotation):
     name: str = Field(default=..., description="""ソース上の名前（schema.table）""", json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain', 'AliasEntry', 'Table', 'Column']} })
     source: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Claim', 'SourceRef']} })
     context: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table']} })
-    kind: TableKind = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'ClaimSource']} })
+    kind: Optional[TableKind] = Field(default=None, description="""表種別。提案の段階では未決（無い）でもよい（規則や証拠で決まらないものを既定値で埋めない）。 approved の表には必須""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'ClaimSource']} })
     grain: Optional[str] = Field(default=None, description="""1行が何を表すか（10.4）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table']} })
     identity: Optional[Identity] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Table']} })
     columns: Optional[dict[str, Column]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'KeyColumns', 'Relation', 'Claim']} })

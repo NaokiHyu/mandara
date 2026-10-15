@@ -83,5 +83,14 @@ def test_stray_file_is_rejected(tmp_path: Path) -> None:
     good.write_text(MINIMAL, encoding="utf-8")
     assert len(load_ontology(root).tables) == 1
     (good.parent / "y.yml").write_text(MINIMAL, encoding="utf-8")
-    with pytest.raises(OmLoadError, match="の形ではない"):
+    with pytest.raises(OmLoadError, match="配置規則に合わない"):
+        load_ontology(root)
+
+
+def test_malformed_name_is_a_load_error(tmp_path: Path) -> None:
+    root = _ontology_root(tmp_path)
+    path = root / "contexts/ctx/tables/src/x.yaml"
+    path.parent.mkdir(parents=True)
+    path.write_text(MINIMAL.replace("name: s.x", "name: 's.\"x'"), encoding="utf-8")
+    with pytest.raises(OmLoadError, match="引用符が閉じていない"):
         load_ontology(root)

@@ -40,6 +40,7 @@ class Rule(Enum):
     APPROVED_WITHOUT_REVIEW = "approved なのに reviewed_by / reviewed_at が無い"
     PROPOSED_WITHOUT_PROVENANCE = "proposed なのに confidence / evidence / inferred_by が無い"
     MISSING_GRAIN = "event 表、または尺度を持つ domain 表に grain が無い"
+    UNDECIDED_KIND = "approved の表に kind が無い"
     DUPLICATE_ID = "安定ID が重複している"
     UNKNOWN_TARGET = "関係の参照先の表が存在しない"
     UNKNOWN_COLUMN = "存在しない列を指している"
@@ -139,7 +140,10 @@ def _check_table(table: Table, ontology: Ontology) -> Iterator[Violation]:
 
     yield from _check_annotation(table, loc)
     yield from _check_keys(columns, f"{loc}.columns")
-    if table.kind not in _TABLE_KINDS:
+    if table.kind is None:
+        if table.status == ReviewStatus.approved.value:
+            yield Violation(Rule.UNDECIDED_KIND, loc, "")
+    elif table.kind not in _TABLE_KINDS:
         yield Violation(Rule.UNKNOWN_VALUE, loc, f"kind={table.kind!r}")
 
     if table.identity is not None:

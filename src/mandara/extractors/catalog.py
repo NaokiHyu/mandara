@@ -23,7 +23,11 @@ def extract(source: str, catalog: Catalog) -> list[Claim]:
 
 
 def quote(*names: str) -> str:
-    """SQL 標準の引用符つき識別子で、名前の並びを曖昧さなく書く（名前に "." や '"' があってもよい）。"""
+    """SQL 標準の引用符つき識別子で、名前の並びを曖昧さなく書く（名前に "." や '"' があってもよい）。
+
+    locator 用に常に引用する（名前の中身によって書き方が変わらない）。OM の name は読みやすさのために
+    必要なときだけ引用する（mandara.om.names.qualify）。用途が違うので別にしている。
+    """
     return ".".join('"' + n.replace('"', '""') + '"' for n in names)
 
 

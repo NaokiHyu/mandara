@@ -8,6 +8,7 @@
 
 from collections.abc import Callable
 from dataclasses import replace
+from datetime import date
 
 import pytest
 from hypothesis import given
@@ -130,6 +131,8 @@ MUTATIONS: dict[Rule, Mutation] = {
     Rule.PROPOSED_WITHOUT_PROVENANCE: lambda o: _replace_first(
         o, _first(o).model_copy(update={"status": "proposed", "confidence": 0.5, "evidence": [], "inferred_by": "x"})
     ),
+    Rule.UNDECIDED_KIND: lambda o: _replace_first(o, _first(o).model_copy(update={
+        "kind": None, "status": "approved", "reviewed_by": "alice", "reviewed_at": date(2026, 10, 15)})),
     Rule.MISSING_GRAIN: lambda o: _add(o, _table("tbl_m", kind=TableKind.event, grain="  ")),
     Rule.DUPLICATE_ID: lambda o: _add(o, _first(o)),
     Rule.UNKNOWN_TARGET: lambda o: _add(
@@ -281,3 +284,24 @@ def test_edge_between_rows_of_one_table_is_not_a_cycle(data: st.DataObject) -> N
     """部品表のように、同じ表の行同士を結ぶ辺はインスタンスの木で、循環ではない。"""
     ontology = _add(data.draw(ontologies()), _table("tbl_ma"), _edge_table("tbl_me", RelationType.part_of, "tbl_ma", "tbl_ma"))
     assert check(ontology) == []
+
+
+def test_annotations_cover_every_annotated_class() -> None:
+    """ANNOTATED_CLASSES が、①で Annotation を持つクラスのすべてと一致する（注釈のたどり漏れの検出）。"""
+    import inspect
+
+    from mandara.om import model
+    from mandara.om.ontology import ANNOTATED_CLASSES
+
+    annotated = {cls for _, cls in inspect.getmembers(model, inspect.isclass)
+                 if issubclass(cls, model.Annotation) and cls is not model.Annotation}
+    assert set(ANNOTATED_CLASSES) == annotated
+
+
+@given(ontologies())
+def test_annotations_visit_everything(ontology: Ontology) -> None:
+    visited = [a for _, a in ontology.annotations()]
+    tables = ontology.tables
+    expected = (len(tables) + sum(len(t.columns or {}) + len(t.relations or []) + (t.edge is not None) for t in tables)
+                + sum(len(d.values or []) for d in (ontology.vocabulary.column_domains or {}).values()))
+    assert len(visited) == expected

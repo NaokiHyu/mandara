@@ -110,7 +110,7 @@ def ontologies(draw: st.DrawFn, max_tables: int = 5) -> Ontology:
     n = draw(st.integers(min_value=1, max_value=max_tables))
     tables: list[Table] = []
     for i in range(n):
-        kind = draw(st.sampled_from(tuple(TableKind)))
+        kind = draw(st.none() | st.sampled_from(tuple(TableKind)))  # None は未決（提案の段階）
         names = draw(st.lists(column_names, min_size=1, max_size=6, unique=True))
         pk_size = draw(st.integers(min_value=1, max_value=min(2, len(names))))
         primary, rest = names[:pk_size], names[pk_size:]
@@ -236,7 +236,11 @@ def ontologies(draw: st.DrawFn, max_tables: int = 5) -> Ontology:
             edge=edge,
             status=_PLACEHOLDER,
         )
-        tables.append(annotate(table))
+        if kind is None:  # 未決の表は approved にならない
+            table = table.model_copy(update=draw(provenance().filter(lambda f: f["status"] != "approved")))
+        else:
+            table = annotate(table)
+        tables.append(table)
     return Ontology(vocabulary=VOCABULARY, tables=tuple(tables))
 
 
