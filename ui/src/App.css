@@ -85,3 +85,15 @@ button.link { border: none; background: none; padding: 0; color: var(--text-stro
 .review-rejected { color: var(--bad); }
 .review-proposed { color: var(--warn); }
 .failure pre { white-space: pre-wrap; font-size: var(--size-small); color: var(--text-dim); }
+
+.map-pane { display: flex; flex-direction: column; gap: var(--gap); height: 100%; }
+.map-pane select { align-self: flex-start; }
+.map-frame { position: relative; flex: 1; min-height: 400px; border: 1px solid var(--line); }
+.map { position: absolute; inset: 0; }
+.map-status {
+  position: absolute; left: var(--gap); bottom: var(--gap); padding: 2px var(--gap);
+  background: var(--panel); border: 1px solid var(--line); font-size: var(--size-small);
+}
+.warn { color: var(--warn); }
+.maplibregl-ctrl-attrib { background: var(--panel) !important; color: var(--text-dim) !important; font-family: var(--font); }
+.maplibregl-ctrl-attrib a { color: var(--text-dim) !important; }

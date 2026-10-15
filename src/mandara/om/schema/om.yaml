@@ -93,7 +93,7 @@ enums:
   ValueType:
     description: >-
       列ドメインの値の意味の型。物理的な表現（バイナリ形式、文字コードなど）は含めない。
-      物理的な表現は列の encoding に書く。意味の型への変換は encoding ごとのコーデック（Adapters の中で、DB コネクタから独立したもの）の責務とする
+      物理的な表現は列の encoding に書く。意味の型への変換は encoding ごとのコーデック（I/O の無い純粋な変換。DB コネクタから独立したもの）の責務とする
     permissible_values:
       identifier:
       code:
@@ -601,3 +601,73 @@ classes:
         required: true
         inlined: true
         inlined_as_list: true
+
+  PointSet:
+    tree_root: true
+    description: >-
+      表の geo.point の列の値を点にしたもの（地図のため）。プロセス境界（HTTP API → UI）で受け渡す形。
+      変換できなかった行は黙って捨てず failed に、NULL は数を nulls に持つ。
+      rows_read = points の数 + nulls + failed の数。truncated なら、表には limit を超える行がある
+    attributes:
+      table:
+        description: 表の安定 ID
+        required: true
+      column:
+        required: true
+      points:
+        range: GeoPointRow
+        multivalued: true
+        required: true
+        inlined: true
+        inlined_as_list: true
+      nulls:
+        range: integer
+        required: true
+        minimum_value: 0
+      failed:
+        range: PointFailure
+        multivalued: true
+        required: true
+        inlined: true
+        inlined_as_list: true
+      rows_read:
+        description: 読んだ行の数（limit 以下）
+        range: integer
+        required: true
+        minimum_value: 0
+      limit:
+        description: 読む行の上限
+        range: integer
+        required: true
+        minimum_value: 1
+      truncated:
+        description: 上限で打ち切った（表にはまだ行がある）
+        range: boolean
+        required: true
+
+  GeoPointRow:
+    attributes:
+      key:
+        description: >-
+          行の主キーの値（主キーの列の順）。各値をソースの値の文字列表現（Python の str）にしたもの。
+          主キーは NULL を持たない（仕様 4.2）
+        multivalued: true
+        required: true
+      lat:
+        range: float
+        required: true
+        minimum_value: -90
+        maximum_value: 90
+      lon:
+        range: float
+        required: true
+        minimum_value: -180
+        maximum_value: 180
+
+  PointFailure:
+    attributes:
+      key:
+        multivalued: true
+        required: true
+      reason:
+        required: true

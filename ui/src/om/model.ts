@@ -78,7 +78,7 @@ export enum DomainRole {
     technical = "technical",
 };
 /**
-* 列ドメインの値の意味の型。物理的な表現（バイナリ形式、文字コードなど）は含めない。 物理的な表現は列の encoding に書く。意味の型への変換は encoding ごとのコーデック（Adapters の中で、DB コネクタから独立したもの）の責務とする
+* 列ドメインの値の意味の型。物理的な表現（バイナリ形式、文字コードなど）は含めない。 物理的な表現は列の encoding に書く。意味の型への変換は encoding ごとのコーデック（I/O の無い純粋な変換。DB コネクタから独立したもの）の責務とする
 */
 export enum ValueType {
     
@@ -468,6 +468,41 @@ export interface OntologyListing {
 export interface OntologyDocument {
     vocabulary: Vocabulary,
     tables: Table[],
+}
+
+
+/**
+ * 表の geo.point の列の値を点にしたもの（地図のため）。プロセス境界（HTTP API → UI）で受け渡す形。 変換できなかった行は黙って捨てず failed に、NULL は数を nulls に持つ。 rows_read = points の数 + nulls + failed の数。truncated なら、表には limit を超える行がある
+ */
+export interface PointSet {
+    /** 表の安定 ID */
+    table: string,
+    column: string,
+    points: GeoPointRow[],
+    nulls: number,
+    failed: PointFailure[],
+    /** 読んだ行の数（limit 以下） */
+    rows_read: number,
+    /** 読む行の上限 */
+    limit: number,
+    /** 上限で打ち切った（表にはまだ行がある） */
+    truncated: boolean,
+}
+
+
+
+export interface GeoPointRow {
+    /** 行の主キーの値（主キーの列の順）。各値をソースの値の文字列表現（Python の str）にしたもの。 主キーは NULL を持たない（仕様 4.2） */
+    key: string[],
+    lat: number,
+    lon: number,
+}
+
+
+
+export interface PointFailure {
+    key: string[],
+    reason: string,
 }
 
 

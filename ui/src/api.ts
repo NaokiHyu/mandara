@@ -3,8 +3,9 @@
 import Ajv2019 from "ajv/dist/2019";
 import addFormats from "ajv-formats";
 import indexSchema from "./om/index.schema.json";
-import type { OntologyDocument, OntologyIndex } from "./om/model";
+import type { OntologyDocument, OntologyIndex, PointSet } from "./om/model";
 import documentSchema from "./om/om.schema.json";
+import pointsSchema from "./om/points.schema.json";
 
 export class ApiError extends Error {
   constructor(message: string, readonly detail?: unknown) {
@@ -32,6 +33,8 @@ function validator<T>(schema: object, what: string): (data: unknown) => T {
 export const parseDocument = validator<OntologyDocument>(documentSchema, "OM の文書");
 /** 見られる OM の一覧を検証する。 */
 export const parseIndex = validator<OntologyIndex>(indexSchema, "OM の一覧");
+/** 地図の点を検証する。 */
+export const parsePoints = validator<PointSet>(pointsSchema, "地図の点");
 
 async function getJson(path: string): Promise<unknown> {
   const response = await fetch(path);
@@ -55,4 +58,9 @@ export async function listOntologies(): Promise<OntologyIndex> {
 
 export async function getOntology(id: string): Promise<OntologyDocument> {
   return parseDocument(await getJson(`/api/ontologies/${encodeURIComponent(id)}`));
+}
+
+export async function getPoints(ontologyId: string, tableId: string, column: string): Promise<PointSet> {
+  const path = `/api/ontologies/${encodeURIComponent(ontologyId)}/tables/${encodeURIComponent(tableId)}/points`;
+  return parsePoints(await getJson(`${path}?column=${encodeURIComponent(column)}`));
 }

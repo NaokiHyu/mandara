@@ -22,7 +22,7 @@ def test_generated_file_is_up_to_date(regenerated: Path, name: str) -> None:
     assert (regenerated / name).read_text(encoding="utf-8") == committed, "scripts/gen_om_model.sh で再生成すること"
 
 
-UI_GENERATED = ("model.ts", "om.schema.json", "index.schema.json")
+UI_GENERATED = ("model.ts", "om.schema.json", "index.schema.json", "points.schema.json")
 
 
 @pytest.fixture(scope="module")

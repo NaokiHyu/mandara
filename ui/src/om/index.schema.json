@@ -820,6 +820,36 @@
             "title": "EnumValue",
             "type": "object"
         },
+        "GeoPointRow": {
+            "additionalProperties": false,
+            "description": "",
+            "properties": {
+                "key": {
+                    "description": "\u884c\u306e\u4e3b\u30ad\u30fc\u306e\u5024\uff08\u4e3b\u30ad\u30fc\u306e\u5217\u306e\u9806\uff09\u3002\u5404\u5024\u3092\u30bd\u30fc\u30b9\u306e\u5024\u306e\u6587\u5b57\u5217\u8868\u73fe\uff08Python \u306e str\uff09\u306b\u3057\u305f\u3082\u306e\u3002 \u4e3b\u30ad\u30fc\u306f NULL \u3092\u6301\u305f\u306a\u3044\uff08\u4ed5\u69d8 4.2\uff09",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "lat": {
+                    "maximum": 90,
+                    "minimum": -90,
+                    "type": "number"
+                },
+                "lon": {
+                    "maximum": 180,
+                    "minimum": -180,
+                    "type": "number"
+                }
+            },
+            "required": [
+                "key",
+                "lat",
+                "lon"
+            ],
+            "title": "GeoPointRow",
+            "type": "object"
+        },
         "HasKind": {
             "description": "",
             "enum": [
@@ -961,6 +991,82 @@
             ],
             "title": "OntologySourceKind",
             "type": "string"
+        },
+        "PointFailure": {
+            "additionalProperties": false,
+            "description": "",
+            "properties": {
+                "key": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "reason": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "key",
+                "reason"
+            ],
+            "title": "PointFailure",
+            "type": "object"
+        },
+        "PointSet": {
+            "additionalProperties": false,
+            "description": "\u8868\u306e geo.point \u306e\u5217\u306e\u5024\u3092\u70b9\u306b\u3057\u305f\u3082\u306e\uff08\u5730\u56f3\u306e\u305f\u3081\uff09\u3002\u30d7\u30ed\u30bb\u30b9\u5883\u754c\uff08HTTP API \u2192 UI\uff09\u3067\u53d7\u3051\u6e21\u3059\u5f62\u3002 \u5909\u63db\u3067\u304d\u306a\u304b\u3063\u305f\u884c\u306f\u9ed9\u3063\u3066\u6368\u3066\u305a failed \u306b\u3001NULL \u306f\u6570\u3092 nulls \u306b\u6301\u3064\u3002 rows_read = points \u306e\u6570 + nulls + failed \u306e\u6570\u3002truncated \u306a\u3089\u3001\u8868\u306b\u306f limit \u3092\u8d85\u3048\u308b\u884c\u304c\u3042\u308b",
+            "properties": {
+                "column": {
+                    "type": "string"
+                },
+                "failed": {
+                    "items": {
+                        "$ref": "#/$defs/PointFailure"
+                    },
+                    "type": "array"
+                },
+                "limit": {
+                    "description": "\u8aad\u3080\u884c\u306e\u4e0a\u9650",
+                    "minimum": 1,
+                    "type": "integer"
+                },
+                "nulls": {
+                    "minimum": 0,
+                    "type": "integer"
+                },
+                "points": {
+                    "items": {
+                        "$ref": "#/$defs/GeoPointRow"
+                    },
+                    "type": "array"
+                },
+                "rows_read": {
+                    "description": "\u8aad\u3093\u3060\u884c\u306e\u6570\uff08limit \u4ee5\u4e0b\uff09",
+                    "minimum": 0,
+                    "type": "integer"
+                },
+                "table": {
+                    "description": "\u8868\u306e\u5b89\u5b9a ID",
+                    "type": "string"
+                },
+                "truncated": {
+                    "description": "\u4e0a\u9650\u3067\u6253\u3061\u5207\u3063\u305f\uff08\u8868\u306b\u306f\u307e\u3060\u884c\u304c\u3042\u308b\uff09",
+                    "type": "boolean"
+                }
+            },
+            "required": [
+                "table",
+                "column",
+                "points",
+                "nulls",
+                "failed",
+                "rows_read",
+                "limit",
+                "truncated"
+            ],
+            "title": "PointSet",
+            "type": "object"
         },
         "ReferentialAction": {
             "description": "\u5916\u90e8\u30ad\u30fc\u306e\u53c2\u7167\u5148\u306e\u884c\u304c\u6d88\u3048\u308b\u30fb\u5909\u308f\u308b\u3068\u304d\u306e\u52d5\u4f5c\uff08SQL \u6a19\u6e96\uff09\u3002cascade \u306f\u5408\u6210\u95a2\u4fc2\u306e\u8a3c\u62e0\u306b\u306a\u308b",
@@ -1389,7 +1495,7 @@
             "type": "object"
         },
         "ValueType": {
-            "description": "\u5217\u30c9\u30e1\u30a4\u30f3\u306e\u5024\u306e\u610f\u5473\u306e\u578b\u3002\u7269\u7406\u7684\u306a\u8868\u73fe\uff08\u30d0\u30a4\u30ca\u30ea\u5f62\u5f0f\u3001\u6587\u5b57\u30b3\u30fc\u30c9\u306a\u3069\uff09\u306f\u542b\u3081\u306a\u3044\u3002 \u7269\u7406\u7684\u306a\u8868\u73fe\u306f\u5217\u306e encoding \u306b\u66f8\u304f\u3002\u610f\u5473\u306e\u578b\u3078\u306e\u5909\u63db\u306f encoding \u3054\u3068\u306e\u30b3\u30fc\u30c7\u30c3\u30af\uff08Adapters \u306e\u4e2d\u3067\u3001DB \u30b3\u30cd\u30af\u30bf\u304b\u3089\u72ec\u7acb\u3057\u305f\u3082\u306e\uff09\u306e\u8cac\u52d9\u3068\u3059\u308b",
+            "description": "\u5217\u30c9\u30e1\u30a4\u30f3\u306e\u5024\u306e\u610f\u5473\u306e\u578b\u3002\u7269\u7406\u7684\u306a\u8868\u73fe\uff08\u30d0\u30a4\u30ca\u30ea\u5f62\u5f0f\u3001\u6587\u5b57\u30b3\u30fc\u30c9\u306a\u3069\uff09\u306f\u542b\u3081\u306a\u3044\u3002 \u7269\u7406\u7684\u306a\u8868\u73fe\u306f\u5217\u306e encoding \u306b\u66f8\u304f\u3002\u610f\u5473\u306e\u578b\u3078\u306e\u5909\u63db\u306f encoding \u3054\u3068\u306e\u30b3\u30fc\u30c7\u30c3\u30af\uff08I/O \u306e\u7121\u3044\u7d14\u7c8b\u306a\u5909\u63db\u3002DB \u30b3\u30cd\u30af\u30bf\u304b\u3089\u72ec\u7acb\u3057\u305f\u3082\u306e\uff09\u306e\u8cac\u52d9\u3068\u3059\u308b",
             "enum": [
                 "identifier",
                 "code",

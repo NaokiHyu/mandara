@@ -19,6 +19,7 @@ from mandara.app import pipeline
 from mandara.app.pipeline import BulkThresholdError, LedgerMismatchError
 from mandara.app.pipeline import Workspace
 from mandara.connectors.postgres.catalog_reader import PostgresCatalogReader
+from mandara.connectors.postgres.column_reader import PostgresColumnReader
 from mandara.evaluation.score import InvalidForScoringError, Report
 from mandara.om.model import TableKind
 from mandara.modeler.rules import InvalidInputError
@@ -28,6 +29,7 @@ from mandara.omstore.tree import UnstorableNameError
 from mandara.omstore.yaml_store import InvalidOntologyError, OntologyWriteRefusedError
 from mandara.review.decisions import Approve, Decision, Question, Reject, ReviewError
 from mandara.source.catalog import Scope, SourceError
+from mandara.source.rows import ColumnReader
 
 class UsageError(Exception):
     """コマンドの引数の誤り。"""
@@ -119,6 +121,9 @@ def _parser() -> argparse.ArgumentParser:
     p = commands.add_parser("serve", help="UI のための HTTP API を立てる（読むだけ）")
     p.add_argument("--work", type=Path, help="作業領域（work/<source>/ontology を出す。既定 work。指定したなら存在すること）")
     p.add_argument("--gold", action="append", default=[], metavar="NAME=DIR", help="正解 OM（繰り返し指定）")
+    p.add_argument("--connect", nargs=2, action="append", default=[], metavar=("SOURCE", "CONNINFO"),
+                   help="ソースの接続（地図の点などの実データを読む）。CONNINFO は libpq の接続文字列。繰り返し指定。"
+                        "パスワードは書かない（ps で見える）。~/.pgpass か PGPASSFILE を使う")
     p.add_argument("--host", default="127.0.0.1", help="既定はこの機械の中だけ")
     p.add_argument("--port", type=int, default=8765)
     p.set_defaults(handler=_serve)
@@ -280,10 +285,20 @@ def _serve(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
     if args.work is not None and not args.work.is_dir():
         raise UsageError(f"--work のディレクトリが無い: {args.work}")
     sources = discover(args.work or Path("work"), gold)
+    known = {t.source for s in sources for t in pipeline.read_ontology(s.root).tables}
+    readers: dict[str, ColumnReader] = {}
+    for name, conninfo in args.connect:
+        if name in readers:
+            raise UsageError(f"--connect の SOURCE が重複している: {name}")
+        if name not in known:
+            raise UsageError(f"--connect の SOURCE {name} は、どの OM の表のソースでもない（ある: {sorted(known)}）")
+        readers[name] = PostgresColumnReader(conninfo)
     print(f"{style.accent('◆ MANDARA')}  serving {len(sources)} ontologies on http://{args.host}:{args.port}", file=out)
     for s in sources:
         print(style.dim(f"   {s.id:<28} {s.root}"), file=out)
-    uvicorn.run(create_app(sources), host=args.host, port=args.port, log_level="warning")
+    for name in readers:
+        print(style.dim(f"   connect {name}"), file=out)
+    uvicorn.run(create_app(sources, readers), host=args.host, port=args.port, log_level="warning")
     return 0
 
 

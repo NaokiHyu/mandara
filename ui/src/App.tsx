@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, getOntology, listOntologies } from "./api";
 import type { OntologyDocument, OntologyListing, Table } from "./om/model";
+import { geoColumns, type GeoColumn } from "./geo";
 import { contextColor, GraphView } from "./GraphView";
 import { shortName, toGraph } from "./graph";
 import { TableDetail } from "./TableDetail";
@@ -9,16 +10,31 @@ import "./App.css";
 
 type Load<T> = { state: "loading" } | { state: "ok"; value: T } | { state: "error"; error: unknown };
 
-/** URL（?ontology=…&table=…）で、どの OM のどの表を見ているかを表す。開き直しても、共有しても同じものが見える。 */
-function readUrl(): { ontology: string | null; table: string | null } {
+// 地図（MapLibre）は大きいので、地図を開いたときに読む
+const MapView = lazy(() => import("./MapView").then((m) => ({ default: m.MapView })));
+
+type View = "graph" | "list" | "map";
+const VIEWS: readonly View[] = ["graph", "list", "map"];
+
+/** URL（?ontology=…&table=…&view=…）で、どの OM のどの表をどう見ているかを表す。開き直しても、共有しても同じものが見える。
+ *  view が無ければ graph。知らない view は、黙って置き換えずに伝える（unknownView）。 */
+function readUrl(): { ontology: string | null; table: string | null; view: View; unknownView: string | null } {
   const params = new URLSearchParams(location.search);
-  return { ontology: params.get("ontology"), table: params.get("table") };
+  const raw = params.get("view");
+  const view = raw === null ? "graph" : VIEWS.find((v) => v === raw);
+  return {
+    ontology: params.get("ontology"),
+    table: params.get("table"),
+    view: view ?? "graph",
+    unknownView: view === undefined ? raw : null,
+  };
 }
 
-function writeUrl(ontology: string | null, table: string | null): void {
+function writeUrl(ontology: string | null, table: string | null, view: View): void {
   const params = new URLSearchParams();
   if (ontology !== null) params.set("ontology", ontology);
   if (table !== null) params.set("table", table);
+  if (view !== "graph") params.set("view", view);
   const search = params.toString();
   history.replaceState(null, "", search === "" ? location.pathname : `?${search}`);
 }
@@ -27,11 +43,12 @@ export function App() {
   const [listing, setListing] = useState<Load<OntologyListing[]>>({ state: "loading" });
   const [selected, setSelected] = useState<string | null>(() => readUrl().ontology);
   const [doc, setDoc] = useState<Load<OntologyDocument> | null>(null);
-  const [view, setView] = useState<"graph" | "list">("graph");
+  const [view, setView] = useState<View>(() => readUrl().view);
+  const [unknownView] = useState(() => readUrl().unknownView);
   const [table, setTable] = useState<string | null>(() => readUrl().table);
   const select = useCallback((id: string | null) => setTable(id), []);
 
-  useEffect(() => writeUrl(selected, table), [selected, table]);
+  useEffect(() => writeUrl(selected, table, view), [selected, table, view]);
 
   useEffect(() => {
     listOntologies().then(
@@ -64,12 +81,15 @@ export function App() {
         )}
         {doc?.state === "ok" && <Summary doc={doc.value} />}
         <nav className="views">
-          {(["graph", "list"] as const).map((v) => (
+          {VIEWS.map((v) => (
             <button key={v} className={view === v ? "on" : ""} aria-pressed={view === v} onClick={() => setView(v)}>{v}</button>
           ))}
         </nav>
       </header>
       <main className="body">
+        {unknownView !== null && (
+          <p className="failure">表示 {unknownView} は無い（{VIEWS.join(" / ")} のどれか）。graph で開いた</p>
+        )}
         {listing.state === "error" && <Failure error={listing.error} />}
         {listing.state === "ok" && selected !== null && listing.value.length > 0 &&
           !listing.value.some((o) => o.id === selected) && (
@@ -81,16 +101,23 @@ export function App() {
         {doc?.state === "error" && <Failure error={doc.error} />}
         {doc?.state === "loading" && <p className="dim">loading…</p>}
         {doc?.state === "ok" && (
-          <Workspace doc={doc.value} view={view} table={table} onSelect={select} />
+          <Workspace ontologyId={requireSelected(selected)} doc={doc.value} view={view} table={table} onSelect={select} />
         )}
       </main>
     </div>
   );
 }
 
-function Workspace({ doc, view, table, onSelect }: {
+/** 文書を読めたなら、どの OM かは決まっている。 */
+function requireSelected(selected: string | null): string {
+  if (selected === null) throw new Error("OM の文書があるのに、選んでいる OM が無い");
+  return selected;
+}
+
+function Workspace({ ontologyId, doc, view, table, onSelect }: {
+  ontologyId: string;
   doc: OntologyDocument;
-  view: "graph" | "list";
+  view: View;
   table: string | null;
   onSelect: (id: string | null) => void;
 }) {
@@ -103,6 +130,7 @@ function Workspace({ doc, view, table, onSelect }: {
   }, [doc]);
   const current = doc.tables.find((t) => t.id === table);
   const contexts = useMemo(() => [...new Set(doc.tables.map((t) => t.context))].sort(), [doc]);
+  const geo = useMemo(() => geoColumns(doc), [doc]);
   return (
     <div className="workspace">
       <div className="canvas">
@@ -110,6 +138,7 @@ function Workspace({ doc, view, table, onSelect }: {
           <p className="failure">表 {table} はこの OM に無い（URL の table を確かめる）</p>
         )}
         {view === "list" && <TableList tables={doc.tables} contexts={contexts} selected={table} onSelect={onSelect} />}
+        {view === "map" && <MapPane ontologyId={ontologyId} columns={geo} table={table} />}
         {view === "graph" && graph.state === "error" && <Failure error={graph.error} />}
         {view === "graph" && graph.state === "ok" && (
           <GraphView nodes={graph.value.nodes} edges={graph.value.edges} contexts={contexts} selected={table}
@@ -117,6 +146,35 @@ function Workspace({ doc, view, table, onSelect }: {
         )}
       </div>
       {current !== undefined && <TableDetail doc={doc} table={current} onSelect={onSelect} />}
+    </div>
+  );
+}
+
+/** 地図：選んでいる表に geo.point の列があればそれを出す。無ければそう伝え、出せる列から選んでもらう。 */
+function MapPane({ ontologyId, columns, table }: { ontologyId: string; columns: GeoColumn[]; table: string | null }) {
+  const ofTable = columns.filter((c) => c.tableId === table);
+  const first = ofTable[0]; // columns は Workspace で memo 済みなので、表が同じなら同じもの
+  const [chosen, setChosen] = useState<GeoColumn | undefined>(first);
+  useEffect(() => setChosen(first), [first]);
+  if (columns.length === 0) {
+    return <p className="dim">この OM には地図に出せる列（意味の型が geo.point の列）が無い</p>;
+  }
+  const label = (c: GeoColumn) => `${c.tableName}.${c.column}`;
+  return (
+    <div className="map-pane">
+      {table !== null && ofTable.length === 0 && (
+        <p className="dim">選んでいる表に geo.point の列は無い。地図に出せる列から選ぶ</p>
+      )}
+      <select value={chosen === undefined ? "" : label(chosen)}
+              onChange={(e) => setChosen(columns.find((c) => label(c) === e.target.value))}>
+        {chosen === undefined && <option value="">— 地図に出す列 —</option>}
+        {columns.map((c) => <option key={label(c)} value={label(c)}>{label(c)}</option>)}
+      </select>
+      {chosen === undefined ? null : (
+      <Suspense fallback={<p className="dim">loading map…</p>}>
+        <MapView ontologyId={ontologyId} target={chosen} />
+      </Suspense>
+      )}
     </div>
   );
 }

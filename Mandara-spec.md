@@ -284,7 +284,7 @@ relations:
     to: rel_billofmaterials_assembly      # 全体（組立品）の側の参照
   ```
 - 主キー・代替キーの列は NULL を持たない。NULL を含みうる列の組は、データ上一意でも代替キーにしない
-- ソース上の値の物理的な表現が、意味の型の標準的な表現と違うときは、列に `encoding` を書く（例：`domain: location` ＋ `encoding: sqlserver_geography`）。意味の型への変換は、encoding ごとのコーデック（Adapters の中で、DB コネクタから独立したもの）が行う。DB コネクタは形式を知らない。列ドメインには物理的な表現を持ち込まない。encoding の変換先の型と、列ドメインの型は一致しなければならない（4.5）
+- ソース上の値の物理的な表現が、意味の型の標準的な表現と違うときは、列に `encoding` を書く（例：`domain: location` ＋ `encoding: sqlserver_geography`）。意味の型への変換は、encoding ごとのコーデック（I/O の無い純粋な変換。DB コネクタから独立したもの）が行う。DB コネクタは形式を知らない。列ドメインには物理的な表現を持ち込まない。encoding の変換先の型と、列ドメインの型は一致しなければならない（4.5）
 - 分類への所属（製品 → 製品分類）は `classified-as` で書く。上司への参照は `has`（reference）で書く。どちらも全体と部分ではないので `part-of` にしない
 - enum の列ドメインは、値ごとに `code`・`label`・`observed`（データで観測されたか）と注釈の共通フィールド（4.4）を持ち、値ごとにレビューする。値の集合はデータからではなく、宣言と証拠から決める
 

@@ -19,11 +19,14 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
+from mandara.codecs.registry import DECODERS, CodecError
 from mandara.evaluation.score import Report, score
 from mandara.extractors import catalog as catalog_extractor
 from mandara.modeler import rules as modeler
 from mandara.om.invariants import Violation, check
-from mandara.om.model import Claim
+from mandara.om.encoding_traits import ENCODING_TARGETS
+from mandara.om.model import Claim, ValueType
+from mandara.om.names import split_qualified
 from mandara.om.ontology import Ontology
 from mandara.omstore.claim_store import load_claim_ledger, load_ledger_scope, write_claim_ledger
 from mandara.omstore.json_store import write_json
@@ -36,6 +39,8 @@ from mandara.omstore.yaml_store import (
 )
 from mandara.review.decisions import Approve, Decision, Question, apply, questions
 from mandara.source.catalog import CatalogReader, Scope
+from mandara.source.rows import ColumnReader
+from mandara.source.values import GeoPoint
 
 Clock = Callable[[], datetime]
 
@@ -105,6 +110,72 @@ def evaluate(workspace: Workspace, gold: Path) -> Report:
 def read_ontology(root: Path) -> Ontology:
     """見るための OM の読み込み（UI・API から）。"""
     return load_ontology(root)
+
+
+# ---------------------------------------------------------------- 地図の点（ゼロコピーの読み）
+
+
+class PointsError(Exception):
+    """点を読めない（表や列が無い、geo.point の列ではない、物理的な表現が分からない、主キーが無い）。"""
+
+
+@dataclass(frozen=True)
+class Points:
+    table: str
+    column: str
+    points: tuple[tuple[tuple[str, ...], GeoPoint], ...]
+    """（行の主キーを文字列にしたもの, 点）。"""
+    nulls: int
+    failed: tuple[tuple[tuple[str, ...], str], ...]
+    """変換できなかった行（行の主キー, 理由）。黙って捨てない。"""
+    rows_read: int
+    """読んだ行の数 = 点の数 + nulls + failed の数。"""
+    limit: int
+    truncated: bool
+
+
+def read_points(ontology: Ontology, table_id: str, column: str, reader: ColumnReader, limit: int) -> Points:
+    """OM の geo.point の列の値をソースから読み、点にする。変換は列の encoding のコーデック（仕様 4.2）。"""
+    table = ontology.table(table_id)
+    if table is None:
+        raise PointsError(f"表が無い: {table_id}")
+    found = (table.columns or {}).get(column)
+    if found is None:
+        raise PointsError(f"列が無い: {table.name}.{column}")
+    domain = (ontology.vocabulary.column_domains or {}).get(found.domain or "")
+    if domain is None or domain.type != ValueType("geo.point").value:
+        raise PointsError(f"{table.name}.{column} は geo.point の列ではない（domain={found.domain}）")
+    if found.encoding is None:
+        raise PointsError(f"{table.name}.{column} の物理的な表現（encoding）が分からないので、点に変換できない")
+    if ENCODING_TARGETS.get(found.encoding) != ValueType("geo.point").value:
+        raise PointsError(f"encoding {found.encoding} は geo.point に変換しない（変換先 {ENCODING_TARGETS.get(found.encoding)}）")
+    decode = DECODERS.get(found.encoding)
+    if decode is None:
+        raise PointsError(f"encoding {found.encoding} のコーデックが無い")
+    if table.identity is None:
+        raise PointsError(f"{table.name} に主キーが無いので、行を特定できない")
+    parts = split_qualified(table.name)
+    if len(parts) != 2:
+        raise PointsError(f"表の名前が「スキーマ.表」ではない: {table.name}")
+
+    sample = reader.read_column(parts[0], parts[1], table.identity.primary, column, limit)
+    points: list[tuple[tuple[str, ...], GeoPoint]] = []
+    failed: list[tuple[tuple[str, ...], str]] = []
+    nulls = 0
+    for row in sample.rows:
+        key = tuple(str(k) for k in row.key)
+        if row.value is None:
+            nulls += 1
+            continue
+        try:
+            point = decode(row.value)
+        except CodecError as e:
+            failed.append((key, str(e)))
+            continue
+        if not isinstance(point, GeoPoint):
+            raise AssertionError(f"geo.point のコーデックが GeoPoint 以外を返した: {type(point).__name__}")
+        points.append((key, point))
+    return Points(table.id, column, tuple(points), nulls, tuple(failed), len(sample.rows), limit, sample.truncated)
 
 
 @dataclass(frozen=True)

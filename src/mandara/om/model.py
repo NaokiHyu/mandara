@@ -177,7 +177,7 @@ class DomainRole(str, Enum):
 
 class ValueType(str, Enum):
     """
-    列ドメインの値の意味の型。物理的な表現（バイナリ形式、文字コードなど）は含めない。 物理的な表現は列の encoding に書く。意味の型への変換は encoding ごとのコーデック（Adapters の中で、DB コネクタから独立したもの）の責務とする
+    列ドメインの値の意味の型。物理的な表現（バイナリ形式、文字コードなど）は含めない。 物理的な表現は列の encoding に書く。意味の型への変換は encoding ごとのコーデック（I/O の無い純粋な変換。DB コネクタから独立したもの）の責務とする
     """
     identifier = "identifier"
     code = "code"
@@ -526,7 +526,7 @@ class UnitSource(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
 
     fixed: Optional[Unit] = Field(default=None, description="""固定の単位""", json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource']} })
-    column: Optional[str] = Field(default=None, description="""同じ表で単位を持つ列""", json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource', 'SourceRef']} })
+    column: Optional[str] = Field(default=None, description="""同じ表で単位を持つ列""", json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource', 'SourceRef', 'PointSet']} })
 
 
 class Relation(Annotation):
@@ -627,8 +627,8 @@ class SourceRef(ConfiguredBaseModel):
 
     source: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Claim', 'SourceRef']} })
     schema_name: str = Field(default=..., description="""スキーマ名（schema は pydantic の BaseModel と衝突するので避ける）""", json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef']} })
-    table: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef']} })
-    column: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource', 'SourceRef']} })
+    table: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef', 'PointSet']} })
+    column: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource', 'SourceRef', 'PointSet']} })
 
 
 class ClaimSource(ConfiguredBaseModel):
@@ -665,6 +665,37 @@ class OntologyDocument(ConfiguredBaseModel):
     tables: list[Table] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['OntologyDocument']} })
 
 
+class PointSet(ConfiguredBaseModel):
+    """
+    表の geo.point の列の値を点にしたもの（地図のため）。プロセス境界（HTTP API → UI）で受け渡す形。 変換できなかった行は黙って捨てず failed に、NULL は数を nulls に持つ。 rows_read = points の数 + nulls + failed の数。truncated なら、表には limit を超える行がある
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'tree_root': True})
+
+    table: str = Field(default=..., description="""表の安定 ID""", json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef', 'PointSet']} })
+    column: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource', 'SourceRef', 'PointSet']} })
+    points: list[GeoPointRow] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['PointSet']} })
+    nulls: int = Field(default=..., ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['PointSet']} })
+    failed: list[PointFailure] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['PointSet']} })
+    rows_read: int = Field(default=..., description="""読んだ行の数（limit 以下）""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['PointSet']} })
+    limit: int = Field(default=..., description="""読む行の上限""", ge=1, json_schema_extra = { "linkml_meta": {'domain_of': ['PointSet']} })
+    truncated: bool = Field(default=..., description="""上限で打ち切った（表にはまだ行がある）""", json_schema_extra = { "linkml_meta": {'domain_of': ['PointSet']} })
+
+
+class GeoPointRow(ConfiguredBaseModel):
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
+
+    key: list[str] = Field(default=..., description="""行の主キーの値（主キーの列の順）。各値をソースの値の文字列表現（Python の str）にしたもの。 主キーは NULL を持たない（仕様 4.2）""", json_schema_extra = { "linkml_meta": {'domain_of': ['GeoPointRow', 'PointFailure']} })
+    lat: float = Field(default=..., ge=-90, le=90, json_schema_extra = { "linkml_meta": {'domain_of': ['GeoPointRow']} })
+    lon: float = Field(default=..., ge=-180, le=180, json_schema_extra = { "linkml_meta": {'domain_of': ['GeoPointRow']} })
+
+
+class PointFailure(ConfiguredBaseModel):
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
+
+    key: list[str] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['GeoPointRow', 'PointFailure']} })
+    reason: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['PointFailure']} })
+
+
 # Model rebuild
 # see https://pydantic-docs.helpmanual.io/usage/models/#rebuilding-a-model
 Annotation.model_rebuild()
@@ -687,3 +718,6 @@ ClaimSource.model_rebuild()
 OntologyIndex.model_rebuild()
 OntologyListing.model_rebuild()
 OntologyDocument.model_rebuild()
+PointSet.model_rebuild()
+GeoPointRow.model_rebuild()
+PointFailure.model_rebuild()

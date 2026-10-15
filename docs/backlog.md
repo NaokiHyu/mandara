@@ -32,7 +32,7 @@
 | [T1.7](tasks/T1.7-review-cli.md) | レビュー CLI | 完了 | T1.6 |
 | [T1.8](tasks/T1.8-ui-foundation.md) | UI の土台（HTTP API、型の生成、React の骨格、見た目の方向） | 完了 | — |
 | [T1.9](tasks/T1.9-ontology-ui-v0.md) | オントロジーUI v0（関係のグラフ、表の詳細） | 完了 | T1.8 |
-| [T1.10](tasks/T1.10-map-view.md) | 地図（geo.point のデコードと表示） | 未着手 | T1.9 |
+| [T1.10](tasks/T1.10-map-view.md) | 地図（geo.point のデコードと表示） | 完了 | T1.9 |
 
 ## 段 2：プロファイル
 | ID | タスク | 状態 | 依存 |

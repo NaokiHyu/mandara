@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parseDocument } from "./api";
+import { geoColumns } from "./geo";
 import { GraphError, toGraph } from "./graph";
 import type { OntologyDocument } from "./om/model";
 
@@ -75,5 +76,12 @@ describe("toGraph の例（正解 OM）", () => {
     const brokenEdge = structuredClone(gold) as OntologyDocument;
     brokenEdge.tables.find((t) => t.edge !== undefined)!.edge!.from = "rel_nowhere";
     expect(() => toGraph(brokenEdge)).toThrow(/無い関係/);
+  });
+});
+
+describe("geoColumns", () => {
+  it("正解 OM で地図に出せる列は、住所の spatiallocation だけ", () => {
+    expect(geoColumns(parseDocument(samples.gold)).map((c) => `${c.tableName}.${c.column}`))
+      .toEqual(["person.address.spatiallocation"]);
   });
 });
