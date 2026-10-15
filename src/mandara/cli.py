@@ -11,23 +11,27 @@ import os
 import sys
 import time
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import TextIO
 
 from mandara.app import pipeline
+from mandara.app.pipeline import BulkThresholdError, LedgerMismatchError
 from mandara.app.pipeline import Workspace
 from mandara.connectors.postgres.catalog_reader import PostgresCatalogReader
 from mandara.evaluation.score import InvalidForScoringError, Report
+from mandara.om.model import TableKind
 from mandara.modeler.rules import InvalidInputError
 from mandara.omstore.claim_store import InvalidClaimsError, LedgerRefusedError
 from mandara.omstore.codec import OmLoadError
 from mandara.omstore.tree import UnstorableNameError
 from mandara.omstore.yaml_store import InvalidOntologyError, OntologyWriteRefusedError
+from mandara.review.decisions import Approve, Decision, Question, Reject, ReviewError
 from mandara.source.catalog import Scope, SourceError
 
 _KNOWN_ERRORS = (SourceError, OmLoadError, InvalidClaimsError, LedgerRefusedError, UnstorableNameError,
-                 InvalidOntologyError, OntologyWriteRefusedError, InvalidInputError, InvalidForScoringError)
+                 InvalidOntologyError, OntologyWriteRefusedError, InvalidInputError, InvalidForScoringError,
+                 ReviewError, LedgerMismatchError, BulkThresholdError)
 """データ・ファイル・操作に原因のある失敗。これ以外（モデラーの出力が検証を通らない InvalidProposalError、
 pydantic の ValidationError など）はバグなので、捕まえずにトレースバックごと落とす。"""
 
@@ -52,8 +56,11 @@ class _Style:
         return self._wrap("38;5;203", text)
 
 
-def main(argv: Sequence[str] | None = None, out: TextIO = sys.stdout, err: TextIO = sys.stderr) -> int:
+def main(
+    argv: Sequence[str] | None = None, out: TextIO = sys.stdout, err: TextIO = sys.stderr, inp: TextIO = sys.stdin
+) -> int:
     args = _parser().parse_args(argv)
+    args.input = inp
     style = _Style(out)
     try:
         return args.handler(args, out, style)
@@ -97,6 +104,13 @@ def _parser() -> argparse.ArgumentParser:
     source_args(p)
     p.add_argument("--gold", type=Path, required=True)
     p.set_defaults(handler=_eval)
+
+    p = commands.add_parser("review", help="提案に答える（承認・却下）。答えるたびに OM に書く")
+    source_args(p)
+    p.add_argument("--reviewer", required=True, help="レビューする人の名前（reviewed_by に書く）")
+    p.add_argument("--bulk", type=float, metavar="THRESHOLD",
+                   help="確信度がこの値以上の提案を一覧で見せ、確認してから一括で承認する（0.95 以上）")
+    p.set_defaults(handler=_review)
 
     p = commands.add_parser("validate", help="OM のディレクトリを検証する（仕様 4.5）")
     p.add_argument("ontology", type=Path)
@@ -148,6 +162,92 @@ def _propose(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
 
 def _eval(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
     _scoreboard(out, style, pipeline.evaluate(_workspace(args), args.gold), args.gold)
+    return 0
+
+
+_KIND_KEYS = {"d": TableKind.domain, "r": TableKind.relation, "e": TableKind.event, "v": TableKind.derived}
+
+
+def _review(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
+    workspace = _workspace(args)
+    today = _now().date()
+    inp: TextIO = args.input
+    if args.bulk is not None:
+        return _bulk(out, style, inp, workspace, args.bulk, args.reviewer, today)
+
+    queue = pipeline.review_queue(workspace)
+    total = len(queue.questions)
+    print(f"{style.accent('◆ REVIEW')}  {workspace.source}  {total:,} pending", file=out)
+    answered = 0
+    try:
+        for i, q in enumerate(queue.questions, 1):
+            outcome = _ask(out, style, inp, workspace, queue, q, f"[{i}/{total}]", args.reviewer, today)
+            if outcome == "stop":
+                break
+            answered += outcome == "answered"
+    except KeyboardInterrupt:  # 答えるたびに書いているので、ここまでの判断は残っている
+        print(file=out)
+    return _review_summary(out, style, answered, total)
+
+
+def _bulk(out: TextIO, style: _Style, inp: TextIO, workspace: Workspace, threshold: float, reviewer: str,
+          today: date) -> int:
+    candidates = pipeline.bulk_candidates(workspace, threshold)
+    print(f"{style.accent('◆ REVIEW')}  bulk ≥ {threshold}: {len(candidates):,} candidates", file=out)
+    for q in candidates:  # 一覧で見せる（仕様 9.3）
+        print(f"   {style.dim(f'{q.confidence:.2f}')}  {q.text}", file=out)
+    if not candidates:
+        return 0
+    print(f"   approve all {len(candidates):,}? [y/N] > ", end="", file=out, flush=True)
+    if inp.readline().strip().lower() != "y":
+        print(f"{style.accent('◆')} cancelled", file=out)
+        return 0
+    approved = pipeline.bulk_approve(workspace, [q.location for q in candidates], threshold, reviewer, today)
+    print(f"{style.accent('◆')} {approved:,} approved", file=out)
+    return 0
+
+
+def _ask(out: TextIO, style: _Style, inp: TextIO, workspace: Workspace, queue: pipeline.ReviewQueue,
+         q: Question, progress: str, reviewer: str, today: date) -> str:
+    """1つの問いを出して答えを当てる。"answered" / "skipped" / "stop" を返す。"""
+    confidence = "" if q.confidence is None else style.dim(f"conf {q.confidence:.2f}")
+    print(f"\n{style.dim(progress)}  {q.text}   {confidence}", file=out)
+    shown = q.evidence[:3]  # 根拠は3行まで（仕様 9.3）
+    for j, claim_id in enumerate(shown):
+        branch = "└" if j == len(shown) - 1 else "├"
+        print(style.dim(f"   {branch} {queue.evidence[claim_id]}"), file=out)
+    keys = "[d]omain [r]elation [e]vent [v]derived" if q.needs_kind else "[y]es"
+    while True:
+        print(f"   {keys}  [n]o  [s]kip  [q]uit > ", end="", file=out, flush=True)
+        line = inp.readline()
+        if not line:  # 入力の終わり
+            print(file=out)
+            return "stop"
+        key = line.strip().lower()
+        decision: Decision | None = None
+        if key == "q":
+            return "stop"
+        if key == "s":
+            return "skipped"
+        if key == "n":
+            decision = Reject()
+        elif not q.needs_kind and key == "y":
+            decision = Approve()
+        elif q.needs_kind and key in _KIND_KEYS:
+            decision = Approve(kind=_KIND_KEYS[key])
+        if decision is None:
+            print(style.bad("   ?"), file=out)
+            continue
+        try:
+            pipeline.answer(workspace, q.location, decision, reviewer, today)
+        except ReviewError as e:  # この答えは当てられない。選び直してもらう
+            print(style.bad(f"   {e}"), file=out)
+            continue
+        return "answered"
+
+
+def _review_summary(out: TextIO, style: _Style, answered: int, total: int) -> int:
+    print(f"{style.accent('◆')} {answered} answered · {total - answered} left", file=out)
     return 0
 
 
