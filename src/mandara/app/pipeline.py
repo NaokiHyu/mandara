@@ -213,6 +213,8 @@ class TableOutcome:
     detail: str
     applied: tuple[str, ...]
     dropped: tuple[llm_modeler.Dropped, ...]
+    answer: object = None
+    """LLM の答え（そのまま）。同じ問いに同じ答えが返る保証は無いので、再現のために記録する。"""
 
 
 @dataclass(frozen=True)
@@ -273,7 +275,7 @@ def refine(workspace: Workspace, model: LanguageModel, first: Sequence[str] = ()
         applied = llm_modeler.apply_answer(ontology, table.id, answer, table_claims, inferred_by)
         ontology = applied.ontology
         status = "kept" if applied.table_kept_as_is else ("refined" if applied.applied else "nothing_applied")
-        outcomes.append(TableOutcome(table.name, status, "", applied.applied, applied.dropped))
+        outcomes.append(TableOutcome(table.name, status, "", applied.applied, applied.dropped, response.data))
     return _finish(workspace, ontology, order, outcomes, stopped, [])
 
 
@@ -392,7 +394,8 @@ def run(workspace: Workspace, reader: CatalogReader, scope: Scope, gold: Path | 
                 "outcomes": dict(sorted(Counter(o.status for o in refined.outcomes).items())),
                 "order": list(refined.order),
                 "tables": [{"table": o.table, "status": o.status, "detail": o.detail, "applied": list(o.applied),
-                            "dropped": [{"item": d.item, "reason": d.reason} for d in o.dropped]}
+                            "dropped": [{"item": d.item, "reason": d.reason} for d in o.dropped],
+                            "answer": o.answer}
                            for o in refined.outcomes],
             })
     report = None

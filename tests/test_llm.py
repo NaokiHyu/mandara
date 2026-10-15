@@ -211,9 +211,9 @@ def test_claude_answers_through_the_tool() -> None:
     response = model.ask(_request())
     assert (response.data, response.usage) == ({"ok": True}, Usage(40, 7))
     counted, sent = messages.calls[0], messages.calls[-1]
-    assert sent["tool_choice"] == {"type": "tool", "name": "answer"} and sent["temperature"] == 0
-    # 数えた問いと送った問いが同じ（違うのは出力の上限と温度だけ）
-    assert {k: v for k, v in sent.items() if k not in ("max_tokens", "temperature")} == counted
+    assert sent["tool_choice"] == {"type": "tool", "name": "answer"}
+    # 数えた問いと送った問いが同じ（違うのは出力の上限だけ）
+    assert {k: v for k, v in sent.items() if k != "max_tokens"} == counted
 
 
 @pytest.mark.parametrize(("reply", "reason"), [

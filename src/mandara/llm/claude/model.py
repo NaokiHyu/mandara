@@ -4,7 +4,8 @@ Adapter 層。SDK の型・例外はこのファイルの外に出さない。
 - 構造化された答えは、答え専用の道具（answer）を1つだけ渡して使わせる（tool_choice で強制）。道具の入力が答え
 - 途中で切れた（max_tokens）、道具を使わなかった、は InvalidOutputError。黙ってリトライしない
 - SDK の例外は LlmError に変換し、原因を保持する
-- 温度は 0（同じ問いに、なるべく同じ答え）
+- 温度は指定しない（この SDK の版の Messages.create は temperature を受け付けない）。同じ問いに同じ答えが返る保証は無いので、
+  答えは実行の記録に残す
 """
 
 from collections.abc import Mapping
@@ -64,7 +65,7 @@ class ClaudeModel:
     def ask(self, request: StructuredRequest) -> StructuredResponse:
         try:
             message = self._client.messages.create(
-                **self._arguments(request), max_tokens=request.max_output_tokens, temperature=0)
+                **self._arguments(request), max_tokens=request.max_output_tokens)
         except anthropic.APIError as e:
             raise LlmError(f"Claude を呼べなかった（{request.purpose}）: {e}", e) from e
         u = message.usage
