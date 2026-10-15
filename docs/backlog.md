@@ -51,7 +51,7 @@
 | [T3.2](tasks/T3.2-modeler-v1.md) | モデラー v1（列ドメイン、表種別、grain、役割、is-a、enum ラベル、単位） | 完了 | T3.1, T2.* |
 | [T3.3](tasks/T3.3-conflicts.md) | 証拠の衝突の検出と問い化 | 未着手 | T3.2 |
 | [T3.4](tasks/T3.4-hide-truth-eval.md) | 正解隠蔽テスト | 未着手 | T3.2 |
-| [T3.5](tasks/T3.5-review-ui.md) | レビュー画面（問いの形式、束で承認、衝突の選択） | 未着手 | T1.7, T1.8 |
+| [T3.5](tasks/T3.5-review-ui.md) | レビュー画面（問いの形式、束で承認、衝突の選択） | 完了（第一弾。予告と衝突の選択は後続） | T1.7, T1.8 |
 | [T3.6](tasks/T3.6-durable-claims.md) | レビューの回答と LLM の主張の保存方針 | 未着手 | T3.2 |
 
 ## 段 4：コードを掘る

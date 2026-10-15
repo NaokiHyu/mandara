@@ -1,6 +1,6 @@
 // UI のスモークテスト：ヘッドレスの Chrome（DevTools Protocol）で画面を開き、
 //   - ブラウザのコンソールのエラー・例外、読み込みの失敗が1つでもあれば失敗
-//   - 画面ごとに、見えているべきものが見えているかを確かめる
+//   - 画面ごとに、見えているべきものが見えているかを確かめる。操作（act）があれば、その後の状態（after）も
 // 画像だけでは「空の地図」が正常に見えてしまう（Worker の読み込み失敗を見逃した）ので、コンソールで判定する。
 // 使い方: node scripts/ui_smoke.mjs BASE_URL [OUT_DIR]（OUT_DIR があれば画面の画像を書く）
 // 環境変数 CHROME で Chrome の場所を変えられる。
@@ -24,6 +24,24 @@ const CASES = [
     expect: "document.querySelector('.map canvas') !== null && /person\\.address\\.spatiallocation · 19,614 points/.test(document.querySelector('.map-status')?.textContent ?? '')" },
   { name: "unknown view", query: "?ontology=gold:adventureworks&view=nope",
     expect: "/表示 nope は無い/.test(document.body.textContent ?? '') && document.querySelector('.graph canvas') !== null" },
+  // レビュー（使い捨ての作業領域。scripts/check.sh が --reviewer smoke で立てる）：答えると書かれ、問いが1つ減る
+  { name: "review answer", query: "?ontology=work:adventureworks&view=review",
+    expect: "document.querySelector('.card .question') !== null && !document.querySelector('.banner.warn')",
+    act: "window.__pending = Number(document.querySelector('.review-queue .count').textContent.replace(/,/g, '')); " +
+         "window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n' }))",
+    after: "Number(document.querySelector('.review-queue .count')?.textContent.replace(/,/g, '')) === window.__pending - 1" },
+  // 一括承認：一覧を見てから承認すると、候補が無くなる
+  { name: "review bulk", query: "?ontology=work:adventureworks&view=review",
+    expect: "document.querySelector('.banner.bulk button') !== null",
+    act: "document.querySelector('.banner.bulk button').click()",
+    then: "document.querySelector('.bulk-panel footer .approve')",
+    thenAct: "document.querySelector('.bulk-panel footer .approve').click()",
+    after: "document.querySelector('.banner.bulk') === null && document.querySelector('.card .question') !== null" },
+  // 承認した結果が、オントロジーの画面（表の詳細）に出る
+  { name: "approved in ontology", query: "?ontology=work:adventureworks&view=list",
+    expect: "document.querySelectorAll('.contexts .table').length > 0",
+    act: "document.querySelector('.contexts .table').click()",
+    after: "document.querySelectorAll('.detail tr.status-approved').length > 0" },
 ];
 
 // DevTools のポートは Chrome に選ばせ（0）、プロファイルの DevToolsActivePort から読む（使用中のポートと衝突しない）
@@ -84,6 +102,24 @@ try {
       await sleep(250);
       const r = await send("Runtime.evaluate", { expression: c.expect, returnByValue: true });
       ok = r?.result?.value === true;
+    }
+    if (ok && c.act) {
+      await send("Runtime.evaluate", { expression: c.act });
+      if (c.then) { // 次の操作の対象が現れるまで待ってから操作する（時間で待たない）
+        ok = false;
+        for (let i = 0; i < 40 && !ok; i++) {
+          await sleep(250);
+          const r = await send("Runtime.evaluate", { expression: `(${c.then}) !== null`, returnByValue: true });
+          ok = r?.result?.value === true;
+        }
+        if (ok) await send("Runtime.evaluate", { expression: c.thenAct });
+      }
+      ok = false;
+      for (let i = 0; i < 40 && !ok; i++) {
+        await sleep(250);
+        const r = await send("Runtime.evaluate", { expression: c.after, returnByValue: true });
+        ok = r?.result?.value === true;
+      }
     }
     await sleep(500); // 描画の後に出るエラーも拾う
     if (outDir) {

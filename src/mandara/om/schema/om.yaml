@@ -213,6 +213,19 @@ enums:
         description: 提案した OM（work/<source>/ontology）
       gold:
         description: 正解 OM
+  ReviewSubject:
+    description: レビューの問いが判断するもの（注釈を持つクラス）
+    permissible_values:
+      table:
+      relation:
+      edge:
+      column:
+      enum_value:
+  ReviewDecision:
+    description: レビューの答え（仕様 9.3）。「別の意味」は T3.6
+    permissible_values:
+      approve:
+      reject:
   IsARealization:
     description: >-
       論理的な is-a が、ソースでどう実装されているか（C3）。
@@ -601,6 +614,109 @@ classes:
         required: true
         inlined: true
         inlined_as_list: true
+
+  ReviewQueue:
+    tree_root: true
+    description: >-
+      レビューの問いの列（仕様 9.3）。並びは影響の大きい順。プロセス境界（HTTP API → UI）で受け渡す形
+    attributes:
+      ontology:
+        description: 見られる OM の ID
+        required: true
+      pending:
+        description: まだ判断されていない提案の数（= questions の数）
+        range: integer
+        required: true
+        minimum_value: 0
+      questions:
+        range: ReviewQuestion
+        multivalued: true
+        required: true
+        inlined: true
+        inlined_as_list: true
+      writable:
+        description: この API で答えを書けるか
+        range: boolean
+        required: true
+      not_writable_reason:
+        description: 書けないときの理由（writable が false のときだけ）
+      reviewer:
+        description: 書くときの reviewed_by（writable のときだけ）
+      bulk_minimum:
+        description: 一括承認の閾値の下限
+        range: float
+        required: true
+
+  ReviewQuestion:
+    attributes:
+      location:
+        description: 答えを当てる注釈の場所（Ontology.annotations() の場所）
+        required: true
+      table:
+        description: 問いの属する表の安定 ID（語彙の enum の値の問いには無い）
+      subject:
+        range: ReviewSubject
+        required: true
+      text:
+        required: true
+      confidence:
+        range: float
+        minimum_value: 0.0
+        maximum_value: 1.0
+      evidence:
+        description: 根拠（仕様 9.3：3行まで）
+        range: EvidenceLine
+        multivalued: true
+        required: true
+        inlined: true
+        inlined_as_list: true
+      evidence_total:
+        description: 根拠の主張の数（evidence に出さなかったものを含む）
+        range: integer
+        required: true
+        minimum_value: 0
+      needs_kind:
+        description: 承認するには表の種類を選ぶ
+        range: boolean
+        required: true
+      bulk_candidate:
+        description: 一括承認の候補（確信度が bulk_minimum 以上で、種類を選ばなくてよい）
+        range: boolean
+        required: true
+
+  EvidenceLine:
+    attributes:
+      id:
+        description: 主張 ID
+        required: true
+      text:
+        description: 人が読める1行
+        required: true
+
+  ReviewAnswer:
+    tree_root: true
+    description: 1つの問いへの答え。プロセス境界（UI → HTTP API）で受け渡す形
+    attributes:
+      location:
+        required: true
+      decision:
+        range: ReviewDecision
+        required: true
+      kind:
+        description: 種類が未決の表を承認するときに選んだ種類
+        range: TableKind
+
+  BulkApproval:
+    tree_root: true
+    description: 一覧で見せた候補の一括承認（仕様 9.3）。プロセス境界（UI → HTTP API）で受け渡す形
+    attributes:
+      threshold:
+        range: float
+        required: true
+      locations:
+        description: 見せた候補の場所。今も候補のままであることを確かめてから承認する
+        multivalued: true
+        required: true
 
   PointSet:
     tree_root: true

@@ -22,8 +22,13 @@ for port in 8765 4173; do
   fi
 done
 LOGS=$(mktemp -d)
+# スモークはレビューの答えを実際に書くので、使い捨ての作業領域（規則だけの提案。LLM なし）で立てる。work/ には触らない
+SMOKE_WORK="$LOGS/work"
+uv run mandara run --source adventureworks --work "$SMOKE_WORK" --conninfo dbname=adventureworks \
+  --schema humanresources --schema person --schema production --schema purchasing --schema sales >"$LOGS/run.log" 2>&1 \
+  || { echo "スモークの作業領域を作れない" >&2; cat "$LOGS/run.log" >&2; exit 1; }
 set -m  # バックグラウンドの各ジョブを別のプロセスグループにし、子・孫ごと止められるようにする
-uv run mandara serve --gold adventureworks=evals/datasets/adventureworks/gold/ontology \
+uv run mandara serve --work "$SMOKE_WORK" --reviewer smoke --gold adventureworks=evals/datasets/adventureworks/gold/ontology \
   --connect adventureworks dbname=adventureworks --port 8765 >"$LOGS/serve.log" 2>&1 &
 SERVE=$!
 (cd ui && exec pnpm vite preview --port 4173 --strictPort --host 127.0.0.1) >"$LOGS/preview.log" 2>&1 &

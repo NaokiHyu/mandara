@@ -109,6 +109,28 @@
             "title": "Annotation",
             "type": "object"
         },
+        "BulkApproval": {
+            "additionalProperties": false,
+            "description": "\u4e00\u89a7\u3067\u898b\u305b\u305f\u5019\u88dc\u306e\u4e00\u62ec\u627f\u8a8d\uff08\u4ed5\u69d8 9.3\uff09\u3002\u30d7\u30ed\u30bb\u30b9\u5883\u754c\uff08UI \u2192 HTTP API\uff09\u3067\u53d7\u3051\u6e21\u3059\u5f62",
+            "properties": {
+                "locations": {
+                    "description": "\u898b\u305b\u305f\u5019\u88dc\u306e\u5834\u6240\u3002\u4eca\u3082\u5019\u88dc\u306e\u307e\u307e\u3067\u3042\u308b\u3053\u3068\u3092\u78ba\u304b\u3081\u3066\u304b\u3089\u627f\u8a8d\u3059\u308b",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "threshold": {
+                    "type": "number"
+                }
+            },
+            "required": [
+                "threshold",
+                "locations"
+            ],
+            "title": "BulkApproval",
+            "type": "object"
+        },
         "Cardinality": {
             "description": "",
             "enum": [
@@ -820,6 +842,26 @@
             "title": "EnumValue",
             "type": "object"
         },
+        "EvidenceLine": {
+            "additionalProperties": false,
+            "description": "",
+            "properties": {
+                "id": {
+                    "description": "\u4e3b\u5f35 ID",
+                    "type": "string"
+                },
+                "text": {
+                    "description": "\u4eba\u304c\u8aad\u3081\u308b1\u884c",
+                    "type": "string"
+                }
+            },
+            "required": [
+                "id",
+                "text"
+            ],
+            "title": "EvidenceLine",
+            "type": "object"
+        },
         "GeoPointRow": {
             "additionalProperties": false,
             "description": "",
@@ -1237,6 +1279,158 @@
             "title": "RelationType",
             "type": "string"
         },
+        "ReviewAnswer": {
+            "additionalProperties": false,
+            "description": "1\u3064\u306e\u554f\u3044\u3078\u306e\u7b54\u3048\u3002\u30d7\u30ed\u30bb\u30b9\u5883\u754c\uff08UI \u2192 HTTP API\uff09\u3067\u53d7\u3051\u6e21\u3059\u5f62",
+            "properties": {
+                "decision": {
+                    "$ref": "#/$defs/ReviewDecision"
+                },
+                "kind": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/TableKind"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "\u7a2e\u985e\u304c\u672a\u6c7a\u306e\u8868\u3092\u627f\u8a8d\u3059\u308b\u3068\u304d\u306b\u9078\u3093\u3060\u7a2e\u985e"
+                },
+                "location": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "location",
+                "decision"
+            ],
+            "title": "ReviewAnswer",
+            "type": "object"
+        },
+        "ReviewDecision": {
+            "description": "\u30ec\u30d3\u30e5\u30fc\u306e\u7b54\u3048\uff08\u4ed5\u69d8 9.3\uff09\u3002\u300c\u5225\u306e\u610f\u5473\u300d\u306f T3.6",
+            "enum": [
+                "approve",
+                "reject"
+            ],
+            "title": "ReviewDecision",
+            "type": "string"
+        },
+        "ReviewQuestion": {
+            "additionalProperties": false,
+            "description": "",
+            "properties": {
+                "bulk_candidate": {
+                    "description": "\u4e00\u62ec\u627f\u8a8d\u306e\u5019\u88dc\uff08\u78ba\u4fe1\u5ea6\u304c bulk_minimum \u4ee5\u4e0a\u3067\u3001\u7a2e\u985e\u3092\u9078\u3070\u306a\u304f\u3066\u3088\u3044\uff09",
+                    "type": "boolean"
+                },
+                "confidence": {
+                    "maximum": 1.0,
+                    "minimum": 0.0,
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                },
+                "evidence": {
+                    "description": "\u6839\u62e0\uff08\u4ed5\u69d8 9.3\uff1a3\u884c\u307e\u3067\uff09",
+                    "items": {
+                        "$ref": "#/$defs/EvidenceLine"
+                    },
+                    "type": "array"
+                },
+                "evidence_total": {
+                    "description": "\u6839\u62e0\u306e\u4e3b\u5f35\u306e\u6570\uff08evidence \u306b\u51fa\u3055\u306a\u304b\u3063\u305f\u3082\u306e\u3092\u542b\u3080\uff09",
+                    "minimum": 0,
+                    "type": "integer"
+                },
+                "location": {
+                    "description": "\u7b54\u3048\u3092\u5f53\u3066\u308b\u6ce8\u91c8\u306e\u5834\u6240\uff08Ontology.annotations() \u306e\u5834\u6240\uff09",
+                    "type": "string"
+                },
+                "needs_kind": {
+                    "description": "\u627f\u8a8d\u3059\u308b\u306b\u306f\u8868\u306e\u7a2e\u985e\u3092\u9078\u3076",
+                    "type": "boolean"
+                },
+                "subject": {
+                    "$ref": "#/$defs/ReviewSubject"
+                },
+                "table": {
+                    "description": "\u554f\u3044\u306e\u5c5e\u3059\u308b\u8868\u306e\u5b89\u5b9a ID\uff08\u8a9e\u5f59\u306e enum \u306e\u5024\u306e\u554f\u3044\u306b\u306f\u7121\u3044\uff09",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "text": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "location",
+                "subject",
+                "text",
+                "evidence",
+                "evidence_total",
+                "needs_kind",
+                "bulk_candidate"
+            ],
+            "title": "ReviewQuestion",
+            "type": "object"
+        },
+        "ReviewQueue": {
+            "additionalProperties": false,
+            "description": "\u30ec\u30d3\u30e5\u30fc\u306e\u554f\u3044\u306e\u5217\uff08\u4ed5\u69d8 9.3\uff09\u3002\u4e26\u3073\u306f\u5f71\u97ff\u306e\u5927\u304d\u3044\u9806\u3002\u30d7\u30ed\u30bb\u30b9\u5883\u754c\uff08HTTP API \u2192 UI\uff09\u3067\u53d7\u3051\u6e21\u3059\u5f62",
+            "properties": {
+                "bulk_minimum": {
+                    "description": "\u4e00\u62ec\u627f\u8a8d\u306e\u95be\u5024\u306e\u4e0b\u9650",
+                    "type": "number"
+                },
+                "not_writable_reason": {
+                    "description": "\u66f8\u3051\u306a\u3044\u3068\u304d\u306e\u7406\u7531\uff08writable \u304c false \u306e\u3068\u304d\u3060\u3051\uff09",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "ontology": {
+                    "description": "\u898b\u3089\u308c\u308b OM \u306e ID",
+                    "type": "string"
+                },
+                "pending": {
+                    "description": "\u307e\u3060\u5224\u65ad\u3055\u308c\u3066\u3044\u306a\u3044\u63d0\u6848\u306e\u6570\uff08= questions \u306e\u6570\uff09",
+                    "minimum": 0,
+                    "type": "integer"
+                },
+                "questions": {
+                    "items": {
+                        "$ref": "#/$defs/ReviewQuestion"
+                    },
+                    "type": "array"
+                },
+                "reviewer": {
+                    "description": "\u66f8\u304f\u3068\u304d\u306e reviewed_by\uff08writable \u306e\u3068\u304d\u3060\u3051\uff09",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "writable": {
+                    "description": "\u3053\u306e API \u3067\u7b54\u3048\u3092\u66f8\u3051\u308b\u304b",
+                    "type": "boolean"
+                }
+            },
+            "required": [
+                "ontology",
+                "pending",
+                "questions",
+                "writable",
+                "bulk_minimum"
+            ],
+            "title": "ReviewQueue",
+            "type": "object"
+        },
         "ReviewStatus": {
             "description": "\u6ce8\u91c8\u306e\u30ec\u30d3\u30e5\u30fc\u72b6\u614b\uff084.4\uff09",
             "enum": [
@@ -1245,6 +1439,18 @@
                 "rejected"
             ],
             "title": "ReviewStatus",
+            "type": "string"
+        },
+        "ReviewSubject": {
+            "description": "\u30ec\u30d3\u30e5\u30fc\u306e\u554f\u3044\u304c\u5224\u65ad\u3059\u308b\u3082\u306e\uff08\u6ce8\u91c8\u3092\u6301\u3064\u30af\u30e9\u30b9\uff09",
+            "enum": [
+                "table",
+                "relation",
+                "edge",
+                "column",
+                "enum_value"
+            ],
+            "title": "ReviewSubject",
             "type": "string"
         },
         "SourceEncoding": {

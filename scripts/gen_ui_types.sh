@@ -4,6 +4,7 @@
 #   - om.schema.json    … OntologyDocument の JSON Schema（gen-json-schema）。UI は API の応答をこれで検証する
 #   - index.schema.json … OntologyIndex（見られる OM の一覧）の JSON Schema
 #   - points.schema.json … PointSet（地図の点）の JSON Schema
+#   - review.schema.json … ReviewQueue（レビューの問いの列）の JSON Schema
 # 使い方: scripts/gen_ui_types.sh [出力ディレクトリ]（既定 ui/src/om）
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -19,3 +20,4 @@ mkdir -p "$OUT_DIR"
 (cd "$ROOT" && uv run gen-json-schema --top-class OntologyDocument "$SCHEMA_REL") | sed "s|$ROOT/||g" > "$OUT_DIR/om.schema.json"
 (cd "$ROOT" && uv run gen-json-schema --top-class OntologyIndex "$SCHEMA_REL") | sed "s|$ROOT/||g" > "$OUT_DIR/index.schema.json"
 (cd "$ROOT" && uv run gen-json-schema --top-class PointSet "$SCHEMA_REL") | sed "s|$ROOT/||g" > "$OUT_DIR/points.schema.json"
+(cd "$ROOT" && uv run gen-json-schema --top-class ReviewQueue "$SCHEMA_REL") | sed "s|$ROOT/||g" > "$OUT_DIR/review.schema.json"

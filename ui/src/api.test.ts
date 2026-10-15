@@ -4,7 +4,7 @@
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { ApiError, parseDocument, parseIndex } from "./api";
+import { ApiError, parseDocument, parseIndex, parseReview } from "./api";
 
 const repo = fileURLToPath(new URL("../..", import.meta.url));
 
@@ -13,6 +13,7 @@ interface Samples {
   gold: unknown;
   gold_tables: number;
   index: unknown;
+  reviews: unknown[];
 }
 
 const samples = JSON.parse(
@@ -35,6 +36,12 @@ describe("契約：Python の出力を UI の検証器が受け入れる", () =>
 
   it("見られる OM の一覧", () => {
     expect(parseIndex(samples.index).ontologies[0]?.kind).toBe("gold");
+  });
+
+  it("レビューの問いの列（書ける・書けない の両方）", () => {
+    const queues = samples.reviews.map((r) => parseReview(r));
+    expect(queues.some((q) => q.writable) && queues.some((q) => !q.writable)).toBe(true);
+    expect(queues.reduce((n, q) => n + q.questions.length, 0)).toBeGreaterThan(0);
   });
 });
 

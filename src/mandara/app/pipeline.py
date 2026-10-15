@@ -50,7 +50,7 @@ from mandara.omstore.yaml_store import (
     write_ontology,
     write_reviewed_ontology,
 )
-from mandara.review.decisions import Approve, Decision, Question, apply, questions
+from mandara.review.decisions import Approve, Decision, Question, apply, is_bulk_candidate, questions
 from mandara.source.catalog import CatalogReader, Scope
 from mandara.source.rows import ColumnReader
 from mandara.source.values import GeoPoint
@@ -362,8 +362,7 @@ def bulk_candidates(workspace: Workspace, threshold: float) -> list[Question]:
     """
     if not BULK_MINIMUM <= threshold <= 1.0:
         raise BulkThresholdError(f"一括承認の閾値は {BULK_MINIMUM} 以上 1 以下（指定 {threshold}）。下げてよいかは未決（仕様 15.2）")
-    return [q for q in questions(load_ontology(workspace.ontology))
-            if q.confidence is not None and q.confidence >= threshold and not q.needs_kind]
+    return [q for q in questions(load_ontology(workspace.ontology)) if is_bulk_candidate(q, threshold)]
 
 
 def bulk_approve(workspace: Workspace, locations: Sequence[str], threshold: float, reviewer: str, on: date) -> int:

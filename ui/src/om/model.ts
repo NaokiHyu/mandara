@@ -218,6 +218,25 @@ export enum OntologySourceKind {
     gold = "gold",
 };
 /**
+* レビューの問いが判断するもの（注釈を持つクラス）
+*/
+export enum ReviewSubject {
+    
+    table = "table",
+    relation = "relation",
+    edge = "edge",
+    column = "column",
+    enum_value = "enum_value",
+};
+/**
+* レビューの答え（仕様 9.3）。「別の意味」は T3.6
+*/
+export enum ReviewDecision {
+    
+    approve = "approve",
+    reject = "reject",
+};
+/**
 * 論理的な is-a が、ソースでどう実装されているか（C3）。 具体例のあるものだけを置く。排他的な参照・区分列は AW で裏付けが取れていないので未定義
 */
 export enum IsARealization {
@@ -468,6 +487,76 @@ export interface OntologyListing {
 export interface OntologyDocument {
     vocabulary: Vocabulary,
     tables: Table[],
+}
+
+
+/**
+ * レビューの問いの列（仕様 9.3）。並びは影響の大きい順。プロセス境界（HTTP API → UI）で受け渡す形
+ */
+export interface ReviewQueue {
+    /** 見られる OM の ID */
+    ontology: string,
+    /** まだ判断されていない提案の数（= questions の数） */
+    pending: number,
+    questions: ReviewQuestion[],
+    /** この API で答えを書けるか */
+    writable: boolean,
+    /** 書けないときの理由（writable が false のときだけ） */
+    not_writable_reason?: string,
+    /** 書くときの reviewed_by（writable のときだけ） */
+    reviewer?: string,
+    /** 一括承認の閾値の下限 */
+    bulk_minimum: number,
+}
+
+
+
+export interface ReviewQuestion {
+    /** 答えを当てる注釈の場所（Ontology.annotations() の場所） */
+    location: string,
+    /** 問いの属する表の安定 ID（語彙の enum の値の問いには無い） */
+    table?: string,
+    subject: string,
+    text: string,
+    confidence?: number,
+    /** 根拠（仕様 9.3：3行まで） */
+    evidence: EvidenceLine[],
+    /** 根拠の主張の数（evidence に出さなかったものを含む） */
+    evidence_total: number,
+    /** 承認するには表の種類を選ぶ */
+    needs_kind: boolean,
+    /** 一括承認の候補（確信度が bulk_minimum 以上で、種類を選ばなくてよい） */
+    bulk_candidate: boolean,
+}
+
+
+
+export interface EvidenceLine {
+    /** 主張 ID */
+    id: string,
+    /** 人が読める1行 */
+    text: string,
+}
+
+
+/**
+ * 1つの問いへの答え。プロセス境界（UI → HTTP API）で受け渡す形
+ */
+export interface ReviewAnswer {
+    location: string,
+    decision: string,
+    /** 種類が未決の表を承認するときに選んだ種類 */
+    kind?: string,
+}
+
+
+/**
+ * 一覧で見せた候補の一括承認（仕様 9.3）。プロセス境界（UI → HTTP API）で受け渡す形
+ */
+export interface BulkApproval {
+    threshold: number,
+    /** 見せた候補の場所。今も候補のままであることを確かめてから承認する */
+    locations: string[],
 }
 
 

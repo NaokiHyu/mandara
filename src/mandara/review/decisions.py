@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from mandara.om.invariants import check
-from mandara.om.model import Column, Edge, EnumValue, Relation, ReviewStatus, Table, TableKind
+from mandara.om.model import Column, Edge, EnumValue, Relation, ReviewStatus, ReviewSubject, Table, TableKind
 from mandara.om.names import split_qualified
 from mandara.om.ontology import SELF, Annotated, Ontology
 
@@ -25,15 +25,27 @@ KIND_LABELS = {
 }
 
 
+EVIDENCE_LINES = 3
+"""問いに添える根拠の行数の上限（仕様 9.3）。"""
+
+
 @dataclass(frozen=True)
 class Question:
     location: str
     """Ontology.annotations() の場所。答えを当てる先。"""
+    table: str | None
+    """問いの属する表の安定 ID。語彙の enum の値には無い。"""
+    subject: ReviewSubject
     text: str
     confidence: float | None
     evidence: tuple[str, ...]
     needs_kind: bool
     """承認するには表の種類を選ぶ必要がある。"""
+
+    @property
+    def evidence_shown(self) -> tuple[str, ...]:
+        """問いに添える根拠（3行まで）。"""
+        return self.evidence[:EVIDENCE_LINES]
 
 
 @dataclass(frozen=True)
@@ -70,32 +82,57 @@ def questions(ontology: Ontology) -> list[Question]:
     return [_question(where, a, ontology, names) for where, a in sorted(pending, key=order)]
 
 
+def is_bulk_candidate(question: Question, threshold: float) -> bool:
+    """一括承認の候補（仕様 9.3）：確信度が閾値以上で、承認に種類を選ぶ必要が無い。"""
+    return question.confidence is not None and question.confidence >= threshold and not question.needs_kind
+
+
 def _question(where: str, annotation: Annotated, ontology: Ontology, names: dict[str, str]) -> Question:
     needs_kind = False
+    table_id: str | None = _table_id(where)
     match annotation:
         case Table(kind=None):
-            text = f"表 {annotation.name} の種類はどれですか？"
+            subject, text = ReviewSubject.table, f"表 {annotation.name} の種類はどれですか？"
             needs_kind = True
         case Table(kind=str() as kind):
-            text = f"表 {annotation.name} は {KIND_LABELS.get(kind, kind)} ですか？"
+            subject, text = ReviewSubject.table, f"表 {annotation.name} は {KIND_LABELS.get(kind, kind)} ですか？"
         case Relation():
             table = _owner(where, ontology)
             target = table.name if annotation.target == SELF else names.get(annotation.target, annotation.target)
             pairs = ", ".join(f"{p.from_} → {p.to}" for p in annotation.via or [])
             via = f"（{pairs}）" if pairs else (f"（{annotation.via_function}）" if annotation.via_function else "")
+            role = f"（役割 {annotation.role}）" if annotation.role else ""
             verb = {"has": "参照しますか", "part-of": "の部分ですか", "is-a": "の一種ですか",
                     "classified-as": "に分類されますか", "derived-from": "から導出されますか"}.get(annotation.type, "")
-            text = f"{_short(table.name)} は {_short(target)} {verb}？{via}"
+            subject, text = ReviewSubject.relation, f"{_short(table.name)} は {_short(target)} {verb}？{role}{via}"
         case Edge():
-            text = f"表 {_owner(where, ontology).name} の行は、{annotation.type} の辺ですか？"
+            subject, text = ReviewSubject.edge, f"表 {_owner(where, ontology).name} の行は、{annotation.type} の辺ですか？"
         case Column():
-            text = f"列 {_owner(where, ontology).name}.{annotation.name} を OM に含めますか？"
+            subject, text = ReviewSubject.column, _column_text(_owner(where, ontology), annotation, ontology)
         case EnumValue():
             domain = split_qualified(where)[1]
-            text = f"列ドメイン {domain} の値 {annotation.code} は「{annotation.label}」ですか？"
+            table_id = None
+            subject, text = ReviewSubject.enum_value, f"列ドメイン {domain} の値 {annotation.code} は「{annotation.label}」ですか？"
         case _:
             raise AssertionError(f"想定外の注釈: {type(annotation).__name__}")
-    return Question(where, text, annotation.confidence, tuple(annotation.evidence or []), needs_kind)
+    return Question(where, table_id, subject, text, annotation.confidence, tuple(annotation.evidence or []),
+                    needs_kind)
+
+
+def _column_text(table: Table, column: Column, ontology: Ontology) -> str:
+    """ドメインが付いていれば、その意味（型、説明、単位）を問う。無ければ列を OM に含めるかを問う。"""
+    name = f"{table.name}.{column.name}"
+    if column.domain is None:
+        return f"列 {name} を OM に含めますか？"
+    domain = (ontology.vocabulary.column_domains or {}).get(column.domain)
+    if domain is None:
+        raise AssertionError(f"検証済みの OM で、列のドメインが語彙に無い: {name} {column.domain}")
+    meaning = f"{domain.type}：{domain.description}" if domain.description else str(domain.type)
+    unit = ""
+    if column.unit is not None:
+        unit = f"、単位 {column.unit.fixed}" if column.unit.fixed else f"、単位は列 {column.unit.column}"
+    return f"列 {name} は {column.domain}（{meaning}{unit}）ですか？"
+
 
 
 def _short(name: str) -> str:

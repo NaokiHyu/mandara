@@ -4,6 +4,7 @@ import type { OntologyDocument, OntologyListing, Table } from "./om/model";
 import { geoColumns, type GeoColumn } from "./geo";
 import { contextColor, GraphView } from "./GraphView";
 import { shortName, toGraph } from "./graph";
+import { ReviewView } from "./ReviewView";
 import { TableDetail } from "./TableDetail";
 import { asKind, KIND } from "./vocabulary";
 import "./App.css";
@@ -13,8 +14,8 @@ type Load<T> = { state: "loading" } | { state: "ok"; value: T } | { state: "erro
 // 地図（MapLibre）は大きいので、地図を開いたときに読む
 const MapView = lazy(() => import("./MapView").then((m) => ({ default: m.MapView })));
 
-type View = "graph" | "list" | "map";
-const VIEWS: readonly View[] = ["graph", "list", "map"];
+type View = "graph" | "list" | "map" | "review";
+const VIEWS: readonly View[] = ["graph", "list", "map", "review"];
 
 /** URL（?ontology=…&table=…&view=…）で、どの OM のどの表をどう見ているかを表す。開き直しても、共有しても同じものが見える。
  *  view が無ければ graph。知らない view は、黙って置き換えずに伝える（unknownView）。 */
@@ -47,6 +48,7 @@ export function App() {
   const [unknownView] = useState(() => readUrl().unknownView);
   const [table, setTable] = useState<string | null>(() => readUrl().table);
   const select = useCallback((id: string | null) => setTable(id), []);
+  const openTable = useCallback((id: string) => { setTable(id); setView("graph"); }, []);
 
   useEffect(() => writeUrl(selected, table, view), [selected, table, view]);
 
@@ -64,6 +66,15 @@ export function App() {
   useEffect(() => {
     if (selected === null) return;
     setDoc({ state: "loading" });
+    getOntology(selected).then(
+      (value) => setDoc({ state: "ok", value }),
+      (error: unknown) => setDoc({ state: "error", error }),
+    );
+  }, [selected]);
+
+  // レビューで書いた後に読み直す。読み直しの間も今の画面（レビューの状態）は残す
+  const refresh = useCallback(() => {
+    if (selected === null) return;
     getOntology(selected).then(
       (value) => setDoc({ state: "ok", value }),
       (error: unknown) => setDoc({ state: "error", error }),
@@ -101,7 +112,8 @@ export function App() {
         {doc?.state === "error" && <Failure error={doc.error} />}
         {doc?.state === "loading" && <p className="dim">loading…</p>}
         {doc?.state === "ok" && (
-          <Workspace ontologyId={requireSelected(selected)} doc={doc.value} view={view} table={table} onSelect={select} />
+          <Workspace ontologyId={requireSelected(selected)} doc={doc.value} view={view} table={table} onSelect={select}
+                     onChanged={refresh} onOpenTable={openTable} />
         )}
       </main>
     </div>
@@ -114,12 +126,14 @@ function requireSelected(selected: string | null): string {
   return selected;
 }
 
-function Workspace({ ontologyId, doc, view, table, onSelect }: {
+function Workspace({ ontologyId, doc, view, table, onSelect, onChanged, onOpenTable }: {
   ontologyId: string;
   doc: OntologyDocument;
   view: View;
   table: string | null;
   onSelect: (id: string | null) => void;
+  onChanged: () => void;
+  onOpenTable: (id: string) => void;
 }) {
   const graph = useMemo((): Load<ReturnType<typeof toGraph>> => {
     try {
@@ -131,6 +145,9 @@ function Workspace({ ontologyId, doc, view, table, onSelect }: {
   const current = doc.tables.find((t) => t.id === table);
   const contexts = useMemo(() => [...new Set(doc.tables.map((t) => t.context))].sort(), [doc]);
   const geo = useMemo(() => geoColumns(doc), [doc]);
+  if (view === "review") {
+    return <ReviewView ontologyId={ontologyId} doc={doc} onChanged={onChanged} onOpenTable={onOpenTable} />;
+  }
   return (
     <div className="workspace">
       <div className="canvas">
@@ -183,9 +200,10 @@ function Summary({ doc }: { doc: OntologyDocument }) {
   const tables = doc.tables;
   const relations = tables.reduce((n, t) => n + (t.relations?.length ?? 0), 0);
   const pending = tables.filter((t) => t.status === "proposed").length;
+  const approved = tables.filter((t) => t.status === "approved").length;
   return (
     <span className="dim">
-      {tables.length} tables · {relations} relations · {pending} pending
+      {tables.length} tables · {relations} relations · {approved} approved · {pending} pending
     </span>
   );
 }

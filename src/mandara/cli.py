@@ -131,12 +131,13 @@ def _parser() -> argparse.ArgumentParser:
                    help="確信度がこの値以上の提案を一覧で見せ、確認してから一括で承認する（0.95 以上）")
     p.set_defaults(handler=_review)
 
-    p = commands.add_parser("serve", help="UI のための HTTP API を立てる（読むだけ）")
+    p = commands.add_parser("serve", help="UI のための HTTP API を立てる（--reviewer があればレビューの答えを書ける）")
     p.add_argument("--work", type=Path, help="作業領域（work/<source>/ontology を出す。既定 work。指定したなら存在すること）")
     p.add_argument("--gold", action="append", default=[], metavar="NAME=DIR", help="正解 OM（繰り返し指定）")
     p.add_argument("--connect", nargs=2, action="append", default=[], metavar=("SOURCE", "CONNINFO"),
                    help="ソースの接続（地図の点などの実データを読む）。CONNINFO は libpq の接続文字列。繰り返し指定。"
                         "パスワードは書かない（ps で見える）。~/.pgpass か PGPASSFILE を使う")
+    p.add_argument("--reviewer", help="画面からのレビューの答えを、この名前で書く（reviewed_by）。無ければ答えは書けない")
     p.add_argument("--host", default="127.0.0.1", help="既定はこの機械の中だけ")
     p.add_argument("--port", type=int, default=8765)
     p.set_defaults(handler=_serve)
@@ -248,7 +249,7 @@ def _ask(out: TextIO, style: _Style, inp: TextIO, workspace: Workspace, queue: p
     """1つの問いを出して答えを当てる。"answered" / "skipped" / "stop" を返す。"""
     confidence = "" if q.confidence is None else style.dim(f"conf {q.confidence:.2f}")
     print(f"\n{style.dim(progress)}  {q.text}   {confidence}", file=out)
-    shown = q.evidence[:3]  # 根拠は3行まで（仕様 9.3）
+    shown = q.evidence_shown
     for j, claim_id in enumerate(shown):
         branch = "└" if j == len(shown) - 1 else "├"
         print(style.dim(f"   {branch} {queue.evidence[claim_id]}"), file=out)
@@ -290,7 +291,7 @@ def _review_summary(out: TextIO, style: _Style, answered: int, total: int) -> in
 def _serve(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
     import uvicorn
 
-    from mandara.api.server import create_app, discover
+    from mandara.api.server import Reviewing, create_app, discover
 
     gold: dict[str, Path] = {}
     for item in args.gold:
@@ -313,12 +314,17 @@ def _serve(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
         if name not in known:
             raise UsageError(f"--connect の SOURCE {name} は、どの OM の表のソースでもない（ある: {sorted(known)}）")
         readers[name] = PostgresColumnReader(conninfo)
+    if args.reviewer is not None and not args.reviewer.strip():
+        raise UsageError("--reviewer は空にしない")
+    reviewing = Reviewing(args.reviewer, lambda: _now().date()) if args.reviewer is not None else None
     print(f"{style.accent('◆ MANDARA')}  serving {len(sources)} ontologies on http://{args.host}:{args.port}", file=out)
+    print(style.dim(f"   review as {args.reviewer}" if reviewing else "   review: read only (--reviewer NAME to answer)"),
+          file=out)
     for s in sources:
         print(style.dim(f"   {s.id:<28} {s.root}"), file=out)
     for name in readers:
         print(style.dim(f"   connect {name}"), file=out)
-    uvicorn.run(create_app(sources, readers), host=args.host, port=args.port, log_level="warning")
+    uvicorn.run(create_app(sources, readers, reviewing), host=args.host, port=args.port, log_level="warning")
     return 0
 
 
