@@ -45,3 +45,14 @@ button, select {
 }
 
 ::selection { background: var(--accent); color: var(--bg); }
+
+/* コンテキストの色（抑えた色相。地の炭色の上で見分けられる程度） */
+:root {
+  --ctx-0: #c9a35a;
+  --ctx-1: #7fa7a0;
+  --ctx-2: #a58cb5;
+  --ctx-3: #8fae6e;
+  --ctx-4: #b98a7a;
+  --ctx-5: #7f95b8;
+  --line-strong: #4a5057;
+}
