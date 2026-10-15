@@ -15,13 +15,21 @@ from hypothesis import given, settings
 
 from mandara.api.server import create_app, discover, to_document
 from mandara.om.ontology import Ontology
+from mandara.omstore.yaml_store import load_ontology
 
 from tests.strategies import ontologies
 
 ROOT = Path(__file__).parent.parent
 GOLD = ROOT / "evals/datasets/adventureworks/gold/ontology"
-SCHEMA: dict[str, Any] = json.loads((ROOT / "ui/src/om/om.schema.json").read_text())
-VALIDATOR = jsonschema.validators.validator_for(SCHEMA)(SCHEMA)  # スキーマが宣言する版の検証器
+def _validator(name: str) -> Any:
+    """スキーマが宣言する版の検証器。format（date など）も検証する。"""
+    schema: dict[str, Any] = json.loads((ROOT / "ui/src/om" / name).read_text())
+    cls = jsonschema.validators.validator_for(schema)
+    return cls(schema, format_checker=cls.FORMAT_CHECKER)
+
+
+VALIDATOR = _validator("om.schema.json")
+INDEX_VALIDATOR = _validator("index.schema.json")
 
 
 @settings(max_examples=50)
@@ -47,12 +55,13 @@ def _client(tmp_path: Path) -> TestClient:
 def test_list_and_get(tmp_path: Path) -> None:
     client = _client(tmp_path)
     _, listed = _get(client, "/api/ontologies")
-    assert [(o["id"], o["kind"]) for o in listed] == [("work:copy", "work"), ("gold:adventureworks", "gold")]
+    assert [e.message for e in INDEX_VALIDATOR.iter_errors(listed)] == []
+    assert [(o["id"], o["kind"]) for o in listed["ontologies"]] == [("work:copy", "work"), ("gold:adventureworks", "gold")]
 
     status, document = _get(client, "/api/ontologies/gold:adventureworks")
     assert status == 200
     assert [e.message for e in VALIDATOR.iter_errors(document)] == []
-    assert len(document["tables"]) == 14
+    assert len(document["tables"]) == len(load_ontology(GOLD).tables)
 
 
 def test_unknown_ontology_is_404(tmp_path: Path) -> None:
@@ -65,3 +74,15 @@ def test_unreadable_ontology_is_500_with_reason(tmp_path: Path) -> None:
     (tmp_path / "work/copy/ontology/vocabulary.yaml").write_text("- not a mapping\n")
     status, body = _get(client, "/api/ontologies/work:copy")
     assert status == 500 and "最上位が辞書ではない" in body["error"]
+
+
+def test_dates_are_checked_by_the_contract() -> None:
+    document = to_document(load_ontology(GOLD))
+    document["tables"][0]["reviewed_at"] = "not-a-date"
+    assert any("date" in e.message for e in VALIDATOR.iter_errors(document))
+
+
+def test_foreign_host_is_refused(tmp_path: Path) -> None:
+    """DNS リバインディング：外部の名前で来た要求には答えない。"""
+    response = cast(Any, _client(tmp_path)).get("/api/ontologies", headers={"host": "evil.example"})
+    assert response.status_code == 400

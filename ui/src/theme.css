@@ -1,0 +1,47 @@
+/* 案 C「静かな司令室」：炭色の地、琥珀の文字、情報密度は高く、装飾は最小限。長時間見ても疲れない。
+   色・文字・間隔はすべてここのトークンで決め、部品は直接の値を持たない。 */
+:root {
+  --bg: #141618;
+  --panel: #1b1e21;
+  --panel-raised: #212529;
+  --line: #2c3136;
+  --text: #e6d9b8;
+  --text-strong: #ffcc66;
+  --text-dim: #8b8576;
+  --accent: #ffb020;
+  --ok: #9cc380;
+  --warn: #e0a84a;
+  --bad: #e2725b;
+
+  --font: "SF Mono", "JetBrains Mono", Menlo, ui-monospace, "Hiragino Sans", "Noto Sans JP", monospace;
+  --size: 12px;
+  --size-small: 11px;
+  --line-height: 1.45;
+  --gap: 8px;
+  --gap-small: 4px;
+  --radius: 2px;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; margin: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: var(--size);
+  line-height: var(--line-height);
+  -webkit-font-smoothing: antialiased;
+}
+
+button, select {
+  font: inherit;
+  color: inherit;
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 2px var(--gap);
+}
+
+::selection { background: var(--accent); color: var(--bg); }

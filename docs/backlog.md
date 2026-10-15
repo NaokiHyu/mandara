@@ -13,6 +13,7 @@
 ## 決まっていること
 | 日付 | 決定 |
 |---|---|
+| 2026-10-15 | UI の見た目は案 C「静かな司令室」、パッケージ管理は pnpm |
 | 2026-10-15 | UI は TypeScript + React + Vite。地図は MapLibre GL、グラフは Cytoscape.js。Python はローカルの HTTP API（FastAPI）で OM と DB の読みを出す。境界の契約は OM ファイルと JSON。TS の型は①から生成する |
 | 2026-10-15 | 決定的な抽出器の主張はキャッシュとして git に乗せない。主張の ID は内容のハッシュで決める（再生成しても同じ ID） |
 | 2026-10-15 | 自動生成した OM・主張・実行記録は `work/<source>/` に書き、git に乗せない。正解 OM とは場所を分ける |
@@ -29,7 +30,7 @@
 | [T1.5](tasks/T1.5-evaluation-v0.md) | 評価 v0（正解 OM との突き合わせ） | 完了 | T1.4 |
 | [T1.6](tasks/T1.6-cli.md) | コマンド（抽出・提案・評価を通しで回す） | 完了 | T1.4 |
 | [T1.7](tasks/T1.7-review-cli.md) | レビュー CLI | 完了 | T1.6 |
-| [T1.8](tasks/T1.8-ui-foundation.md) | UI の土台（HTTP API、型の生成、React の骨格、見た目の方向） | 未着手 | — |
+| [T1.8](tasks/T1.8-ui-foundation.md) | UI の土台（HTTP API、型の生成、React の骨格、見た目の方向） | 完了 | — |
 | [T1.9](tasks/T1.9-ontology-ui-v0.md) | オントロジーUI v0（関係のグラフ、表の詳細） | 未着手 | T1.8 |
 | [T1.10](tasks/T1.10-map-view.md) | 地図（geo.point のデコードと表示） | 未着手 | T1.9 |
 

@@ -117,7 +117,7 @@ def _parser() -> argparse.ArgumentParser:
     p.set_defaults(handler=_review)
 
     p = commands.add_parser("serve", help="UI のための HTTP API を立てる（読むだけ）")
-    p.add_argument("--work", type=Path, default=Path("work"), help="作業領域（work/<source>/ontology を出す）")
+    p.add_argument("--work", type=Path, help="作業領域（work/<source>/ontology を出す。既定 work。指定したなら存在すること）")
     p.add_argument("--gold", action="append", default=[], metavar="NAME=DIR", help="正解 OM（繰り返し指定）")
     p.add_argument("--host", default="127.0.0.1", help="既定はこの機械の中だけ")
     p.add_argument("--port", type=int, default=8765)
@@ -272,8 +272,14 @@ def _serve(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
         name, sep, path = item.partition("=")
         if not sep or not name or not path:
             raise UsageError(f"--gold は NAME=DIR の形: {item!r}")
+        if name in gold:
+            raise UsageError(f"--gold の NAME が重複している: {name}")
+        if not Path(path).is_dir():
+            raise UsageError(f"--gold のディレクトリが無い: {path}")
         gold[name] = Path(path)
-    sources = discover(args.work, gold)
+    if args.work is not None and not args.work.is_dir():
+        raise UsageError(f"--work のディレクトリが無い: {args.work}")
+    sources = discover(args.work or Path("work"), gold)
     print(f"{style.accent('◆ MANDARA')}  serving {len(sources)} ontologies on http://{args.host}:{args.port}", file=out)
     for s in sources:
         print(style.dim(f"   {s.id:<28} {s.root}"), file=out)

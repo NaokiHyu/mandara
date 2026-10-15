@@ -343,6 +343,20 @@ class ClaimSourceKind(str, Enum):
     review = "review"
 
 
+class OntologySourceKind(str, Enum):
+    """
+    見られる OM の出どころ
+    """
+    work = "work"
+    """
+    提案した OM（work/<source>/ontology）
+    """
+    gold = "gold"
+    """
+    正解 OM
+    """
+
+
 class IsARealization(str, Enum):
     """
     論理的な is-a が、ソースでどう実装されているか（C3）。 具体例のあるものだけを置く。排他的な参照・区分列は AW で裏付けが取れていないので未定義
@@ -398,7 +412,7 @@ class EnumValue(Annotation):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'mixins': ['Annotation']})
 
     code: str = Field(default=..., description="""ソース上の値の文字列表現。ファイルには文字列で書く（数値の 1 は拒否し、\"1\" と書く）。 観測値との照合時の正規化（真偽値の表記など）はソースの Adapter の責務""", json_schema_extra = { "linkml_meta": {'domain_of': ['EnumValue']} })
-    label: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['EnumValue']} })
+    label: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['EnumValue', 'OntologyListing']} })
     meaning: Optional[str] = Field(default=None, description="""語彙や公開オントロジーの概念への参照（CURIE）""", json_schema_extra = { "linkml_meta": {'domain_of': ['EnumValue']} })
     observed: Optional[bool] = Field(default=None, description="""データで観測されたか。値の集合の根拠にはしない""", json_schema_extra = { "linkml_meta": {'domain_of': ['EnumValue']} })
     status: ReviewStatus = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation']} })
@@ -425,11 +439,11 @@ class Table(Annotation):
          'mixins': ['Annotation'],
          'tree_root': True})
 
-    id: str = Field(default=..., description="""安定ID。改名しても変わらない""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Relation', 'Claim']} })
+    id: str = Field(default=..., description="""安定ID。改名しても変わらない""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Relation', 'Claim', 'OntologyListing']} })
     name: str = Field(default=..., description="""ソース上の名前（schema.table）""", json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain', 'AliasEntry', 'Table', 'Column']} })
     source: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Claim', 'SourceRef']} })
     context: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table']} })
-    kind: Optional[TableKind] = Field(default=None, description="""表種別。提案の段階では未決（無い）でもよい（規則や証拠で決まらないものを既定値で埋めない）。 approved の表には必須""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'ClaimSource']} })
+    kind: Optional[TableKind] = Field(default=None, description="""表種別。提案の段階では未決（無い）でもよい（規則や証拠で決まらないものを既定値で埋めない）。 approved の表には必須""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'ClaimSource', 'OntologyListing']} })
     grain: Optional[str] = Field(default=None, description="""1行が何を表すか（10.4）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table']} })
     identity: Optional[Identity] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Table']} })
     columns: Optional[dict[str, Column]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'KeyColumns', 'Relation', 'Claim']} })
@@ -518,7 +532,7 @@ class UnitSource(ConfiguredBaseModel):
 class Relation(Annotation):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'mixins': ['Annotation']})
 
-    id: str = Field(default=..., description="""関係の安定ID。同じ表への複数の参照（C2）を区別する""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Relation', 'Claim']} })
+    id: str = Field(default=..., description="""関係の安定ID。同じ表への複数の参照（C2）を区別する""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Relation', 'Claim', 'OntologyListing']} })
     type: RelationType = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain', 'Edge', 'Relation']} })
     has_kind: Optional[HasKind] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Relation']} })
     role: Optional[str] = Field(default=None, description="""参照の役割（C2。例 bill_to / ship_to）""", json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain', 'Relation']} })
@@ -573,7 +587,7 @@ class Claim(ConfiguredBaseModel):
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
 
-    id: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Relation', 'Claim']} })
+    id: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Relation', 'Claim', 'OntologyListing']} })
     subject: SourceRef = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     predicate: ClaimPredicate = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     columns: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'KeyColumns', 'Relation', 'Claim']} })
@@ -620,8 +634,25 @@ class SourceRef(ConfiguredBaseModel):
 class ClaimSource(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
 
-    kind: ClaimSourceKind = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'ClaimSource']} })
+    kind: ClaimSourceKind = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'ClaimSource', 'OntologyListing']} })
     locator: str = Field(default=..., description="""出所の中の場所（制約名、ファイルと行など）""", json_schema_extra = { "linkml_meta": {'domain_of': ['ClaimSource']} })
+
+
+class OntologyIndex(ConfiguredBaseModel):
+    """
+    見られる OM の一覧。プロセス境界（HTTP API → UI）で受け渡す形
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'tree_root': True})
+
+    ontologies: list[OntologyListing] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['OntologyIndex']} })
+
+
+class OntologyListing(ConfiguredBaseModel):
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
+
+    id: str = Field(default=..., description="""URL に使う ID（例 work:adventureworks、gold:adventureworks）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Relation', 'Claim', 'OntologyListing']} })
+    label: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['EnumValue', 'OntologyListing']} })
+    kind: OntologySourceKind = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'ClaimSource', 'OntologyListing']} })
 
 
 class OntologyDocument(ConfiguredBaseModel):
@@ -631,7 +662,7 @@ class OntologyDocument(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'tree_root': True})
 
     vocabulary: Vocabulary = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['OntologyDocument']} })
-    tables: Optional[list[Table]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['OntologyDocument']} })
+    tables: list[Table] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['OntologyDocument']} })
 
 
 # Model rebuild
@@ -653,4 +684,6 @@ ClaimFile.model_rebuild()
 Claim.model_rebuild()
 SourceRef.model_rebuild()
 ClaimSource.model_rebuild()
+OntologyIndex.model_rebuild()
+OntologyListing.model_rebuild()
 OntologyDocument.model_rebuild()

@@ -900,20 +900,67 @@
                     "items": {
                         "$ref": "#/$defs/Table"
                     },
-                    "type": [
-                        "array",
-                        "null"
-                    ]
+                    "type": "array"
                 },
                 "vocabulary": {
                     "$ref": "#/$defs/Vocabulary"
                 }
             },
             "required": [
-                "vocabulary"
+                "vocabulary",
+                "tables"
             ],
             "title": "OntologyDocument",
             "type": "object"
+        },
+        "OntologyIndex": {
+            "additionalProperties": false,
+            "description": "\u898b\u3089\u308c\u308b OM \u306e\u4e00\u89a7\u3002\u30d7\u30ed\u30bb\u30b9\u5883\u754c\uff08HTTP API \u2192 UI\uff09\u3067\u53d7\u3051\u6e21\u3059\u5f62",
+            "properties": {
+                "ontologies": {
+                    "items": {
+                        "$ref": "#/$defs/OntologyListing"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "ontologies"
+            ],
+            "title": "OntologyIndex",
+            "type": "object"
+        },
+        "OntologyListing": {
+            "additionalProperties": false,
+            "description": "",
+            "properties": {
+                "id": {
+                    "description": "URL \u306b\u4f7f\u3046 ID\uff08\u4f8b work:adventureworks\u3001gold:adventureworks\uff09",
+                    "type": "string"
+                },
+                "kind": {
+                    "$ref": "#/$defs/OntologySourceKind"
+                },
+                "label": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "id",
+                "label",
+                "kind"
+            ],
+            "title": "OntologyListing",
+            "type": "object"
+        },
+        "OntologySourceKind": {
+            "description": "\u898b\u3089\u308c\u308b OM \u306e\u51fa\u3069\u3053\u308d",
+            "enum": [
+                "work",
+                "gold"
+            ],
+            "title": "OntologySourceKind",
+            "type": "string"
         },
         "ReferentialAction": {
             "description": "\u5916\u90e8\u30ad\u30fc\u306e\u53c2\u7167\u5148\u306e\u884c\u304c\u6d88\u3048\u308b\u30fb\u5909\u308f\u308b\u3068\u304d\u306e\u52d5\u4f5c\uff08SQL \u6a19\u6e96\uff09\u3002cascade \u306f\u5408\u6210\u95a2\u4fc2\u306e\u8a3c\u62e0\u306b\u306a\u308b",
@@ -1419,17 +1466,15 @@
             "items": {
                 "$ref": "#/$defs/Table"
             },
-            "type": [
-                "array",
-                "null"
-            ]
+            "type": "array"
         },
         "vocabulary": {
             "$ref": "#/$defs/Vocabulary"
         }
     },
     "required": [
-        "vocabulary"
+        "vocabulary",
+        "tables"
     ],
     "title": "mandara_om",
     "type": "object",

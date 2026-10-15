@@ -1,4 +1,5 @@
 // 生成物。手で編集しない。元: src/mandara/om/schema/om.yaml / 生成: scripts/gen_ui_types.sh
+export type date = string;
 export type ColumnDomainName = string;
 export type AliasEntryName = string;
 export type TableId = string;
@@ -205,6 +206,16 @@ export enum ClaimSourceKind {
     package = "package",
     world = "world",
     review = "review",
+};
+/**
+* 見られる OM の出どころ
+*/
+export enum OntologySourceKind {
+    
+    /** 提案した OM（work/<source>/ontology） */
+    work = "work",
+    /** 正解 OM */
+    gold = "gold",
 };
 /**
 * 論理的な is-a が、ソースでどう実装されているか（C3）。 具体例のあるものだけを置く。排他的な参照・区分列は AW で裏付けが取れていないので未定義
@@ -435,11 +446,28 @@ export interface ClaimSource {
 
 
 /**
+ * 見られる OM の一覧。プロセス境界（HTTP API → UI）で受け渡す形
+ */
+export interface OntologyIndex {
+    ontologies: OntologyListing[],
+}
+
+
+
+export interface OntologyListing {
+    /** URL に使う ID（例 work:adventureworks、gold:adventureworks） */
+    id: string,
+    label: string,
+    kind: string,
+}
+
+
+/**
  * OM 全体を1つの文書にしたもの。プロセス境界（HTTP API → UI）で受け渡す形。 ファイルの配置（仕様 5章）とは別。受け取る側は、①から生成した JSON Schema で検証する
  */
 export interface OntologyDocument {
     vocabulary: Vocabulary,
-    tables?: Table[],
+    tables: Table[],
 }
 
 

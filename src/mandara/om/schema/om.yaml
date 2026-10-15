@@ -206,6 +206,13 @@ enums:
       package:
       world:
       review:
+  OntologySourceKind:
+    description: 見られる OM の出どころ
+    permissible_values:
+      work:
+        description: 提案した OM（work/<source>/ontology）
+      gold:
+        description: 正解 OM
   IsARealization:
     description: >-
       論理的な is-a が、ソースでどう実装されているか（C3）。
@@ -556,6 +563,28 @@ classes:
         required: true
 
   # ---------------------------------------------------------------- プロセス境界の契約
+  OntologyIndex:
+    tree_root: true
+    description: 見られる OM の一覧。プロセス境界（HTTP API → UI）で受け渡す形
+    attributes:
+      ontologies:
+        range: OntologyListing
+        multivalued: true
+        required: true
+        inlined: true
+        inlined_as_list: true
+
+  OntologyListing:
+    attributes:
+      id:
+        description: URL に使う ID（例 work:adventureworks、gold:adventureworks）
+        required: true
+      label:
+        required: true
+      kind:
+        range: OntologySourceKind
+        required: true
+
   OntologyDocument:
     tree_root: true
     description: >-
@@ -569,5 +598,6 @@ classes:
       tables:
         range: Table
         multivalued: true
+        required: true
         inlined: true
         inlined_as_list: true
