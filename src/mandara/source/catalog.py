@@ -2,22 +2,15 @@
 
 Domain 層。I/O を持たず、特定の DB を知らない。
 - 型名や CHECK の式は、ソースの方言の文字列のまま運ぶ（解釈は抽出器・推論の責務）
-- 中立な型族（TypeFamily）への寄せは、各コネクタ（Adapter）の責務。TypeFamily と ReferentialAction は主張台帳と共有するので①で定義する
+- 中立な型族（TypeFamily）への寄せは、各コネクタ（Adapter）の責務。TypeFamily、ObjectKind、ReferentialAction は主張台帳と共有するので①で定義する
 - 分からないことは分からないと持つ（ビューの列の NULL 可否は None）
 """
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from enum import Enum
 from typing import Protocol
 
-from mandara.om.model import ReferentialAction, TypeFamily
-
-
-class ObjectKind(Enum):
-    TABLE = "table"
-    VIEW = "view"
-    MATERIALIZED_VIEW = "materialized_view"
+from mandara.om.model import ObjectKind, ReferentialAction, TypeFamily
 
 
 @dataclass(frozen=True)

@@ -4,7 +4,8 @@
 法則は「違反の一覧」を返す。空なら成立。
 """
 
-from mandara.source.catalog import Catalog, CatalogReader, ObjectKind, Scope
+from mandara.om.model import ObjectKind
+from mandara.source.catalog import Catalog, CatalogReader, Scope
 
 
 def references_exist(catalog: Catalog) -> list[str]:
@@ -63,7 +64,7 @@ def tables_know_nullability(catalog: Catalog) -> list[str]:
     return [
         f"{t.qualified_name}.{c.name}"
         for t in catalog.tables
-        if t.kind is ObjectKind.TABLE
+        if t.kind is ObjectKind.table
         for c in t.columns
         if c.nullable is None
     ]

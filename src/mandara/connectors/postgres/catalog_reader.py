@@ -18,14 +18,13 @@ from typing import Any, LiteralString
 import psycopg
 from psycopg import IsolationLevel
 
-from mandara.om.model import ReferentialAction, TypeFamily
+from mandara.om.model import ObjectKind, ReferentialAction, TypeFamily
 from mandara.source.catalog import (
     Catalog,
     Check,
     Column,
     ForeignKey,
     Key,
-    ObjectKind,
     Scope,
     SourceError,
     Table,
@@ -34,7 +33,7 @@ from mandara.source.catalog import (
     UnsupportedFeatureError,
 )
 
-_KINDS = {"r": ObjectKind.TABLE, "v": ObjectKind.VIEW, "m": ObjectKind.MATERIALIZED_VIEW}
+_KINDS = {"r": ObjectKind.table, "v": ObjectKind.view, "m": ObjectKind.materialized_view}
 _UNSUPPORTED_KINDS = {"p": "partitioned table", "f": "foreign table"}
 
 # pg_catalog の組み込み型だけを引く。名前が同じでも別スキーマの型（ユーザーの enum など）は当てない
@@ -127,7 +126,7 @@ def _read(conn: psycopg.Connection[Any], scope: Scope) -> Catalog:
             unsupported.append(Unsupported(f"collation ({collated})", loc))
         resolved = types.resolve(type_oid)
         unsupported.extend(Unsupported(problem, loc) for problem in resolved.unsupported)
-        is_table = relations[oid][2] is ObjectKind.TABLE
+        is_table = relations[oid][2] is ObjectKind.table
         columns[oid].append(
             Column(
                 name=name,

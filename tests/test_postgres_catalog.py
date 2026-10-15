@@ -21,10 +21,9 @@ from hypothesis import strategies as st
 from psycopg import sql
 
 from mandara.connectors.postgres.catalog_reader import PostgresCatalogReader
-from mandara.om.model import ReferentialAction, TypeFamily
+from mandara.om.model import ObjectKind, ReferentialAction, TypeFamily
 from mandara.source.catalog import (
     Catalog,
-    ObjectKind,
     Scope,
     SourceError,
     UnknownSchemaError,
@@ -227,7 +226,7 @@ def _assert_matches(conninfo: str, catalog: Catalog, schema: str, tables: tuple[
     assert set(by_name) == {t.name for t in tables} | {VIEW}
     for spec in tables:
         table = by_name[spec.name]
-        assert table.kind is ObjectKind.TABLE
+        assert table.kind is ObjectKind.table
         assert table.comment == spec.comment
         expected = [
             (c.name, c.source_type if c.domain is None else DOMAIN_BASE, c.family,
@@ -249,7 +248,7 @@ def _assert_matches(conninfo: str, catalog: Catalog, schema: str, tables: tuple[
         )
         assert [(c.name, c.expression) for c in table.checks] == expected_checks
     view = by_name[VIEW]
-    assert view.kind is ObjectKind.VIEW
+    assert view.kind is ObjectKind.view
     assert [c.nullable for c in view.columns] == [None] * len(tables[0].columns)
     first = by_name[tables[0].name]
     assert [(c.name, c.source_type, c.family, c.type_alias) for c in view.columns] == [
@@ -402,16 +401,16 @@ def adventureworks() -> Catalog:
 
 def test_adventureworks_counts(adventureworks: Catalog) -> None:
     """仕様の調査（docs/tasks/T1.1）で数えた値と一致する。"""
-    tables = [t for t in adventureworks.tables if t.kind is ObjectKind.TABLE]
+    tables = [t for t in adventureworks.tables if t.kind is ObjectKind.table]
     assert len(tables) == 68
-    assert sum(t.kind is ObjectKind.VIEW for t in adventureworks.tables) == 19
-    assert sum(t.kind is ObjectKind.MATERIALIZED_VIEW for t in adventureworks.tables) == 2
+    assert sum(t.kind is ObjectKind.view for t in adventureworks.tables) == 19
+    assert sum(t.kind is ObjectKind.materialized_view for t in adventureworks.tables) == 2
     assert sum(t.primary_key is not None for t in tables) == 68
     assert sum(len(t.foreign_keys) for t in tables) == 90
     assert sum(len(t.checks) for t in tables) == 88
     aliased = [t.kind for t in adventureworks.tables for c in t.columns if c.type_alias is not None]
-    assert (aliased.count(ObjectKind.TABLE), aliased.count(ObjectKind.VIEW),
-            aliased.count(ObjectKind.MATERIALIZED_VIEW)) == (43, 63, 5)
+    assert (aliased.count(ObjectKind.table), aliased.count(ObjectKind.view),
+            aliased.count(ObjectKind.materialized_view)) == (43, 63, 5)
     cascades = [(t.qualified_name, f.name) for t in tables for f in t.foreign_keys
                 if f.on_delete is ReferentialAction.cascade]
     assert len(cascades) == 2
@@ -445,5 +444,5 @@ def test_adventureworks_details(adventureworks: Catalog) -> None:
     assert location is not None and location.family is TypeFamily.binary
 
     matview = adventureworks.table("person", "vstateprovincecountryregion")
-    assert matview is not None and matview.kind is ObjectKind.MATERIALIZED_VIEW
+    assert matview is not None and matview.kind is ObjectKind.materialized_view
     assert [k.columns for k in matview.uniques] == [("stateprovinceid", "countryregioncode")]

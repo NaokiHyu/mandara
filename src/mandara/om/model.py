@@ -259,6 +259,15 @@ class TypeFamily(str, Enum):
     other = "other"
 
 
+class ObjectKind(str, Enum):
+    """
+    ソース上のオブジェクトの種類（カタログ、主張）
+    """
+    table = "table"
+    view = "view"
+    materialized_view = "materialized_view"
+
+
 class ReferentialAction(str, Enum):
     """
     外部キーの参照先の行が消える・変わるときの動作（SQL 標準）。cascade は合成関係の証拠になる
@@ -286,9 +295,21 @@ class ClaimPredicate(str, Enum):
     """
     表の columns が、target の target_columns を参照する（外部キー）。on_delete / on_update を持つ
     """
+    declared_as = "declared_as"
+    """
+    表・ビューなどのオブジェクトの種類は object_kind
+    """
     not_null = "not_null"
     """
     列は NULL を持たない
+    """
+    nullable = "nullable"
+    """
+    列は NULL を持ちうる（宣言されている）。宣言の無い列（ビューの列など）には、not_null も nullable も出さない
+    """
+    defaults_to = "defaults_to"
+    """
+    列の既定値は text の式
     """
     described_as = "described_as"
     """
@@ -300,7 +321,7 @@ class ClaimPredicate(str, Enum):
     """
     typed_as = "typed_as"
     """
-    列のソース上の型名は type_name、型族は family
+    列のソース上の型名は type_name、型族は family、表の中の位置は position
     """
     aliased_as = "aliased_as"
     """
@@ -563,6 +584,8 @@ class Claim(ConfiguredBaseModel):
     text: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     type_name: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     family: Optional[TypeFamily] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
+    position: Optional[int] = Field(default=None, description="""列の、表の中の位置（1 から）""", ge=1, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
+    object_kind: Optional[ObjectKind] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     source: ClaimSource = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Claim', 'SourceRef']} })
     extracted_by: str = Field(default=..., description="""抽出器の名前と版""", json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     valid_at: Optional[date] = Field(default=None, description="""出所の日付（文書の日付など）。鮮度の根拠""", json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })

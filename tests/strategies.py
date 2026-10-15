@@ -30,6 +30,7 @@ from mandara.om.model import (
     Identity,
     IsARealization,
     KeyColumns,
+    ObjectKind,
     ReferentialAction,
     Relation,
     RelationType,
@@ -291,6 +292,10 @@ def claims(
         payload["type_name"] = draw(texts)
     if "family" in shape.fields:
         payload["family"] = draw(st.sampled_from(tuple(TypeFamily)))
+    if "position" in shape.fields:
+        payload["position"] = draw(st.integers(min_value=1, max_value=1000))
+    if "object_kind" in shape.fields:
+        payload["object_kind"] = draw(st.sampled_from(tuple(ObjectKind)))
     return new_claim(
         subject=subject,
         predicate=predicate,

@@ -472,15 +472,16 @@ claims:
   target_columns: [id]
   on_delete: no_action
   on_update: no_action
-  source: { kind: schema, locator: "constraint fk_orders_customer" }
-  extracted_by: catalog/postgres 0.1   # 抽出器の名前と版
+  source: { kind: schema, locator: 'constraint "fk_orders_customer" on "sales"."orders"' }   # 出所の中の場所
+  extracted_by: catalog 0.1     # 抽出器の名前と版。カタログの抽出器は DB に依存しない
   confidence: 1.0
 ```
 
 - 主語は、OM の安定 ID ではなくソース上の名前で指す。主張は OM より先に作られるため
+- `locator` は出所の中の場所（どの表・列・制約か）を指す。6.6.5 の「同じ出所は1票」はこの単位で束ねる
 - **ID は内容から決まる**：主語、述語、値のフィールド、出所（種類と場所）の正規形のハッシュ。抽出器の版・確信度・日付には依存しない。決定的な抽出器を再実行すれば同じ ID になり、OM の `evidence` が切れない
 - 決定的な抽出器（スキーマ、SQL、公開コード表）の主張は再生成できるキャッシュで、**git に乗せない**（`work/`）。再生成できない主張（レビューの回答、LLM による抽出）の保存方針は未決（15.2）
-- 述語は①で閉じる。今あるのはカタログの抽出器が出すもの（identified_by、unique、references、not_null、described_as、checks、typed_as、aliased_as）。`means`、`same_as`、否定形（`not_*`）などは、それを出す抽出器と一緒に足す。否定形の述語で反証を記録できるようにする
+- 述語は①で閉じる。今あるのはカタログの抽出器が出すもの（declared_as、identified_by、unique、references、not_null、nullable、defaults_to、described_as、checks、typed_as、aliased_as）。カタログの事実はすべて主張にし、モデラーは主張だけを根拠にする（evidence で指せるように）。`means`、`same_as`、否定形（`not_*`）などは、それを出す抽出器と一緒に足す。否定形の述語で反証を記録できるようにする
 - `source.kind` は `schema | sql | codelist | design-doc | memo | package | world | review`
 - 提案（OM、アダプタ、メトリクス、関数）の `evidence` は主張IDを指す
 
@@ -508,6 +509,7 @@ LLMは構造化できない最後の層だけに使う。
 | レビューの回答 | 1.0 |
 | 既存SQLのJOIN／CASE | 0.95 |
 | 設計書・公開コード表の一致 | 0.85 |
+| スキーマのコメント（表・列の説明） | 0.85 |
 | 行単位の一致（アンカー結合、6.7） | 0.8 |
 | パッケージ知識 | 0.8 |
 | 結合妥当性（LLM判定、6.7） | 0.7 |

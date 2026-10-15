@@ -21,6 +21,7 @@ from mandara.om.model import (
     ClaimPredicate,
     ClaimSource,
     ClaimSourceKind,
+    ObjectKind,
     ReferentialAction,
     SourceRef,
     TypeFamily,
@@ -77,7 +78,7 @@ def _changed(value: object, field: str) -> object:
     enums: dict[str, Iterable[str]] = {
         "on_delete": [a.value for a in ReferentialAction], "on_update": [a.value for a in ReferentialAction],
         "family": [f.value for f in TypeFamily], "predicate": [p.value for p in ClaimPredicate],
-        "kind": [k.value for k in ClaimSourceKind],
+        "kind": [k.value for k in ClaimSourceKind], "object_kind": [k.value for k in ObjectKind],
     }
     if field in enums:
         assert isinstance(value, str)
@@ -86,6 +87,8 @@ def _changed(value: object, field: str) -> object:
         return value.model_copy(update={"table": value.table + "x"})
     if isinstance(value, list):
         return [*cast(list[str], value), "zz_extra"]
+    if isinstance(value, int):
+        return value + 1
     if value is None:
         return "added"
     assert isinstance(value, str)

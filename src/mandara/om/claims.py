@@ -16,7 +16,10 @@ from typing import Literal
 
 from mandara.om.model import Claim, ClaimPredicate, ClaimSource, ClaimSourceKind, SourceRef
 
-PAYLOAD_FIELDS = ("columns", "target", "target_columns", "on_delete", "on_update", "text", "type_name", "family")
+PAYLOAD_FIELDS = (
+    "columns", "target", "target_columns", "on_delete", "on_update", "text", "type_name", "family", "position",
+    "object_kind",
+)
 """述語によって持つ・持たないが決まる、値のフィールド。"""
 
 Level = Literal["table", "column", "either"]
@@ -37,10 +40,13 @@ SHAPES: dict[str, Shape] = {
     ClaimPredicate.identified_by.value: _shape("table", "columns"),
     ClaimPredicate.unique.value: _shape("table", "columns"),
     ClaimPredicate.references.value: _shape("table", "columns", "target", "target_columns", "on_delete", "on_update"),
+    ClaimPredicate.declared_as.value: _shape("table", "object_kind"),
     ClaimPredicate.not_null.value: _shape("column"),
+    ClaimPredicate.nullable.value: _shape("column"),
+    ClaimPredicate.defaults_to.value: _shape("column", "text"),
     ClaimPredicate.described_as.value: _shape("either", "text"),
     ClaimPredicate.checks.value: _shape("table", "text"),
-    ClaimPredicate.typed_as.value: _shape("column", "type_name", "family"),
+    ClaimPredicate.typed_as.value: _shape("column", "type_name", "family", "position"),
     ClaimPredicate.aliased_as.value: _shape("column", "type_name"),
 }
 
