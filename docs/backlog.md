@@ -22,7 +22,7 @@
 
 | ID | タスク | 状態 | 依存 |
 |---|---|---|---|
-| [T1.1](tasks/T1.1-postgres-catalog-connector.md) | PostgreSQL のカタログコネクタ | 調査済み | — |
+| [T1.1](tasks/T1.1-postgres-catalog-connector.md) | PostgreSQL のカタログコネクタ | 完了 | — |
 | [T1.2](tasks/T1.2-claims-ledger.md) | 主張台帳（形式と置き場所） | 未着手 | — |
 | [T1.3](tasks/T1.3-catalog-extractor.md) | カタログの抽出器（カタログ → 主張） | 未着手 | T1.1, T1.2 |
 | [T1.4](tasks/T1.4-modeler-v0.md) | モデラー v0（規則だけで OM を提案） | 未着手 | T1.3 |
