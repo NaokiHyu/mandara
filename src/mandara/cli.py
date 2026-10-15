@@ -23,7 +23,7 @@ from mandara.connectors.postgres.column_reader import PostgresColumnReader
 from mandara.evaluation.score import InvalidForScoringError, Report
 from mandara.llm.claude.model import ClaudeModel
 from mandara.llm.model import BudgetedModel, LlmError, StructuredRequest, summarize
-from mandara.settings.llm import SettingsError, parse_settings
+from mandara.settings.llm import LlmSettings, SettingsError, parse_settings
 from mandara.settings.llm_prices import UnknownPricingError, load_pricing
 from mandara.om.model import TableKind
 from mandara.modeler.rules import InvalidInputError
@@ -100,7 +100,15 @@ def _parser() -> argparse.ArgumentParser:
     source_args(p)
     connection_args(p)
     p.add_argument("--gold", type=Path, help="正解 OM のディレクトリ（あれば評価する）")
+    p.add_argument("--llm", action="store_true", help="LLM で推論する（.env の設定、1 回の予算の範囲で）")
+    p.add_argument("--env", type=Path, default=Path(".env"), help="LLM の設定のファイル（既定 .env）。環境変数が優先")
     p.set_defaults(handler=_run)
+
+    p = commands.add_parser("refine", help="提案した OM を LLM で詰める（.env の設定、1 回の予算の範囲で）")
+    source_args(p)
+    p.add_argument("--first", action="append", default=[], metavar="SCHEMA.TABLE", help="先に問う表（繰り返し指定）")
+    p.add_argument("--env", type=Path, default=Path(".env"))
+    p.set_defaults(handler=_refine)
 
     p = commands.add_parser("extract", help="カタログを読み、主張台帳を作り直す")
     source_args(p)
@@ -163,9 +171,12 @@ def _run(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
     scope = Scope(tuple(args.schema))
     _banner(out, style, workspace, scope)
     started = time.monotonic()
-    result = pipeline.run(workspace, _reader(args), scope, args.gold, _now)
+    llm = _llm(args.env) if args.llm else None
+    result = pipeline.run(workspace, _reader(args), scope, args.gold, _now, llm[0] if llm else None)
     _extract_line(out, style, result.extracted)
     _propose_line(out, style, result.proposed)
+    if result.refined is not None and llm is not None:
+        _refine_line(out, style, result.refined, *llm)
     if result.report is not None:
         _scoreboard(out, style, result.report, args.gold)
     print(f"  {style.dim('record')}    {result.record}   {style.dim(f'{time.monotonic() - started:.1f}s')}", file=out)
@@ -311,7 +322,32 @@ def _serve(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
     return 0
 
 
-def _llm(env_file: Path) -> BudgetedModel:
+def _refine(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
+    model, settings = _llm(args.env)
+    refined = pipeline.refine(_workspace(args), model, args.first)
+    _refine_line(out, style, refined, model, settings)
+    return 0
+
+
+def _refine_line(out: TextIO, style: _Style, refined: pipeline.Refined, model: BudgetedModel,
+                 settings: LlmSettings) -> None:
+    counts: dict[str, int] = {}
+    for o in refined.outcomes:
+        counts[o.status] = counts.get(o.status, 0) + 1
+    spent = model.spent_usd
+    breakdown = " · ".join(f"{k} {n}" for k, n in sorted(counts.items()))
+    print(f"  {style.dim('refine')}    {breakdown}  {style.dim(f'{model.model}')}  "
+          f"¥{spent * settings.jpy_per_usd:.2f} / ¥{settings.budget_jpy:g}", file=out)
+    for o in refined.outcomes:
+        if o.status != "refined":
+            print(style.dim(f"            {o.status:<7} {o.table}  {o.detail or (o.dropped[0].reason if o.dropped else '')}"),
+                  file=out)
+    if refined.stopped is not None:
+        print(f"            {style.bad('stopped')}  {refined.stopped}  ({len(refined.not_reached)} tables left as v0)",
+              file=out)
+
+
+def _llm(env_file: Path) -> tuple[BudgetedModel, LlmSettings]:
     """.env と環境変数から、予算つきの LLM を組み立てる（composition root）。"""
     from dotenv import dotenv_values
 
@@ -319,11 +355,11 @@ def _llm(env_file: Path) -> BudgetedModel:
     from_file = dotenv_values(env_file) if env_file.is_file() else {}
     settings = parse_settings({**from_file, **os.environ})
     pricing = load_pricing(settings.model)
-    return BudgetedModel(ClaudeModel.from_api_key(settings.model, settings.api_key), pricing, settings.budget_usd)
+    return BudgetedModel(ClaudeModel.from_api_key(settings.model, settings.api_key), pricing, settings.budget_usd), settings
 
 
 def _llm_check(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
-    llm = _llm(args.env)
+    llm, _ = _llm(args.env)
     request = StructuredRequest(
         purpose="llm-check", system="あなたは接続の確認に答える。", prompt="ok に true を入れて答える。",
         schema={"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]},

@@ -16,6 +16,7 @@ from hypothesis import strategies as st
 
 from mandara.om.invariants import Rule, check
 from mandara.om.model import (
+    Additivity,
     Column,
     ColumnDomain,
     ColumnPair,
@@ -183,6 +184,11 @@ MUTATIONS: dict[Rule, Mutation] = {
     Rule.EDGE_SHAPE: lambda o: _add(
         o, _table("tbl_ma"), _edge_table("tbl_me", RelationType.part_of, "tbl_ma", "tbl_ma", kind=TableKind.domain)
     ),
+    Rule.DOMAIN_SHAPE: lambda o: replace(o, vocabulary=o.vocabulary.model_copy(update={"column_domains": {
+        **(o.vocabulary.column_domains or {}),
+        "bad": ColumnDomain(name="bad", type=ValueType.text, additivity=Additivity.additive)}})),
+    Rule.UNIT_COLUMN: lambda o: _add(o, _table("tbl_m", columns=[
+        _col("id"), _col("price", domain="amount", unit=UnitSource(column="price"))])),
     Rule.ENUM_SHAPE: lambda o: replace(
         o,
         vocabulary=o.vocabulary.model_copy(update={"column_domains": {

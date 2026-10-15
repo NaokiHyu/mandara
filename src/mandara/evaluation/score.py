@@ -8,6 +8,9 @@ Domain 層の純粋な関数。
   - 誤提案率 = 提案した事実のうち、正解に無かったものの割合（提案が0件なら None）。重複した提案は、2つ目以降を誤りに数える
 - 突き合わせは安定 ID ではなくソース上の名前で行う（表の name、列名、関係の結合）。ID の採番方式に点数を左右させない
 - 未決（表の種類が None など）は事実を出さない。復元率は下がるが、誤提案には数えない
+- 列ドメインは名前で比べない（名前は任意）。値の型（column_types）と、同じドメインに属する列の組
+  （column_domain_pairs）を組で読む。型だけでは別の意味の同じ型を区別できない。組の数はドメインの大きさの2乗で
+  増えるので、大きなドメインが点を支配し、1列だけのドメインは組を出さない（列ごとの平均の指標は今後の課題）
 - 関係は2段で測る。端点（どの表のどの列を結ぶか）と、型（has / part-of / classified-as …）。
   型は、端点が正解と提案の両方にある関係だけで測る（端点の外れを型でも数えない）
 - 正解 OM は一部の表しか持たない。正解の表の外へ出る提案（表、関係・辺の参照先）は採点せず、件数だけ数える
@@ -157,11 +160,28 @@ def _edges(view: _View) -> Iterator[Fact]:
             yield (t.name, t.edge.type, *ends)
 
 
-def _column_domains(view: _View) -> Iterator[Fact]:
+def _column_types(view: _View) -> Iterator[Fact]:
+    """列の値の型（列ドメインの型）。ドメインの名前の付け方には左右されない。"""
+    domains = view.ontology.vocabulary.column_domains or {}
+    for t in view.tables():
+        for name, column in (t.columns or {}).items():
+            domain = domains.get(column.domain or "")
+            if domain is not None:
+                yield (t.name, name, domain.type)
+
+
+def _column_domain_pairs(view: _View) -> Iterator[Fact]:
+    """同じドメイン（同じ意味）に属する列の組。名前の付け方には左右されず、「同じ意味をまとめられたか」を測る。"""
+    groups: dict[str, list[tuple[str, str]]] = {}
     for t in view.tables():
         for name, column in (t.columns or {}).items():
             if column.domain is not None:
-                yield (t.name, name, column.domain)
+                groups.setdefault(column.domain, []).append((t.name, name))
+    for members in groups.values():
+        ordered = sorted(members)
+        for i, a in enumerate(ordered):
+            for b in ordered[i + 1:]:
+                yield (a, b)
 
 
 def _grain_present(view: _View) -> Iterator[Fact]:
@@ -177,7 +197,8 @@ ASPECTS: dict[str, Callable[[_View], Iterator[Fact]]] = {
     "relation_endpoints": _relation_endpoints,
     "relation_types": _relation_types,
     "edges": _edges,
-    "column_domains": _column_domains,
+    "column_types": _column_types,
+    "column_domain_pairs": _column_domain_pairs,
     "grain_present": _grain_present,
 }
 

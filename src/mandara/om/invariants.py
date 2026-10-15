@@ -17,6 +17,7 @@ from mandara.om.model import (
     AliasEntry,
     Cardinality,
     Column,
+    DomainRole,
     ColumnDomain,
     HasKind,
     IsARealization,
@@ -54,6 +55,8 @@ class Rule(Enum):
     RELATION_SHAPE = "関係の型と、その関係が持つフィールドが合っていない"
     SHARED_KEY_MISMATCH = "shared_key の is-a が、両側の主キー同士で結ばれていない"
     ENUM_SHAPE = "enum の値の定義が不正"
+    DOMAIN_SHAPE = "列ドメインの型と、役割・加法性・単位の要否が合っていない"
+    UNIT_COLUMN = "単位を持つ列の指定が不正（自分自身、単位のコードでない列）"
     ENCODING_MISMATCH = "列の encoding の変換先の型が、列ドメインの型と違う"
     EDGE_SHAPE = "辺（edge）の宣言が不正"
 
@@ -92,6 +95,7 @@ def _check_vocabulary(vocabulary: Vocabulary) -> Iterator[Violation]:
         loc = f"vocabulary.column_domains.{name}"
         if domain.type not in _VALUE_TYPES:
             yield Violation(Rule.UNKNOWN_VALUE, loc, f"type={domain.type!r}")
+        yield from _check_domain_shape(domain, loc)
         values = domain.values or []
         if domain.type == "enum":
             if not values:
@@ -105,6 +109,23 @@ def _check_vocabulary(vocabulary: Vocabulary) -> Iterator[Violation]:
 
 
 _VALUE_TYPES = {t.value for t in ValueType}
+_MEASURES = {ValueType.integer.value, ValueType.ratio.value, ValueType.quantity.value, ValueType.money.value}
+"""加法性を持てる型（尺度）。"""
+_UNIT_BEARING = {ValueType.quantity.value, ValueType.money.value}
+"""単位が要る型。"""
+_TIME_ROLES = {DomainRole.event_time.value, DomainRole.valid_from.value, DomainRole.valid_to.value}
+_TIMES = {ValueType.date.value, ValueType.datetime.value}
+
+
+def _check_domain_shape(domain: ColumnDomain, loc: str) -> Iterator[Violation]:
+    if domain.additivity is not None and domain.type not in _MEASURES:
+        yield Violation(Rule.DOMAIN_SHAPE, loc, f"{domain.type} は尺度ではないので加法性を持たない")
+    if domain.type in _UNIT_BEARING and domain.requires_unit is not True:
+        yield Violation(Rule.DOMAIN_SHAPE, loc, f"{domain.type} は単位が要る（requires_unit: true）")
+    if domain.requires_unit and domain.type not in _UNIT_BEARING:
+        yield Violation(Rule.DOMAIN_SHAPE, loc, f"{domain.type} は単位を持たない")
+    if domain.role in _TIME_ROLES and domain.type not in _TIMES:
+        yield Violation(Rule.DOMAIN_SHAPE, loc, f"役割 {domain.role} は日付・日時の型だけ")
 
 
 class _Named(Protocol):
@@ -218,6 +239,12 @@ def _check_column(
         yield Violation(Rule.UNIT_AMBIGUOUS, f"{loc}.unit", f"{len(sources)} 個指定されている")
     if unit.column is not None and unit.column not in columns:
         yield Violation(Rule.UNKNOWN_COLUMN, f"{loc}.unit", f"列 {unit.column!r} が無い")
+    elif unit.column is not None:
+        if unit.column == column.name:
+            yield Violation(Rule.UNIT_COLUMN, f"{loc}.unit", "自分自身を単位の列にしている")
+        unit_domain = domains.get(columns[unit.column].domain or "")
+        if unit_domain is not None and unit_domain.type != ValueType.code.value:
+            yield Violation(Rule.UNIT_COLUMN, f"{loc}.unit", f"単位の列 {unit.column} の型が code ではない（{unit_domain.type}）")
 
 
 # ---------------------------------------------------------------- 関係

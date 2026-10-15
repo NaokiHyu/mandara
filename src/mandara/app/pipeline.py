@@ -22,15 +22,27 @@ from typing import Any
 from mandara.codecs.registry import DECODERS, CodecError
 from mandara.evaluation.score import Report, score
 from mandara.extractors import catalog as catalog_extractor
+from mandara.llm.model import (
+    BudgetedModel,
+    BudgetExceededError,
+    EstimateViolatedError,
+    LanguageModel,
+    LlmError,
+    StructuredRequest,
+    summarize,
+)
+from mandara.modeler import llm as llm_modeler
 from mandara.modeler import rules as modeler
 from mandara.om.invariants import Violation, check
 from mandara.om.encoding_traits import ENCODING_TARGETS
-from mandara.om.model import Claim, ValueType
-from mandara.om.names import split_qualified
+from mandara.om.model import Claim, ReviewStatus, Table, ValueType
+from mandara.om.names import qualify, split_qualified
 from mandara.om.ontology import Ontology
 from mandara.omstore.claim_store import load_claim_ledger, load_ledger_scope, write_claim_ledger
 from mandara.omstore.json_store import write_json
+from mandara.modeler.rules import InvalidInputError
 from mandara.omstore.yaml_store import (
+    OntologyWriteRefusedError,
     dump_table,
     dump_vocabulary,
     load_ontology,
@@ -189,6 +201,88 @@ def validate(ontology_root: Path) -> Validated:
     return Validated(ontology, tuple(check(ontology)))
 
 
+# ---------------------------------------------------------------- LLM による推論（モデラー v1）
+
+
+@dataclass(frozen=True)
+class TableOutcome:
+    table: str
+    status: str
+    """"refined"（1つ以上当たった）/ "nothing_applied"（答えは得たが、当たる項目が無かった）/
+    "kept"（当てると検証を通らないので v0 のまま）/ "failed"（答えを得られなかった）。"""
+    detail: str
+    applied: tuple[str, ...]
+    dropped: tuple[llm_modeler.Dropped, ...]
+
+
+@dataclass(frozen=True)
+class Refined:
+    order: tuple[str, ...]
+    """問うた順（語彙は順に育つので、先の表ほど小さい語彙で答える。評価の偏りの記録）。"""
+    outcomes: tuple[TableOutcome, ...]
+    stopped: str | None
+    """途中で止めた理由（予算、見積もりの崩れ）。None は最後まで回った。"""
+    not_reached: tuple[str, ...]
+    """止めたために問わなかった表（v0 の提案のまま）。"""
+
+
+MAX_OUTPUT_TOKENS = 4000
+
+
+def refine(workspace: Workspace, model: LanguageModel, first: Sequence[str] = ()) -> Refined:
+    """v0 の提案を、表ごとに LLM に問うて詰める。first に挙げた表（名前）を先に問う（評価の範囲など）。
+
+    答えを得られなかった表は記録して次へ。予算の上限や見積もりの崩れでは、そこで止めて残りは v0 のまま。
+    結果の OM は検証を通したうえで書く（人の判断を含む OM は上書きしない）。
+    """
+    claims = load_claim_ledger(workspace.claims, workspace.source)
+    ontology = load_ontology(workspace.ontology)
+    # 問う前に止まる条件を確かめる（予算を使ってから書けない、とならないように）
+    if decided := [w for w, a in ontology.annotations() if a.status != ReviewStatus.proposed.value]:
+        raise OntologyWriteRefusedError(
+            f"人の判断を含む OM は詰め直さない（{len(decided)} 件。例 {decided[:3]}）。再実行での統合は T6.1")
+    by_table: dict[str, list[Claim]] = {}
+    for claim in claims:
+        by_table.setdefault(qualify(claim.subject.schema_name, claim.subject.table), []).append(claim)
+    names = {t.name for t in ontology.tables}
+    if unknown := sorted(set(first) - names):
+        raise InvalidInputError(f"先に問う表が OM に無い: {unknown}")
+    if missing := sorted(names - set(by_table)):
+        raise LedgerMismatchError(f"主張台帳に無い表が OM にある（台帳を作り直したら、OM も作り直す）: {missing[:3]}")
+    priority = {name: i for i, name in enumerate(first)}
+    order = sorted(ontology.tables, key=lambda t: (priority.get(t.name, len(priority)), t.name))
+    inferred_by = f"{llm_modeler.MODELER} ({model.model})"
+
+    outcomes: list[TableOutcome] = []
+    stopped: str | None = None
+    for i, table in enumerate(order):
+        table_claims = by_table.get(table.name, [])
+        request = StructuredRequest(
+            purpose=f"refine {table.name}", system=llm_modeler.SYSTEM,
+            prompt=llm_modeler.brief(table_claims, ontology.vocabulary.column_domains or {}, table.kind),
+            schema=llm_modeler.answer_schema(), max_output_tokens=MAX_OUTPUT_TOKENS)
+        try:
+            response = model.ask(request)
+            answer = llm_modeler.parse_answer(response.data)
+        except (BudgetExceededError, EstimateViolatedError) as e:
+            stopped = str(e)
+            return _finish(workspace, ontology, order, outcomes, stopped, [t.name for t in order[i:]])
+        except (LlmError, llm_modeler.InvalidAnswerError) as e:
+            outcomes.append(TableOutcome(table.name, "failed", f"{type(e).__name__}: {e}", (), ()))
+            continue
+        applied = llm_modeler.apply_answer(ontology, table.id, answer, table_claims, inferred_by)
+        ontology = applied.ontology
+        status = "kept" if applied.table_kept_as_is else ("refined" if applied.applied else "nothing_applied")
+        outcomes.append(TableOutcome(table.name, status, "", applied.applied, applied.dropped))
+    return _finish(workspace, ontology, order, outcomes, stopped, [])
+
+
+def _finish(workspace: Workspace, ontology: Ontology, order: Sequence[Table], outcomes: list[TableOutcome],
+            stopped: str | None, not_reached: list[str]) -> Refined:
+    write_ontology(workspace.ontology, ontology)
+    return Refined(tuple(t.name for t in order), tuple(outcomes), stopped, tuple(not_reached))
+
+
 # ---------------------------------------------------------------- レビュー（仕様 6.4、9.3）
 
 
@@ -260,12 +354,14 @@ def _describe(claim: Claim) -> str:
 class RunResult:
     extracted: Extracted
     proposed: Proposed
+    refined: Refined | None
     report: Report | None
     record: Path
 
 
-def run(workspace: Workspace, reader: CatalogReader, scope: Scope, gold: Path | None, clock: Clock) -> RunResult:
-    """抽出 → 提案 → （正解があれば）評価を通しで行い、実行の記録を書く。失敗も記録してから伝える。"""
+def run(workspace: Workspace, reader: CatalogReader, scope: Scope, gold: Path | None, clock: Clock,
+        model: BudgetedModel | None = None) -> RunResult:
+    """抽出 → 提案 → （LLM があれば）推論 → （正解があれば）評価を通しで行い、実行の記録を書く。失敗も記録してから伝える。"""
     started = _utc(clock())
     log = _RunLog(workspace.runs / f"{started.strftime('%Y%m%dT%H%M%S%fZ')}.json", clock, {
         "status": "running",
@@ -283,6 +379,22 @@ def run(workspace: Workspace, reader: CatalogReader, scope: Scope, gold: Path | 
         proposed = propose(workspace)
         log.update(ledger_hash=proposed.ledger_hash, proposal=_proposal_counts(proposed.proposal.ontology),
                    skipped=[{"claim": s.claim, "reason": s.reason} for s in proposed.proposal.skipped])
+    refined = None
+    if model is not None:
+        with log.stage("refine"):
+            first = [t.name for t in load_ontology(gold).tables] if gold is not None else []
+            try:
+                refined = refine(workspace, model, first)
+            finally:
+                log.update(llm={"model": model.model, "limit_usd": model.limit_usd, **summarize(model.spends)})
+            log.update(refine={
+                "stopped": refined.stopped, "not_reached": list(refined.not_reached),
+                "outcomes": dict(sorted(Counter(o.status for o in refined.outcomes).items())),
+                "order": list(refined.order),
+                "tables": [{"table": o.table, "status": o.status, "detail": o.detail, "applied": list(o.applied),
+                            "dropped": [{"item": d.item, "reason": d.reason} for d in o.dropped]}
+                           for o in refined.outcomes],
+            })
     report = None
     if gold is not None:
         with log.stage("evaluate"):
@@ -290,7 +402,7 @@ def run(workspace: Workspace, reader: CatalogReader, scope: Scope, gold: Path | 
             log.update(gold=_gold_record(gold, load_ontology(gold)), evaluation={
                 a.aspect: {"correct": a.correct, "gold": a.gold, "proposed": a.proposed} for a in report.aspects})
     log.update(status="succeeded", finished_at=_utc(clock()).isoformat())
-    return RunResult(extracted, proposed, report, log.path)
+    return RunResult(extracted, proposed, refined, report, log.path)
 
 
 class _RunLog:
