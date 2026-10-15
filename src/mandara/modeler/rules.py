@@ -68,6 +68,10 @@ class Proposal:
     skipped: tuple[Skipped, ...]
 
 
+class InvalidInputError(Exception):
+    """モデラーの入力（主張台帳と範囲）が不正、または不完全。"""
+
+
 class InvalidProposalError(Exception):
     """モデラーの出力が検証（4.5）を通らない。モデラーのバグ。"""
 
@@ -80,17 +84,17 @@ class InvalidProposalError(Exception):
 def propose(source: str, schemas: Collection[str], claims: Sequence[Claim]) -> Proposal:
     """schemas は台帳を作ったときの範囲。範囲内のスキーマにある表は、台帳にすべてあるはず。"""
     if violations := check_claims(claims):
-        raise ValueError(f"入力の主張が不正（{len(violations)} 件）。例 {violations[:3]}")
+        raise InvalidInputError(f"入力の主張が不正（{len(violations)} 件）。例 {violations[:3]}")
     if foreign := sorted({c.subject.source for c in claims} - {source}):
-        raise ValueError(f"ソース {source} の提案に、別のソースの主張がある: {foreign}")
+        raise InvalidInputError(f"ソース {source} の提案に、別のソースの主張がある: {foreign}")
     if outside := sorted({c.subject.schema_name for c in claims} - set(schemas)):
-        raise ValueError(f"範囲外のスキーマの主張がある: {outside}")
+        raise InvalidInputError(f"範囲外のスキーマの主張がある: {outside}")
 
     by_table: dict[_TableKey, list[Claim]] = defaultdict(list)
     for claim in claims:
         by_table[(claim.subject.schema_name, claim.subject.table)].append(claim)
     if missing := sorted(key for key, group in by_table.items() if _one(group, ClaimPredicate.declared_as) is None):
-        raise ValueError(f"declared_as の主張が無い表がある（台帳が不完全）: {missing}")
+        raise InvalidInputError(f"declared_as の主張が無い表がある（台帳が不完全）: {missing}")
     table_ids = {key: "tbl_" + _stable_hash(source, *key) for key in by_table}
 
     tables: list[Table] = []
@@ -145,7 +149,7 @@ def _table(
         target_key = (target.schema_name, target.table)
         if target_key not in table_ids:
             if target.schema_name in schemas:
-                raise ValueError(f"範囲内の参照先 {qualify(*target_key)} の表が台帳に無い（台帳が不完全）: {fk.id}")
+                raise InvalidInputError(f"範囲内の参照先 {qualify(*target_key)} の表が台帳に無い（台帳が不完全）: {fk.id}")
             skipped.append(Skipped(fk.id, f"参照先 {qualify(*target_key)} が範囲外"))
             continue
         pairs = tuple(sorted(zip(_columns(fk), _present(fk.target_columns, fk), strict=True)))
@@ -237,7 +241,7 @@ def _column(claim: Claim) -> str:
 def _one(claims: list[Claim], predicate: ClaimPredicate) -> Claim | None:
     found = _all(claims, predicate)
     if len(found) > 1:
-        raise ValueError(f"{predicate.value} の主張が複数ある: {[c.id for c in found]}")
+        raise InvalidInputError(f"{predicate.value} の主張が複数ある: {[c.id for c in found]}")
     return found[0] if found else None
 
 

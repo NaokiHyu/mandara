@@ -167,7 +167,7 @@ def test_adventureworks_claims(tmp_path: Path) -> None:
     assert counts[ClaimPredicate.not_null] + counts[ClaimPredicate.nullable] == sum(len(t.columns) for t in tables)
 
     root = tmp_path / "claims"
-    write_claim_ledger(root, "adventureworks", claims)
+    write_claim_ledger(root, "adventureworks", AW_SCOPE.schemas, claims)
     assert sorted(c.id for c in load_claim_ledger(root, "adventureworks")) == sorted(c.id for c in claims)
 
 

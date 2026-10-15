@@ -32,6 +32,10 @@ class InvalidOntologyError(Exception):
         self.violations = tuple(violations)
 
 
+class OntologyWriteRefusedError(Exception):
+    """OM を書けない（人の判断を含む既存の OM、同じファイルに当たる2つの表）。"""
+
+
 def _layout(parts: tuple[str, ...], is_dir: bool) -> bool:
     if parts == (_VOCABULARY,):
         return not is_dir
@@ -108,7 +112,7 @@ def write_ontology(root: Path, ontology: Ontology) -> None:
     if violations := check(ontology):
         raise InvalidOntologyError(violations)
     if root.exists() and (decided := list(_human_decisions(load_ontology(root)))):
-        raise ValueError(
+        raise OntologyWriteRefusedError(
             f"人の判断（approved / rejected）を含む OM は上書きしない（{len(decided)} 件。例 {decided[:3]}）。"
             "再実行での統合は T6.1")
 
@@ -117,7 +121,7 @@ def write_ontology(root: Path, ontology: Ontology) -> None:
         parts = ("contexts", encode_name(table.context), "tables", encode_name(table.source),
                  f"{encode_name(_table_part(table))}.yaml")
         if parts in files:
-            raise ValueError(f"同じファイルに2つの表が当たる: {'/'.join(parts)}")
+            raise OntologyWriteRefusedError(f"同じファイルに2つの表が当たる: {'/'.join(parts)}")
         files[parts] = dump_table(table)
     replace_tree(root, files, _layout, _WHAT)
 

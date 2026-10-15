@@ -20,6 +20,10 @@ _SAFE_BYTES = frozenset(b"abcdefghijklmnopqrstuvwxyz0123456789_-")
 MAX_ENCODED = 240
 """符号化した部品の長さの上限。多くのファイルシステムの NAME_MAX（255 バイト）から、拡張子などの余裕を引いた値。"""
 
+class UnstorableNameError(Exception):
+    """ソース上の名前を、ファイル名にできない（空、または符号化すると長すぎる）。"""
+
+
 Layout = Callable[[tuple[str, ...], bool], bool]
 """root からの相対パスの部品と、ディレクトリかどうかを受け取り、配置規則に合うかを返す。"""
 
@@ -27,10 +31,10 @@ Layout = Callable[[tuple[str, ...], bool], bool]
 def encode_name(name: str) -> str:
     """ソース上の名前を、ファイル名の部品に可逆に符号化する。"""
     if not name:
-        raise ValueError("空の名前はファイル名にできない")
+        raise UnstorableNameError("空の名前はファイル名にできない")
     encoded = "".join(chr(b) if b in _SAFE_BYTES else f"%{b:02X}" for b in name.encode("utf-8"))
     if len(encoded) > MAX_ENCODED:
-        raise ValueError(f"名前を符号化すると長すぎる（{len(encoded)} > {MAX_ENCODED}）: {name[:20]!r}…")
+        raise UnstorableNameError(f"名前を符号化すると長すぎる（{len(encoded)} > {MAX_ENCODED}）: {name[:20]!r}…")
     return encoded
 
 

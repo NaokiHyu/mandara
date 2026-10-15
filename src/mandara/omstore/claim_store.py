@@ -1,13 +1,17 @@
 """主張台帳（仕様 6.6）の読み書き。
 
-Adapter 層。配置：<root>/<name(schema)>/<name(table)>.yaml（root は work/<source>/claims、名前は符号化する）。
+Adapter 層。配置：<root>/<name(schema)>/<name(table)>.yaml（root は work/<source>/claims、名前は符号化する）と、
+<root>/scope.json（台帳を作ったときの範囲。台帳と同じ置き換えで書くので、範囲と主張が食い違わない）。
+符号化したスキーマ名は "." を含まないので、scope.json と衝突しない。
 - 台帳は決定的な抽出器が丸ごと作り直すキャッシュ。書けるのは決定的な出所（schema / sql / codelist）の主張だけ。
   再生成できない主張（review など）を、書き直しで消さないため（保存方針は仕様 15.2 で未決）
 - 書く前と読む境界の両方で、主張を検証する（台帳のファイルは手で編集されうる）
 """
 
+import json
 from collections.abc import Iterable, Sequence
 from pathlib import Path
+from typing import cast
 
 from mandara.om.claims import ClaimViolation, check_claims
 from mandara.om.model import Claim, ClaimFile, ClaimSourceKind
@@ -28,7 +32,16 @@ class InvalidClaimsError(Exception):
         self.violations = tuple(violations)
 
 
+class LedgerRefusedError(Exception):
+    """台帳に書けない主張を書こうとした（別のソース、再生成できない出所、範囲外のスキーマ）。"""
+
+
+_SCOPE = "scope.json"
+
+
 def _layout(parts: tuple[str, ...], is_dir: bool) -> bool:
+    if parts == (_SCOPE,):
+        return not is_dir
     return (len(parts) == 1 and is_dir) or (len(parts) == 2 and not is_dir and parts[1].endswith(".yaml"))
 
 
@@ -47,6 +60,8 @@ def load_claim_ledger(root: Path, source: str) -> tuple[Claim, ...]:
         raise OmLoadError(root, FileNotFoundError(f"{_WHAT}のディレクトリが無い"))
     claims: list[Claim] = []
     for path in files_in(root, _layout, _WHAT):
+        if path.relative_to(root).parts == (_SCOPE,):
+            continue
         try:
             schema, table = decode_name(path.parent.name), decode_name(path.stem)
         except ValueError as e:
@@ -63,22 +78,40 @@ def load_claim_ledger(root: Path, source: str) -> tuple[Claim, ...]:
     return tuple(claims)
 
 
-def write_claim_ledger(root: Path, source: str, claims: Iterable[Claim]) -> None:
-    """台帳を丸ごと書き直す。書く前に主張を検証し、root に台帳以外のものがあれば消さずにエラーにする。"""
+def load_ledger_scope(root: Path) -> tuple[str, ...]:
+    """台帳を作ったときの範囲（スキーマ名の一覧）。"""
+    path = root / _SCOPE
+    try:
+        data: object = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        raise OmLoadError(path, e) from e
+    schemas = cast(dict[str, object], data).get("schemas") if isinstance(data, dict) else None
+    items = cast(list[object], schemas) if isinstance(schemas, list) else None
+    if items is None or not all(isinstance(s, str) for s in items):
+        raise OmLoadError(path, ValueError(f"範囲の形が不正: {data!r}"))
+    return tuple(cast(list[str], items))
+
+
+def write_claim_ledger(root: Path, source: str, schemas: Iterable[str], claims: Iterable[Claim]) -> None:
+    """台帳を、範囲とともに丸ごと書き直す。書く前に主張を検証し、root に台帳以外のものがあれば消さずにエラーにする。"""
     claims = list(claims)
+    scope = sorted(set(schemas))
+    if outside := sorted({c.subject.schema_name for c in claims} - set(scope)):
+        raise LedgerRefusedError(f"範囲外のスキーマの主張がある: {outside}")
     if foreign := sorted({c.subject.source for c in claims} - {source}):
-        raise ValueError(f"ソース {source} の台帳に、別のソースの主張がある: {foreign}")
+        raise LedgerRefusedError(f"ソース {source} の台帳に、別のソースの主張がある: {foreign}")
     if kinds := sorted({c.source.kind for c in claims} - _DETERMINISTIC_KINDS):
-        raise ValueError(f"再生成できない出所の主張は台帳に書けない（書き直しで消える）: {kinds}")
+        raise LedgerRefusedError(f"再生成できない出所の主張は台帳に書けない（書き直しで消える）: {kinds}")
     if violations := check_claims(claims):
         raise InvalidClaimsError(violations)
 
     by_table: dict[tuple[str, str], list[Claim]] = {}
     for claim in claims:
         by_table.setdefault((claim.subject.schema_name, claim.subject.table), []).append(claim)
-    files = {
+    files: dict[tuple[str, ...], str] = {
         (encode_name(schema), f"{encode_name(table)}.yaml"): dump_claims(ClaimFile(
             claims=sorted(group, key=lambda c: (c.subject.column or "", c.predicate, c.id))))
         for (schema, table), group in by_table.items()
     }
+    files[(_SCOPE,)] = json.dumps({"schemas": scope}, ensure_ascii=False, indent=2) + "\n"
     replace_tree(root, files, _layout, _WHAT)

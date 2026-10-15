@@ -18,11 +18,11 @@ from hypothesis import strategies as st
 
 from mandara.connectors.postgres.catalog_reader import PostgresCatalogReader
 from mandara.extractors.catalog import extract
-from mandara.modeler.rules import Proposal, propose
+from mandara.modeler.rules import InvalidInputError, Proposal, propose
 from mandara.om.names import qualify, split_qualified
 from mandara.om.model import ObjectKind, ReferentialAction, ReviewStatus, TableKind, TypeFamily
 from mandara.om.ontology import SELF
-from mandara.omstore.yaml_store import load_ontology, write_ontology
+from mandara.omstore.yaml_store import OntologyWriteRefusedError, load_ontology, write_ontology
 from mandara.source.catalog import Catalog, Column, ForeignKey, Key, Scope, Table
 
 from tests.catalog_strategies import catalogs
@@ -156,7 +156,7 @@ def test_reference_outside_scope_is_skipped_not_dropped() -> None:
     assert proposal.ontology.tables[0].relations is None
     assert [s.reason for s in proposal.skipped] == ["参照先 elsewhere.u が範囲外"]
     # 参照先のスキーマが範囲内なのに表が無いのは、範囲外ではなく台帳の欠け
-    with pytest.raises(ValueError, match="台帳が不完全"):
+    with pytest.raises(InvalidInputError, match="台帳が不完全"):
         propose("src", ("s", "elsewhere"), extract("src", Catalog(Scope(("s", "elsewhere")), (table,))))
 
 
@@ -170,7 +170,7 @@ def test_invalid_claims_are_rejected() -> None:
     column = Column("id", 1, "integer", TypeFamily.integer, False, None, None, None)
     claims = extract("src", Catalog(Scope(("s",)), (Table("s", "t", ObjectKind.table, None, (column,), None, (), (), ()),)))
     broken = [c.model_copy(update={"columns": []}) if c.predicate == "not_null" else c for c in claims]
-    with pytest.raises(ValueError, match="入力の主張が不正"):
+    with pytest.raises(InvalidInputError, match="入力の主張が不正"):
         propose("src", ("s",), broken)
 
 
@@ -196,7 +196,7 @@ def test_human_decisions_are_not_overwritten(tmp_path: Path) -> None:
     approved = ontology.tables[0].model_copy(update={
         "status": "approved", "reviewed_by": "alice", "reviewed_at": date(2026, 10, 15)})
     write_ontology(root, replace(ontology, tables=(approved,)))
-    with pytest.raises(ValueError, match="人の判断"):
+    with pytest.raises(OntologyWriteRefusedError, match="人の判断"):
         write_ontology(root, ontology)
     assert load_ontology(root).tables[0].status == "approved"
 

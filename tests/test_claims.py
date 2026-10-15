@@ -28,13 +28,15 @@ from mandara.om.model import (
 )
 from mandara.omstore.claim_store import (
     InvalidClaimsError,
+    LedgerRefusedError,
     dump_claims,
     load_claim_ledger,
+    load_ledger_scope,
     parse_claims,
     write_claim_ledger,
 )
 from mandara.omstore.codec import OmLoadError
-from mandara.omstore.tree import decode_name, encode_name
+from mandara.omstore.tree import UnstorableNameError, decode_name, encode_name
 
 from tests.strategies import claim_ledgers, claims
 
@@ -234,9 +236,15 @@ def test_broken_claims_are_detected(rule: ClaimRule, data: st.DataObject) -> Non
 @given(claim_ledgers(kinds=DETERMINISTIC))
 def test_ledger_write_then_load(tmp_path_factory: pytest.TempPathFactory, ledger: tuple[Claim, ...]) -> None:
     root = tmp_path_factory.mktemp("ledger") / "claims"
-    write_claim_ledger(root, "src", ledger)
+    _write(root, ledger)
     loaded = load_claim_ledger(root, "src")
     assert sorted(loaded, key=lambda c: c.id) == sorted(ledger, key=lambda c: c.id)
+
+
+def _write(root: Path, claims: Iterable[Claim]) -> None:
+    """範囲は主張の主語のスキーマ。"""
+    claims = list(claims)
+    write_claim_ledger(root, "src", sorted({c.subject.schema_name for c in claims}), claims)
 
 
 def _claim(table: str, schema: str = "s", source: str = "src") -> Claim:
@@ -251,8 +259,8 @@ def _claim(table: str, schema: str = "s", source: str = "src") -> Claim:
 
 def test_rewrite_replaces_whole_ledger(tmp_path: Path) -> None:
     root = tmp_path / "claims"
-    write_claim_ledger(root, "src", [_claim("old")])
-    write_claim_ledger(root, "src", [_claim("new")])
+    _write(root, [_claim("old")])
+    _write(root, [_claim("new")])
     assert [c.subject.table for c in load_claim_ledger(root, "src")] == ["new"]
     assert not (root / "s" / "old.yaml").exists()
     assert [p.name for p in tmp_path.iterdir()] == ["claims"]  # 作業用のディレクトリが残らない
@@ -263,13 +271,13 @@ def test_rewrite_refuses_to_delete_foreign_files(tmp_path: Path) -> None:
     root.mkdir()
     (root / "notes.txt").write_text("人のメモ")
     with pytest.raises(OmLoadError):
-        write_claim_ledger(root, "src", [_claim("t")])
+        _write(root, [_claim("t")])
     assert (root / "notes.txt").exists()
 
 
 def test_misplaced_claim_is_an_error(tmp_path: Path) -> None:
     root = tmp_path / "claims"
-    write_claim_ledger(root, "src", [_claim("t")])
+    _write(root, [_claim("t")])
     (root / "s" / "t.yaml").rename(root / "s" / "u.yaml")
     with pytest.raises(OmLoadError, match="食い違う"):
         load_claim_ledger(root, "src")
@@ -297,31 +305,31 @@ def test_name_encoding_is_case_insensitive_safe(a: str, b: str) -> None:
 def test_hostile_names_stay_inside_root(tmp_path: Path) -> None:
     root = tmp_path / "claims"
     ledger = [_claim("a/b", schema=".."), _claim("Foo"), _claim("foo"), _claim("caf\u00e9"), _claim("cafe\u0301")]
-    write_claim_ledger(root, "src", ledger)
+    _write(root, ledger)
     assert sorted(p.name for p in tmp_path.iterdir()) == ["claims"]
     assert sorted(c.id for c in load_claim_ledger(root, "src")) == sorted(c.id for c in ledger)
 
 
 def test_write_rejects_other_sources(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="別のソース"):
-        write_claim_ledger(tmp_path / "claims", "src", [_claim("t", source="other")])
+    with pytest.raises(LedgerRefusedError, match="別のソース"):
+        _write(tmp_path / "claims", [_claim("t", source="other")])
 
 
 def test_write_rejects_non_regenerable_claims(tmp_path: Path) -> None:
     review = _rehashed(_claim("t"), source=ClaimSource(kind=ClaimSourceKind.review, locator="q1"))
-    with pytest.raises(ValueError, match="再生成できない"):
-        write_claim_ledger(tmp_path / "claims", "src", [review])
+    with pytest.raises(LedgerRefusedError, match="再生成できない"):
+        _write(tmp_path / "claims", [review])
 
 
 def test_write_rejects_invalid_claims(tmp_path: Path) -> None:
     with pytest.raises(InvalidClaimsError):
-        write_claim_ledger(tmp_path / "claims", "src", [_claim("t").model_copy(update={"id": "clm_" + "0" * 16})])
+        _write(tmp_path / "claims", [_claim("t").model_copy(update={"id": "clm_" + "0" * 16})])
     assert not (tmp_path / "claims").exists()
 
 
 def test_tampered_ledger_is_rejected_on_load(tmp_path: Path) -> None:
     root = tmp_path / "claims"
-    write_claim_ledger(root, "src", [_claim("t")])
+    _write(root, [_claim("t")])
     path = root / "s" / "t.yaml"
     path.write_text(path.read_text().replace("column: c", "column: d"))
     with pytest.raises(OmLoadError) as e:
@@ -333,7 +341,7 @@ def test_root_that_is_a_file_is_an_error(tmp_path: Path) -> None:
     root = tmp_path / "claims"
     root.write_text("not a ledger")
     with pytest.raises(OmLoadError):
-        write_claim_ledger(root, "src", [_claim("t")])
+        _write(root, [_claim("t")])
     assert sorted(p.name for p in tmp_path.iterdir()) == ["claims"]
 
 
@@ -342,28 +350,37 @@ def test_symlink_in_ledger_is_not_followed_or_deleted(tmp_path: Path) -> None:
     precious.mkdir()
     (precious / "data.yaml").write_text("x")
     root = tmp_path / "claims"
-    write_claim_ledger(root, "src", [_claim("t")])
+    _write(root, [_claim("t")])
     (root / "link").symlink_to(precious)
     with pytest.raises(OmLoadError, match="シンボリックリンク"):
-        write_claim_ledger(root, "src", [_claim("t")])
+        _write(root, [_claim("t")])
     assert (precious / "data.yaml").exists()
 
 
 def test_too_long_name_is_an_error() -> None:
-    with pytest.raises(ValueError, match="長すぎる"):
+    with pytest.raises(UnstorableNameError, match="長すぎる"):
         encode_name("名" * 100)  # 1文字 3 バイト → 900 文字に符号化される
 
 
 def test_failed_write_leaves_existing_ledger_and_no_debris(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / "claims"
-    write_claim_ledger(root, "src", [_claim("t")])
+    _write(root, [_claim("t")])
 
     def fail(*_: object, **__: object) -> None:
         raise OSError("disk full")
 
     monkeypatch.setattr(Path, "write_text", fail)
     with pytest.raises(OSError, match="disk full"):
-        write_claim_ledger(root, "src", [_claim("u")])
+        _write(root, [_claim("u")])
     monkeypatch.undo()
     assert [c.subject.table for c in load_claim_ledger(root, "src")] == ["t"]
     assert [p.name for p in tmp_path.iterdir()] == ["claims"]
+
+
+def test_scope_is_written_with_the_ledger(tmp_path: Path) -> None:
+    root = tmp_path / "claims"
+    write_claim_ledger(root, "src", ["s", "unused"], [_claim("t")])
+    assert load_ledger_scope(root) == ("s", "unused")
+    with pytest.raises(LedgerRefusedError, match="範囲外のスキーマ"):
+        write_claim_ledger(root, "src", ["other"], [_claim("t")])
+    assert load_ledger_scope(root) == ("s", "unused")  # 拒否したときは何も変えない
