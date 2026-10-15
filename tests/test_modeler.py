@@ -53,13 +53,14 @@ def test_one_table_per_object_and_one_relation_per_foreign_key(catalog: Catalog)
         table = by_name[qualify(source_table.schema, source_table.name)]
         assert table.context == source_table.schema
         assert list(table.columns or {}) == [c.name for c in source_table.columns]  # 位置の順
-        relations = [(r.target, [(p.from_, p.to) for p in r.via or []]) for r in table.relations or []]
-        expected = [
+        relations = [(r.target, frozenset((p.from_, p.to) for p in r.via or [])) for r in table.relations or []]
+        # 中身が同じ外部キー（名前だけ違う）は1つの関係にまとまる
+        expected = {
             (SELF if (f.target_schema, f.target_table) == (source_table.schema, source_table.name)
-             else ids[(f.target_schema, f.target_table)], list(zip(f.columns, f.target_columns, strict=True)))
+             else ids[(f.target_schema, f.target_table)], frozenset(zip(f.columns, f.target_columns, strict=True)))
             for f in source_table.foreign_keys
-        ]
-        assert sorted(relations, key=str) == sorted(expected, key=str)
+        }
+        assert len(relations) == len(expected) and set(relations) == expected
 
 
 def _is_junction(table: Table) -> bool:

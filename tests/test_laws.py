@@ -24,6 +24,7 @@ from mandara.om.model import (
     HasKind,
     Identity,
     IsARealization,
+    KeyColumns,
     Relation,
     RelationType,
     ReviewStatus,
@@ -35,7 +36,7 @@ from mandara.om.model import (
     ValueType,
     Vocabulary,
 )
-from mandara.om.ontology import Ontology
+from mandara.om.ontology import SELF, Ontology
 from mandara.om.relation_traits import RELATION_TRAITS
 from mandara.omstore.yaml_store import dump_table, dump_vocabulary, parse_table, parse_vocabulary
 
@@ -133,6 +134,10 @@ MUTATIONS: dict[Rule, Mutation] = {
     ),
     Rule.UNDECIDED_KIND: lambda o: _replace_first(o, _first(o).model_copy(update={
         "kind": None, "status": "approved", "reviewed_by": "alice", "reviewed_at": date(2026, 10, 15)})),
+    Rule.DUPLICATE_RELATION: lambda o: _add(o, _table("tbl_m", columns=[_col("id"), _col("fk")], relations=[
+        _rel(f"rel_m{i}", RelationType.has, SELF, [("fk", "id")], has_kind=HasKind.reference) for i in (1, 2)])),
+    Rule.DUPLICATE_KEY: lambda o: _add(o, _table("tbl_m").model_copy(update={
+        "identity": Identity(primary=["id"], alternates=[KeyColumns(columns=["id"])])})),
     Rule.MISSING_GRAIN: lambda o: _add(o, _table("tbl_m", kind=TableKind.event, grain="  ")),
     Rule.DUPLICATE_ID: lambda o: _add(o, _first(o)),
     Rule.UNKNOWN_TARGET: lambda o: _add(

@@ -137,9 +137,10 @@ def _table(
     confidence = min([CONTEXT_CONFIDENCE, *([KIND_CONFIDENCE] if kind is not None else list[float]())])
     evidence = [declared.id, *(c.id for c in [primary, *alternates] if c is not None), *nulls_evidence, *kind_evidence]
 
-    relations: list[Relation] = []
+    # 中身が同じ外部キー（名前だけ違う冗長な制約）は、1つの関係にまとめて根拠を併記する
+    joins: dict[tuple[_TableKey, tuple[tuple[str, str], ...]], list[Claim]] = {}
     skipped: list[Skipped] = []
-    for fk in references:
+    for fk in sorted(references, key=lambda c: c.source.locator):
         target = _present(fk.target, fk)
         target_key = (target.schema_name, target.table)
         if target_key not in table_ids:
@@ -147,16 +148,21 @@ def _table(
                 raise ValueError(f"範囲内の参照先 {qualify(*target_key)} の表が台帳に無い（台帳が不完全）: {fk.id}")
             skipped.append(Skipped(fk.id, f"参照先 {qualify(*target_key)} が範囲外"))
             continue
-        relations.append(Relation(
-            id="rel_" + _stable_hash(source, schema, name, fk.source.locator),
+        pairs = tuple(sorted(zip(_columns(fk), _present(fk.target_columns, fk), strict=True)))
+        joins.setdefault((target_key, pairs), []).append(fk)
+    relations = [
+        Relation(
+            id="rel_" + _stable_hash(source, schema, name, fks[0].source.locator),
             type=RelationType.has,
             has_kind=HasKind.reference,
             target=SELF if target_key == key else table_ids[target_key],
             via=[ColumnPair.model_validate({"from": a, "to": b})
-                 for a, b in zip(_columns(fk), _present(fk.target_columns, fk), strict=True)],
+                 for a, b in zip(_columns(fks[0]), _present(fks[0].target_columns, fks[0]), strict=True)],
             cardinality=Cardinality("n:1"),
-            **_proposed(REFERENCE_CONFIDENCE, [fk.id]),
-        ))
+            **_proposed(REFERENCE_CONFIDENCE, [fk.id for fk in fks]),
+        )
+        for (target_key, _), fks in joins.items()
+    ]
 
     typed = sorted(_all(claims, ClaimPredicate.typed_as), key=lambda c: _present(c.position, c))
     columns = {_column(c): Column(name=_column(c), **_proposed(DECLARED_CONFIDENCE, [c.id])) for c in typed}

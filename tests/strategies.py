@@ -129,23 +129,28 @@ def ontologies(draw: st.DrawFn, max_tables: int = 5) -> Ontology:
             encoding = draw(st.none() | st.sampled_from(tuple(SourceEncoding))) if domain == "point" else None
             columns[c] = annotate(Column(name=c, domain=domain, unit=unit, encoding=encoding, status=_PLACEHOLDER))
 
+        # 代替キーは、主キーとも互いとも違う列の組
         alternates = draw(
-            st.lists(st.lists(st.sampled_from(sorted(columns)), min_size=1, max_size=2, unique=True), max_size=2)
+            st.lists(st.lists(st.sampled_from(sorted(columns)), min_size=1, max_size=2, unique=True), max_size=2,
+                     unique_by=lambda k: frozenset(k)).filter(lambda ks: frozenset(primary) not in map(frozenset, ks))
         )
 
         relations: list[Relation] = []
+        # 同じ表を何度参照してもよいが、is-a（主キー同士の結合）は同じ表へ1本だけ（同じものを結ぶ関係を2度作らない）
         targets = draw(st.lists(st.integers(min_value=0, max_value=i - 1), max_size=3)) if i else []
+        is_a_done: set[int] = set()
         for k, t in enumerate(targets):
             target = tables[t]
             target_pk = target.identity.primary if target.identity is not None else []
             choices = [RelationType.has, RelationType.part_of, RelationType.classified_as]
-            if len(target_pk) == len(primary):
+            if len(target_pk) == len(primary) and t not in is_a_done:
                 choices.append(RelationType.is_a)
             rtype = draw(st.sampled_from(choices))
             if rtype == RelationType.part_of and target.kind == TableKind.derived.value:
                 rtype = RelationType.has
             rel_id = f"rel_t{i}_{k}"
             if rtype == RelationType.is_a:
+                is_a_done.add(t)
                 relation = Relation(
                     id=rel_id,
                     type=rtype,

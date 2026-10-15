@@ -41,6 +41,8 @@ class Rule(Enum):
     PROPOSED_WITHOUT_PROVENANCE = "proposed なのに confidence / evidence / inferred_by が無い"
     MISSING_GRAIN = "event 表、または尺度を持つ domain 表に grain が無い"
     UNDECIDED_KIND = "approved の表に kind が無い"
+    DUPLICATE_RELATION = "同じものを結ぶ関係が2度ある（参照先と結合が同じ）"
+    DUPLICATE_KEY = "同じ列の組のキーが2度ある（代替キーの重複、主キーと同じ代替キー）"
     DUPLICATE_ID = "安定ID が重複している"
     UNKNOWN_TARGET = "関係の参照先の表が存在しない"
     UNKNOWN_COLUMN = "存在しない列を指している"
@@ -151,6 +153,8 @@ def _check_table(table: Table, ontology: Ontology) -> Iterator[Violation]:
         for name in (c for key in keys for c in key):
             if name not in columns:
                 yield Violation(Rule.UNKNOWN_COLUMN, f"{loc}.identity", f"列 {name!r} が無い")
+        for key in _duplicates(",".join(sorted(k)) for k in keys):
+            yield Violation(Rule.DUPLICATE_KEY, f"{loc}.identity", f"列の組 {{{key}}}")
 
     if _is_blank(table.grain) and _needs_grain(table, domains):
         yield Violation(Rule.MISSING_GRAIN, loc, f"kind={table.kind}")
@@ -160,6 +164,8 @@ def _check_table(table: Table, ontology: Ontology) -> Iterator[Violation]:
 
     for relation in table.relations or []:
         yield from _check_relation(relation, table, ontology)
+    for joins in _duplicates(_joins(r) for r in table.relations or []):
+        yield Violation(Rule.DUPLICATE_RELATION, f"{loc}.relations", joins)
 
     yield from _check_edge(table, ontology)
 
@@ -246,6 +252,12 @@ def _check_relation(relation: Relation, table: Table, ontology: Ontology) -> Ite
 
     if relation.realized_by == IsARealization.shared_key.value:
         yield from _check_shared_key(relation, table, target, loc)
+
+
+def _joins(relation: Relation) -> str:
+    """関係が結ぶもの（参照先と、列の対応・関数）を、比べられる文字列にする。"""
+    pairs = sorted((p.from_, p.to) for p in relation.via or [])
+    return repr((relation.target, pairs, relation.via_function, relation.function, sorted(relation.columns or [])))
 
 
 def _check_relation_shape(relation: Relation, table: Table, loc: str) -> Iterator[Violation]:
