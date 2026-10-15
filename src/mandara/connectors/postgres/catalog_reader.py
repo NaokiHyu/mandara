@@ -18,6 +18,7 @@ from typing import Any, LiteralString
 import psycopg
 from psycopg import IsolationLevel
 
+from mandara.om.model import ReferentialAction, TypeFamily
 from mandara.source.catalog import (
     Catalog,
     Check,
@@ -25,11 +26,9 @@ from mandara.source.catalog import (
     ForeignKey,
     Key,
     ObjectKind,
-    ReferentialAction,
     Scope,
     SourceError,
     Table,
-    TypeFamily,
     UnknownSchemaError,
     Unsupported,
     UnsupportedFeatureError,
@@ -40,27 +39,27 @@ _UNSUPPORTED_KINDS = {"p": "partitioned table", "f": "foreign table"}
 
 # pg_catalog の組み込み型だけを引く。名前が同じでも別スキーマの型（ユーザーの enum など）は当てない
 _FAMILIES: dict[str, TypeFamily] = {
-    **dict.fromkeys(("int2", "int4", "int8"), TypeFamily.INTEGER),
-    **dict.fromkeys(("numeric", "money"), TypeFamily.DECIMAL),
-    **dict.fromkeys(("float4", "float8"), TypeFamily.FLOAT),
-    **dict.fromkeys(("text", "varchar", "bpchar", "char", "name"), TypeFamily.TEXT),
-    "bool": TypeFamily.BOOLEAN,
-    "date": TypeFamily.DATE,
-    **dict.fromkeys(("time", "timetz"), TypeFamily.TIME),
-    **dict.fromkeys(("timestamp", "timestamptz"), TypeFamily.TIMESTAMP),
-    "bytea": TypeFamily.BINARY,
-    "uuid": TypeFamily.UUID,
-    "xml": TypeFamily.XML,
-    **dict.fromkeys(("json", "jsonb"), TypeFamily.JSON),
+    **dict.fromkeys(("int2", "int4", "int8"), TypeFamily.integer),
+    **dict.fromkeys(("numeric", "money"), TypeFamily.decimal),
+    **dict.fromkeys(("float4", "float8"), TypeFamily.float),
+    **dict.fromkeys(("text", "varchar", "bpchar", "char", "name"), TypeFamily.text),
+    "bool": TypeFamily.boolean,
+    "date": TypeFamily.date,
+    **dict.fromkeys(("time", "timetz"), TypeFamily.time),
+    **dict.fromkeys(("timestamp", "timestamptz"), TypeFamily.timestamp),
+    "bytea": TypeFamily.binary,
+    "uuid": TypeFamily.uuid,
+    "xml": TypeFamily.xml,
+    **dict.fromkeys(("json", "jsonb"), TypeFamily.json),
 }
 _TYPE_KINDS = {"e": "enum type", "c": "composite type", "r": "range type", "m": "multirange type", "p": "pseudo type"}
 
 _ACTIONS = {
-    "a": ReferentialAction.NO_ACTION,
-    "r": ReferentialAction.RESTRICT,
-    "c": ReferentialAction.CASCADE,
-    "n": ReferentialAction.SET_NULL,
-    "d": ReferentialAction.SET_DEFAULT,
+    "a": ReferentialAction.no_action,
+    "r": ReferentialAction.restrict,
+    "c": ReferentialAction.cascade,
+    "n": ReferentialAction.set_null,
+    "d": ReferentialAction.set_default,
 }
 _MATCH = {"f": "MATCH FULL", "p": "MATCH PARTIAL"}
 
@@ -265,13 +264,13 @@ class _TypeResolver:
     def _base(self, t: _TypeRow) -> tuple[TypeFamily, list[str]]:
         if t.category == "A" and t.element:
             _, problems = self._base(self._types[t.element])
-            return TypeFamily.OTHER, [f"array of {p}" for p in problems]
+            return TypeFamily.other, [f"array of {p}" for p in problems]
         if t.typtype in _TYPE_KINDS:
-            return TypeFamily.OTHER, [f"{_TYPE_KINDS[t.typtype]} ({t.qualified})"]
+            return TypeFamily.other, [f"{_TYPE_KINDS[t.typtype]} ({t.qualified})"]
         if not t.builtin:
-            return TypeFamily.OTHER, [f"non-builtin type ({t.qualified})"]
+            return TypeFamily.other, [f"non-builtin type ({t.qualified})"]
         # 組み込みで型族に当てはまらないもの（interval、inet など）は OTHER。source_type で区別できる
-        return _FAMILIES.get(t.name, TypeFamily.OTHER), []
+        return _FAMILIES.get(t.name, TypeFamily.other), []
 
 
 # ---------------------------------------------------------------- 問い合わせ

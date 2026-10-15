@@ -2,7 +2,7 @@
 
 Domain 層。I/O を持たず、特定の DB を知らない。
 - 型名や CHECK の式は、ソースの方言の文字列のまま運ぶ（解釈は抽出器・推論の責務）
-- 中立な型族（TypeFamily）への寄せは、各コネクタ（Adapter）の責務
+- 中立な型族（TypeFamily）への寄せは、各コネクタ（Adapter）の責務。TypeFamily と ReferentialAction は主張台帳と共有するので①で定義する
 - 分からないことは分からないと持つ（ビューの列の NULL 可否は None）
 """
 
@@ -11,23 +11,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol
 
-
-class TypeFamily(Enum):
-    """列の値の、DB に依存しない型族。どれにも当てはまらない型は OTHER とし、source_type で区別する。"""
-
-    INTEGER = "integer"
-    DECIMAL = "decimal"
-    FLOAT = "float"
-    TEXT = "text"
-    BOOLEAN = "boolean"
-    DATE = "date"
-    TIME = "time"
-    TIMESTAMP = "timestamp"
-    BINARY = "binary"
-    UUID = "uuid"
-    XML = "xml"
-    JSON = "json"
-    OTHER = "other"
+from mandara.om.model import ReferentialAction, TypeFamily
 
 
 class ObjectKind(Enum):
@@ -55,16 +39,6 @@ class Column:
 class Key:
     name: str
     columns: tuple[str, ...]
-
-
-class ReferentialAction(Enum):
-    """参照先の行が消える・変わるときの動作（SQL 標準）。CASCADE は合成関係の証拠になる。"""
-
-    NO_ACTION = "no_action"
-    RESTRICT = "restrict"
-    CASCADE = "cascade"
-    SET_NULL = "set_null"
-    SET_DEFAULT = "set_default"
 
 
 @dataclass(frozen=True)

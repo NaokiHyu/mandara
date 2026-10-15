@@ -136,6 +136,64 @@ enums:
         description: SQL Server の geography 型のバイナリ（SRID 4 バイト、版、属性、緯度・経度の float64）
         annotations:
           decodes_to: geo.point
+  TypeFamily:
+    description: >-
+      ソースの列の値の、DB に依存しない型族（カタログ、主張）。
+      どれにも当てはまらない組み込みの型は other とし、ソース上の型名で区別する
+    permissible_values:
+      integer:
+      decimal:
+      float:
+      text:
+      boolean:
+      date:
+      time:
+      timestamp:
+      binary:
+      uuid:
+      xml:
+      json:
+      other:
+  ReferentialAction:
+    description: 外部キーの参照先の行が消える・変わるときの動作（SQL 標準）。cascade は合成関係の証拠になる
+    permissible_values:
+      no_action:
+      restrict:
+      cascade:
+      set_null:
+      set_default:
+  ClaimPredicate:
+    description: >-
+      主張の述語（6.6.2）。述語ごとに、主語の粒度（表 / 列）と、値として持つフィールドが決まっている。
+      今あるのはカタログの抽出器（T1.3）が出すものだけ。足すときは①を変え、検証の形の表も足す
+    permissible_values:
+      identified_by:
+        description: 表は columns で識別される（主キー）
+      unique:
+        description: 表の columns の組は一意
+      references:
+        description: 表の columns が、target の target_columns を参照する（外部キー）。on_delete / on_update を持つ
+      not_null:
+        description: 列は NULL を持たない
+      described_as:
+        description: 表または列は text で説明されている（コメント）
+      checks:
+        description: 表の行は text の式を満たす（CHECK）
+      typed_as:
+        description: 列のソース上の型名は type_name、型族は family
+      aliased_as:
+        description: 列はユーザー定義の型の別名 type_name を使う
+  ClaimSourceKind:
+    description: 主張の出所の種類（6.6.2）
+    permissible_values:
+      schema:
+      sql:
+      codelist:
+      design-doc:
+      memo:
+      package:
+      world:
+      review:
   IsARealization:
     description: >-
       論理的な is-a が、ソースでどう実装されているか（C3）。
@@ -395,4 +453,84 @@ classes:
       from:
         required: true
       to:
+        required: true
+
+  # ---------------------------------------------------------------- 主張台帳（6.6）
+  ClaimFile:
+    tree_root: true
+    description: >-
+      work/<source>/claims/<schema>/<table>.yaml。その表を主語とする主張（列を主語とするものを含む）の一覧。
+      決定的な抽出器の主張は再生成できるキャッシュで、git に乗せない
+    attributes:
+      claims:
+        range: Claim
+        multivalued: true
+        inlined: true
+        inlined_as_list: true
+
+  Claim:
+    description: >-
+      ソースについての主張。id は内容（subject、predicate、値のフィールド、source）から決まり、
+      抽出器の版・確信度・実行時刻には依存しない。再生成しても同じ id になる
+    attributes:
+      id:
+        required: true
+        pattern: "^clm_[0-9a-f]{16}$"
+      subject:
+        range: SourceRef
+        required: true
+        inlined: true
+      predicate:
+        range: ClaimPredicate
+        required: true
+      columns:
+        multivalued: true
+      target:
+        range: SourceRef
+        inlined: true
+      target_columns:
+        multivalued: true
+      on_delete:
+        range: ReferentialAction
+      on_update:
+        range: ReferentialAction
+      text:
+      type_name:
+      family:
+        range: TypeFamily
+      source:
+        range: ClaimSource
+        required: true
+        inlined: true
+      extracted_by:
+        description: 抽出器の名前と版
+        required: true
+      valid_at:
+        description: 出所の日付（文書の日付など）。鮮度の根拠
+        range: date
+      confidence:
+        range: float
+        required: true
+        minimum_value: 0.0
+        maximum_value: 1.0
+
+  SourceRef:
+    description: データソース上の表または列。OM の安定 ID ができる前の段階なので、ソース上の名前で指す
+    attributes:
+      source:
+        required: true
+      schema_name:
+        description: スキーマ名（schema は pydantic の BaseModel と衝突するので避ける）
+        required: true
+      table:
+        required: true
+      column:
+
+  ClaimSource:
+    attributes:
+      kind:
+        range: ClaimSourceKind
+        required: true
+      locator:
+        description: 出所の中の場所（制約名、ファイルと行など）
         required: true

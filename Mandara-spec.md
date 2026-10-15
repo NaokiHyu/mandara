@@ -372,8 +372,6 @@ ontology/
     sources.yaml                # 知識源の登録（種類、場所、抽出器、優先層）。文書本体は置かない
     codelists/
       jis_x0401_2023.yaml       # 取り込んだ公開コード表（版つき）
-  claims/
-    pg_main/orders.yaml         # 主張台帳（6.6）。表ごとに1ファイル
   sources/
     pg_main.yaml                # 接続定義（秘密情報は含めない）
     erp_api.yaml                # 既存APIの仕様参照（OpenAPI/WSDL）、冪等性の有無、サービスアカウント名
@@ -381,6 +379,14 @@ ontology/
     semantic_layer.yaml         # セマンティックモデルの書き出し先（10.4.4）
   runs/
     2026-10-11T0000Z.json       # 推論実行の記録（入力ハッシュ、モデル、提案数）
+```
+
+ontology リポジトリの外（git に乗せない作業領域）：
+```
+work/
+  pg_main/
+    claims/
+      sales/orders.yaml         # 主張台帳（6.6）。主語の表ごとに1ファイル。決定的な抽出器が丸ごと作り直すキャッシュ
 ```
 
 方針：
@@ -456,18 +462,25 @@ ontology/
 #### 6.6.2 主張の形式
 
 ```yaml
-# claims/pg_main/orders.yaml（抜粋）
-- id: clm_01J...
-  subject:   { table: tbl_01HXY..., column: status }
-  predicate: means             # has_domain | references | means | grain_is | same_as | not_references | not_same_as ...
-  object:    { value: 3, label: "出荷済" }
-  source:    { kind: sql, file: "reports/monthly.sql", locator: "L42 CASE式" }
-  extracted_by: sql-parser     # 決定的な抽出器
-  valid_at:  2024-03           # 文書の日付。鮮度の根拠
-  confidence: 0.95
+# work/pg_main/claims/sales/orders.yaml（抜粋）
+claims:
+- id: clm_3f9a0c1d2e4b5a67      # 内容（subject、predicate、値、source）のハッシュ
+  subject: { source: pg_main, schema_name: sales, table: orders }
+  predicate: references         # 述語ごとに、主語の粒度と値のフィールドが決まっている（①の ClaimPredicate）
+  columns: [customer_id]
+  target: { source: pg_main, schema_name: crm, table: customers }
+  target_columns: [id]
+  on_delete: no_action
+  on_update: no_action
+  source: { kind: schema, locator: "constraint fk_orders_customer" }
+  extracted_by: catalog/postgres 0.1   # 抽出器の名前と版
+  confidence: 1.0
 ```
 
-- `predicate` は語彙で閉じる。否定形（`not_*`）を持ち、反証を記録できる
+- 主語は、OM の安定 ID ではなくソース上の名前で指す。主張は OM より先に作られるため
+- **ID は内容から決まる**：主語、述語、値のフィールド、出所（種類と場所）の正規形のハッシュ。抽出器の版・確信度・日付には依存しない。決定的な抽出器を再実行すれば同じ ID になり、OM の `evidence` が切れない
+- 決定的な抽出器（スキーマ、SQL、公開コード表）の主張は再生成できるキャッシュで、**git に乗せない**（`work/`）。再生成できない主張（レビューの回答、LLM による抽出）の保存方針は未決（15.2）
+- 述語は①で閉じる。今あるのはカタログの抽出器が出すもの（identified_by、unique、references、not_null、described_as、checks、typed_as、aliased_as）。`means`、`same_as`、否定形（`not_*`）などは、それを出す抽出器と一緒に足す。否定形の述語で反証を記録できるようにする
 - `source.kind` は `schema | sql | codelist | design-doc | memo | package | world | review`
 - 提案（OM、アダプタ、メトリクス、関数）の `evidence` は主張IDを指す
 
@@ -1181,6 +1194,7 @@ Foundry はソースを自社ストレージに取り込み、オントロジー
 
 ### 15.2 その他
 - 安定IDの採番方式（ULID想定）と、ソース側で表が分割・統合された場合の追跡
+- 再生成できない主張（レビューの回答、LLM による抽出）をどこに、どう残すか（git に乗せるか、OM の注釈に畳むか）
 - `classified-as` の UI 表現（分類のツリー、ファセットでの絞り込みなど）。UI に着手するときに決める。TMC 側は汎用のグラフ問い合わせ（7.1）でたどる
 - 語彙のドメイン型（`geo.latitude` など）と固定の単位は、①の enum として閉じた集合にした。初期セットをどこまで標準で持つか（通貨を ISO 4217 から全部入れるか、使うものだけ足すか）
 - ドメインのスキーマ（7.6 の②）と生成した型をリポジトリにコミットするか、ビルド時に生成するか

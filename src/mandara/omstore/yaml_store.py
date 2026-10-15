@@ -1,4 +1,4 @@
-"""OM ファイル（YAML）の読み書き。
+"""OM ファイルと主張台帳（YAML）の読み書き。
 
 Adapter 層。ファイルの形（キーを名前にした辞書、固定のキー順）と、
 メタモデル①から生成した型との変換をここに閉じ込める。
@@ -9,16 +9,21 @@ Adapter 層。ファイルの形（キーを名前にした辞書、固定のキ
 - キー順は固定：型のフィールド順。ただし注釈の共通フィールド（4.4）は末尾に回す
 - YAML のコメントは使わない（人のメモは note に書く）
 - 配置は仕様 5章：contexts/<context>/tables/<source>/<table>.yaml。中身の context / source / name と一致させる
+- 主張台帳は <root>/<schema>/<table>.yaml（root は work/<source>/claims、名前は符号化する）。主語の表ごとに1ファイル。
+  決定的な抽出器が丸ごと作り直すキャッシュなので、書くときは台帳全体を置き換える
 """
 
-from collections.abc import Callable
+import shutil
+import tempfile
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 from typing import Any, cast
 
 import yaml
 from pydantic import BaseModel, ValidationError
 
-from mandara.om.model import Table, Vocabulary
+from mandara.om.claims import ClaimViolation, check_claims
+from mandara.om.model import Claim, ClaimFile, ClaimSourceKind, Table, Vocabulary
 from mandara.om.ontology import Ontology
 
 _ANNOTATION_FIELDS = ("status", "confidence", "evidence", "inferred_by", "reviewed_by", "reviewed_at", "note")
@@ -165,3 +170,133 @@ def _without_name(key: str, body: dict[str, Any]) -> dict[str, Any]:
     if body.get("name") != key:
         raise ValueError(f"辞書のキー {key!r} と name {body.get('name')!r} が食い違う。書き出すとどちらかが消える")
     return {k: v for k, v in body.items() if k != "name"}
+
+
+# ---------------------------------------------------------------- 主張台帳
+#
+# 配置：<root>/<name(schema)>/<name(table)>.yaml。root は work/<source>/claims。
+# - ソース上の名前は何でもありうる（"/"、".."、大文字、合成済み・分解済みの Unicode）。そのままパスにすると、
+#   root の外に書いたり、大文字小文字を区別しないファイルシステム（macOS の既定）で黙って上書きしたりする。
+#   そこで名前を可逆に符号化する：[a-z0-9_-] 以外のバイト（大文字、"."、"/"、非 ASCII）は %XX にする
+# - 台帳は決定的な抽出器が丸ごと作り直すキャッシュ。書けるのは決定的な出所（schema / sql / codelist）の主張だけ。
+#   再生成できない主張（review など）を、書き直しで消さないため（保存方針は仕様 15.2 で未決）
+# - 単一の書き手を前提にする。並行して書かない（ロックは持たない）
+
+_DETERMINISTIC_KINDS = frozenset({ClaimSourceKind.schema.value, ClaimSourceKind.sql.value, ClaimSourceKind.codelist.value})
+_SAFE_BYTES = frozenset(b"abcdefghijklmnopqrstuvwxyz0123456789_-")
+
+
+class InvalidClaimsError(Exception):
+    """書こうとした・読んだ主張が、主張の検証（mandara.om.claims）を通らない。"""
+
+    def __init__(self, violations: Sequence[ClaimViolation]) -> None:
+        lines = "\n".join(f"  - {v.location}: {v.rule.name} {v.detail}" for v in violations)
+        super().__init__(f"主張が不正（{len(violations)} 件）:\n{lines}")
+        self.violations = tuple(violations)
+
+
+def encode_name(name: str) -> str:
+    """ソース上の名前を、ファイル名の部品に可逆に符号化する。"""
+    if not name:
+        raise ValueError("空の名前はファイル名にできない")
+    return "".join(chr(b) if b in _SAFE_BYTES else f"%{b:02X}" for b in name.encode("utf-8"))
+
+
+def decode_name(encoded: str) -> str:
+    out = bytearray()
+    i = 0
+    while i < len(encoded):
+        if encoded[i] == "%":
+            out.append(int(encoded[i + 1 : i + 3], 16))
+            i += 3
+        else:
+            out.append(ord(encoded[i]))
+            i += 1
+    name = out.decode("utf-8")
+    if encode_name(name) != encoded:
+        raise ValueError(f"正規の符号化ではない: {encoded!r}")
+    return name
+
+
+def parse_claims(text: str) -> ClaimFile:
+    return ClaimFile.model_validate(_parse(text))
+
+
+def dump_claims(claims: ClaimFile) -> str:
+    return _dump(_to_plain(claims))
+
+
+def load_claim_ledger(root: Path, source: str) -> tuple[Claim, ...]:
+    """台帳をすべて読む。配置との食い違い、主張の検証の違反はエラー。"""
+    if not root.is_dir():
+        # 台帳が無いことを、主張が0件であることと取り違えない
+        raise OmLoadError(root, FileNotFoundError("主張台帳のディレクトリが無い"))
+    claims: list[Claim] = []
+    for path in _claim_files(root):
+        try:
+            schema, table = decode_name(path.parent.name), decode_name(path.stem)
+        except ValueError as e:
+            raise OmLoadError(path, e) from e
+        claim_file = _load(path, ClaimFile.model_validate, ClaimFile)
+        for claim in claim_file.claims or []:
+            subject = claim.subject
+            if (subject.source, subject.schema_name, subject.table) != (source, schema, table):
+                raise OmLoadError(path, ValueError(
+                    f"{claim.id} の主語 {subject.source}:{subject.schema_name}.{subject.table} が"
+                    f"配置 {source}:{schema}.{table} と食い違う"))
+            claims.append(claim)
+    # 台帳のファイルは手で編集されうる。ID が内容と合っているかを含め、読む境界で検証する
+    if violations := check_claims(claims):
+        raise OmLoadError(root, InvalidClaimsError(violations))
+    return tuple(claims)
+
+
+def write_claim_ledger(root: Path, source: str, claims: Iterable[Claim]) -> None:
+    """台帳を丸ごと書き直す。書く前に主張を検証し、root に台帳以外のものがあれば消さずにエラーにする。"""
+    claims = list(claims)
+    if foreign := sorted({c.subject.source for c in claims} - {source}):
+        raise ValueError(f"ソース {source} の台帳に、別のソースの主張がある: {foreign}")
+    if kinds := sorted({c.source.kind for c in claims} - _DETERMINISTIC_KINDS):
+        raise ValueError(f"再生成できない出所の主張は台帳に書けない（書き直しで消える）: {kinds}")
+    if violations := check_claims(claims):
+        raise InvalidClaimsError(violations)
+    if root.exists():
+        _claim_files(root)  # 台帳でないものがあれば、何も書く前に止まる
+
+    by_table: dict[tuple[str, str], list[Claim]] = {}
+    for claim in claims:
+        by_table.setdefault((claim.subject.schema_name, claim.subject.table), []).append(claim)
+
+    root.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(dir=root.parent, prefix=f".{root.name}.new-"))
+    for (schema, table), group in sorted(by_table.items()):
+        path = staging / encode_name(schema) / f"{encode_name(table)}.yaml"
+        path.parent.mkdir(exist_ok=True)
+        ordered = sorted(group, key=lambda c: (c.subject.column or "", c.predicate, c.id))
+        path.write_text(dump_claims(ClaimFile(claims=ordered)), encoding="utf-8")
+
+    if root.exists():
+        retired = Path(tempfile.mkdtemp(dir=root.parent, prefix=f".{root.name}.old-"))
+        root.rename(retired / root.name)
+        staging.rename(root)
+        shutil.rmtree(retired)
+    else:
+        staging.rename(root)
+
+
+def _claim_files(root: Path) -> list[Path]:
+    """台帳の配置に合うファイルの一覧。合わないもの（他のファイル、シンボリックリンク、深い階層）があればエラー。"""
+    if not root.is_dir() or root.is_symlink():
+        raise OmLoadError(root, NotADirectoryError("主張台帳のディレクトリではない"))
+    files: list[Path] = []
+    for path in sorted(root.rglob("*")):
+        depth = len(path.relative_to(root).parts)
+        if path.is_symlink():
+            raise OmLoadError(path, ValueError("台帳の中にシンボリックリンクがある"))
+        if path.is_dir() and depth == 1:
+            continue
+        if path.is_file() and depth == 2 and path.suffix == ".yaml":
+            files.append(path)
+            continue
+        raise OmLoadError(path, ValueError("<schema>/<table>.yaml の形ではない"))
+    return files

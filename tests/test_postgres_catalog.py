@@ -21,13 +21,12 @@ from hypothesis import strategies as st
 from psycopg import sql
 
 from mandara.connectors.postgres.catalog_reader import PostgresCatalogReader
+from mandara.om.model import ReferentialAction, TypeFamily
 from mandara.source.catalog import (
     Catalog,
     ObjectKind,
-    ReferentialAction,
     Scope,
     SourceError,
-    TypeFamily,
     UnknownSchemaError,
     UnsupportedFeatureError,
 )
@@ -95,30 +94,30 @@ DOMAIN = "d_label"
 DOMAIN_BASE: LiteralString = "character varying(30)"
 _ACTIONS = tuple(ReferentialAction)
 _ACTION_SQL: dict[ReferentialAction, LiteralString] = {
-    ReferentialAction.NO_ACTION: "no action",
-    ReferentialAction.RESTRICT: "restrict",
-    ReferentialAction.CASCADE: "cascade",
-    ReferentialAction.SET_NULL: "set null",
-    ReferentialAction.SET_DEFAULT: "set default",
+    ReferentialAction.no_action: "no action",
+    ReferentialAction.restrict: "restrict",
+    ReferentialAction.cascade: "cascade",
+    ReferentialAction.set_null: "set null",
+    ReferentialAction.set_default: "set default",
 }
 VIEW = "V first"
 """生成する識別子（小文字始まり、または固定の一覧）と重ならない名前。制約・FK 列も大文字で始める。"""
 _TYPES: list[tuple[LiteralString, TypeFamily]] = [
-    ("integer", TypeFamily.INTEGER),
-    ("bigint", TypeFamily.INTEGER),
-    ("numeric(10,2)", TypeFamily.DECIMAL),
-    ("double precision", TypeFamily.FLOAT),
-    ("character varying(20)", TypeFamily.TEXT),
-    ("text", TypeFamily.TEXT),
-    ("boolean", TypeFamily.BOOLEAN),
-    ("date", TypeFamily.DATE),
-    ("timestamp without time zone", TypeFamily.TIMESTAMP),
-    ("bytea", TypeFamily.BINARY),
-    ("uuid", TypeFamily.UUID),
-    ("xml", TypeFamily.XML),
-    ("jsonb", TypeFamily.JSON),
-    ("interval", TypeFamily.OTHER),
-    ("integer[]", TypeFamily.OTHER),
+    ("integer", TypeFamily.integer),
+    ("bigint", TypeFamily.integer),
+    ("numeric(10,2)", TypeFamily.decimal),
+    ("double precision", TypeFamily.float),
+    ("character varying(20)", TypeFamily.text),
+    ("text", TypeFamily.text),
+    ("boolean", TypeFamily.boolean),
+    ("date", TypeFamily.date),
+    ("timestamp without time zone", TypeFamily.timestamp),
+    ("bytea", TypeFamily.binary),
+    ("uuid", TypeFamily.uuid),
+    ("xml", TypeFamily.xml),
+    ("jsonb", TypeFamily.json),
+    ("interval", TypeFamily.other),
+    ("integer[]", TypeFamily.other),
 ]
 
 # 引用符が要る名前（大文字、空白、予約語、日本語）を混ぜる。PostgreSQL の識別子は 63 バイトまで
@@ -132,14 +131,14 @@ comments = st.none() | st.text(st.characters(codec="utf-8", exclude_categories=(
 @st.composite
 def column_specs(draw: st.DrawFn, name: str) -> ColumnSpec:
     if draw(st.integers(0, len(_TYPES))) == len(_TYPES):
-        return ColumnSpec(name, sql.Identifier(DOMAIN), DOMAIN, TypeFamily.TEXT, True, DOMAIN, draw(comments))
+        return ColumnSpec(name, sql.Identifier(DOMAIN), DOMAIN, TypeFamily.text, True, DOMAIN, draw(comments))
     source_type, family = draw(st.sampled_from(_TYPES))
     return ColumnSpec(name, sql.SQL(source_type), source_type, family, draw(st.booleans()), None, draw(comments))
 
 
 def _keyable(column: ColumnSpec) -> bool:
     """btree の一意インデックスを張れる型（主キー・一意にできる）。"""
-    return column.family not in (TypeFamily.XML, TypeFamily.JSON) and column.source_type != "integer[]"
+    return column.family not in (TypeFamily.xml, TypeFamily.json) and column.source_type != "integer[]"
 
 
 @st.composite
@@ -414,7 +413,7 @@ def test_adventureworks_counts(adventureworks: Catalog) -> None:
     assert (aliased.count(ObjectKind.TABLE), aliased.count(ObjectKind.VIEW),
             aliased.count(ObjectKind.MATERIALIZED_VIEW)) == (43, 63, 5)
     cascades = [(t.qualified_name, f.name) for t in tables for f in t.foreign_keys
-                if f.on_delete is ReferentialAction.CASCADE]
+                if f.on_delete is ReferentialAction.cascade]
     assert len(cascades) == 2
 
 
@@ -437,13 +436,13 @@ def test_adventureworks_details(adventureworks: Catalog) -> None:
     person = adventureworks.table("person", "person")
     assert person is not None
     firstname = person.column("firstname")
-    assert firstname is not None and firstname.type_alias == "public.Name" and firstname.family is TypeFamily.TEXT
+    assert firstname is not None and firstname.type_alias == "public.Name" and firstname.family is TypeFamily.text
     assert firstname.source_type == "character varying(50)"
 
     address = adventureworks.table("person", "address")
     assert address is not None
     location = address.column("spatiallocation")
-    assert location is not None and location.family is TypeFamily.BINARY
+    assert location is not None and location.family is TypeFamily.binary
 
     matview = adventureworks.table("person", "vstateprovincecountryregion")
     assert matview is not None and matview.kind is ObjectKind.MATERIALIZED_VIEW

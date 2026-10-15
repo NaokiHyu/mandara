@@ -12,8 +12,13 @@ from datetime import date
 
 from hypothesis import strategies as st
 
+from mandara.om.claims import SHAPES, new_claim
 from mandara.om.model import (
     Additivity,
+    Claim,
+    ClaimPredicate,
+    ClaimSource,
+    ClaimSourceKind,
     Cardinality,
     Column,
     ColumnDomain,
@@ -25,12 +30,15 @@ from mandara.om.model import (
     Identity,
     IsARealization,
     KeyColumns,
+    ReferentialAction,
     Relation,
     RelationType,
     ReviewStatus,
     SourceEncoding,
+    SourceRef,
     Table,
     TableKind,
+    TypeFamily,
     Unit,
     UnitSource,
     ValueType,
@@ -251,3 +259,53 @@ def vocabularies(draw: st.DrawFn) -> Vocabulary:
                 requires_unit=draw(st.none() | st.booleans()),
             )
     return Vocabulary(column_domains=domains)
+
+
+# ---------------------------------------------------------------- 主張台帳
+
+
+@st.composite
+def claims(
+    draw: st.DrawFn, source: str = "src", schema: str = "s", table: str | None = None,
+    kinds: tuple[ClaimSourceKind, ...] = tuple(ClaimSourceKind),
+) -> Claim:
+    """妥当な主張を1件。述語ごとの形（mandara.om.claims.SHAPES）に従う。"""
+    table = table if table is not None else draw(column_names)
+    predicate = draw(st.sampled_from(tuple(ClaimPredicate)))
+    shape = SHAPES[predicate.value]
+    on_column = shape.subject == "column" or (shape.subject == "either" and draw(st.booleans()))
+    subject = SourceRef(source=source, schema_name=schema, table=table, column=draw(column_names) if on_column else None)
+    keys = st.lists(column_names, min_size=1, max_size=3, unique=True)
+    payload: dict[str, object] = {}
+    columns = draw(keys)
+    if "columns" in shape.fields:
+        payload["columns"] = columns
+    if "target" in shape.fields:
+        payload["target"] = SourceRef(source=source, schema_name=draw(column_names), table=draw(column_names))
+        payload["target_columns"] = draw(st.lists(column_names, min_size=len(columns), max_size=len(columns)))
+        payload["on_delete"] = draw(st.sampled_from(tuple(ReferentialAction)))
+        payload["on_update"] = draw(st.sampled_from(tuple(ReferentialAction)))
+    if "text" in shape.fields:
+        payload["text"] = draw(texts)
+    if "type_name" in shape.fields:
+        payload["type_name"] = draw(texts)
+    if "family" in shape.fields:
+        payload["family"] = draw(st.sampled_from(tuple(TypeFamily)))
+    return new_claim(
+        subject=subject,
+        predicate=predicate,
+        source=ClaimSource(kind=draw(st.sampled_from(kinds)), locator=draw(texts)),
+        extracted_by=draw(texts),
+        confidence=draw(st.floats(min_value=0.0, max_value=1.0)),
+        **payload,
+    )
+
+
+@st.composite
+def claim_ledgers(
+    draw: st.DrawFn, source: str = "src", kinds: tuple[ClaimSourceKind, ...] = tuple(ClaimSourceKind)
+) -> tuple[Claim, ...]:
+    """複数の表にまたがる、ID の重複しない主張の集まり。"""
+    tables = draw(st.lists(st.tuples(st.sampled_from(("s1", "スキーマ")), column_names), min_size=1, max_size=3, unique=True))
+    drawn = [draw(claims(source=source, schema=schema, table=table, kinds=kinds)) for schema, table in tables for _ in range(draw(st.integers(1, 4)))]
+    return tuple({c.id: c for c in drawn}.values())

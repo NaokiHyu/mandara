@@ -1,0 +1,172 @@
+"""主張台帳（仕様 6.6）の主張：内容から決まる ID と、主張の形の検証。
+
+Domain 層。I/O を持たない。読み書きは mandara.omstore（Adapter）が担う。
+- ID は内容（主語、述語、値、出所）の正規形のハッシュ。抽出器の版・確信度・日付には依存しない。
+  決定的な抽出器を再実行すれば同じ ID になり、OM の evidence が切れない
+- 述語ごとに、主語の粒度（表 / 列）と、持つべき値のフィールドが決まっている（SHAPES）
+"""
+
+import hashlib
+import json
+from collections import Counter
+from collections.abc import Iterator, Sequence
+from dataclasses import dataclass
+from enum import Enum
+from typing import Literal
+
+from mandara.om.model import Claim, ClaimPredicate, ClaimSource, ClaimSourceKind, SourceRef
+
+PAYLOAD_FIELDS = ("columns", "target", "target_columns", "on_delete", "on_update", "text", "type_name", "family")
+"""述語によって持つ・持たないが決まる、値のフィールド。"""
+
+Level = Literal["table", "column", "either"]
+
+
+@dataclass(frozen=True)
+class Shape:
+    subject: Level
+    fields: frozenset[str]
+    """持たなければならず、これ以外の値のフィールドは持ってはならない。"""
+
+
+def _shape(subject: Level, *fields: str) -> Shape:
+    return Shape(subject, frozenset(fields))
+
+
+SHAPES: dict[str, Shape] = {
+    ClaimPredicate.identified_by.value: _shape("table", "columns"),
+    ClaimPredicate.unique.value: _shape("table", "columns"),
+    ClaimPredicate.references.value: _shape("table", "columns", "target", "target_columns", "on_delete", "on_update"),
+    ClaimPredicate.not_null.value: _shape("column"),
+    ClaimPredicate.described_as.value: _shape("either", "text"),
+    ClaimPredicate.checks.value: _shape("table", "text"),
+    ClaimPredicate.typed_as.value: _shape("column", "type_name", "family"),
+    ClaimPredicate.aliased_as.value: _shape("column", "type_name"),
+}
+
+
+# ---------------------------------------------------------------- ID
+
+
+def claim_id(claim: Claim) -> str:
+    """内容の正規形のハッシュ。
+
+    正規形は、含めるフィールドをここで明示して組み立てる（model_dump に頼らない）。
+    ①のクラスに任意のフィールドを足しても、既存の主張の ID は変わらない。
+    ID の算出を変えたら tests/test_claims.py のゴールデンテストが落ちる。そのときは全台帳の再生成が要る。
+    列の並びは、ソースが宣言した順のまま含める（決定的な抽出器は同じ順で出す）。
+    """
+    content: dict[str, object] = {
+        "subject": _ref(claim.subject),
+        "predicate": claim.predicate,
+        "source": {"kind": claim.source.kind, "locator": claim.source.locator},
+    }
+    for name in PAYLOAD_FIELDS:
+        value = getattr(claim, name)
+        if value is not None:
+            content[name] = _ref(value) if isinstance(value, SourceRef) else value
+    canonical = json.dumps(content, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return "clm_" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+
+def _ref(ref: SourceRef) -> dict[str, str]:
+    out = {"source": ref.source, "schema_name": ref.schema_name, "table": ref.table}
+    if ref.column is not None:
+        out["column"] = ref.column
+    return out
+
+
+def new_claim(
+    *,
+    subject: SourceRef,
+    predicate: ClaimPredicate,
+    source: ClaimSource,
+    extracted_by: str,
+    confidence: float,
+    **payload: object,
+) -> Claim:
+    """主張を作り、内容から ID を付ける。抽出器はこれで主張を作る。"""
+    unknown = set(payload) - set(PAYLOAD_FIELDS)
+    if unknown:
+        raise ValueError(f"値のフィールドではない: {sorted(unknown)}")
+    draft = Claim.model_validate(
+        {
+            "id": "clm_" + "0" * 16,
+            "subject": subject,
+            "predicate": predicate,
+            "source": source,
+            "extracted_by": extracted_by,
+            "confidence": confidence,
+            **payload,
+        }
+    )
+    return draft.model_copy(update={"id": claim_id(draft)})
+
+
+# ---------------------------------------------------------------- 検証
+
+
+class ClaimRule(Enum):
+    # 読み込みの境界（生成された型の検証）で閉じた集合の外の値は拒否される（仕様 4.5）。
+    # これは検証を迂回して作られた値（model_copy / model_construct）への防御
+    UNKNOWN_VALUE = "閉じた集合に無い値（述語、出所の種類）"
+    ID_MISMATCH = "ID が内容から決まる値と違う"
+    DUPLICATE_ID = "ID が重複している"
+    SHAPE = "述語と、主語の粒度・値のフィールドが合っていない"
+
+
+@dataclass(frozen=True)
+class ClaimViolation:
+    rule: ClaimRule
+    location: str
+    detail: str
+
+
+_SOURCE_KINDS = {k.value for k in ClaimSourceKind}
+
+
+def check_claims(claims: Sequence[Claim]) -> list[ClaimViolation]:
+    violations = [v for c in claims for v in _check_claim(c)]
+    for claim_id_ in sorted(k for k, n in Counter(c.id for c in claims).items() if n > 1):
+        violations.append(ClaimViolation(ClaimRule.DUPLICATE_ID, claim_id_, ""))
+    return violations
+
+
+def _check_claim(claim: Claim) -> Iterator[ClaimViolation]:
+    loc = claim.id
+
+    def wrong(detail: str) -> ClaimViolation:
+        return ClaimViolation(ClaimRule.SHAPE, loc, f"{claim.predicate}: {detail}")
+
+    if claim.source.kind not in _SOURCE_KINDS:
+        yield ClaimViolation(ClaimRule.UNKNOWN_VALUE, loc, f"source.kind={claim.source.kind!r}")
+    shape = SHAPES.get(claim.predicate)
+    if shape is None:
+        yield ClaimViolation(ClaimRule.UNKNOWN_VALUE, loc, f"predicate={claim.predicate!r}")
+        return
+    if claim.id != (expected := claim_id(claim)):
+        yield ClaimViolation(ClaimRule.ID_MISMATCH, loc, f"内容から決まる ID は {expected}")
+
+    on_column = claim.subject.column is not None
+    if shape.subject == "table" and on_column:
+        yield wrong("主語は表（column を持たない）")
+    if shape.subject == "column" and not on_column:
+        yield wrong("主語は列（column が要る）")
+
+    present = {name for name in PAYLOAD_FIELDS if getattr(claim, name) is not None}
+    if empty := sorted(name for name in present if getattr(claim, name) == []):
+        # 空の一覧は「持っていない」とは扱わない（ハッシュは None と [] を区別する）。持つなら中身が要る
+        yield wrong(f"空の一覧: {', '.join(empty)}")
+    if missing := sorted(shape.fields - present):
+        yield wrong(f"無い: {', '.join(missing)}")
+    if extra := sorted(present - shape.fields):
+        yield wrong(f"持ってはならない: {', '.join(extra)}")
+
+    if claim.predicate == ClaimPredicate.references.value and claim.target is not None:
+        if claim.target.column is not None:
+            yield wrong("target は表を指す（列の対応は target_columns）")
+        if claim.target.source != claim.subject.source:
+            yield wrong("参照はソースをまたがない")
+        if len(claim.columns or []) != len(claim.target_columns or []):
+            yield wrong("columns と target_columns の数が違う")
+
