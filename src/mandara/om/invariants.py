@@ -32,6 +32,7 @@ from mandara.om.model import (
 )
 from mandara.om.ontology import SELF, Ontology
 from mandara.om.relation_traits import RELATION_TRAITS
+from mandara.om.value_types import UNIT_BEARING
 
 
 class Rule(Enum):
@@ -111,8 +112,6 @@ def _check_vocabulary(vocabulary: Vocabulary) -> Iterator[Violation]:
 _VALUE_TYPES = {t.value for t in ValueType}
 _MEASURES = {ValueType.integer.value, ValueType.ratio.value, ValueType.quantity.value, ValueType.money.value}
 """加法性を持てる型（尺度）。"""
-_UNIT_BEARING = {ValueType.quantity.value, ValueType.money.value}
-"""単位が要る型。"""
 _TIME_ROLES = {DomainRole.event_time.value, DomainRole.valid_from.value, DomainRole.valid_to.value}
 _TIMES = {ValueType.date.value, ValueType.datetime.value}
 
@@ -120,9 +119,9 @@ _TIMES = {ValueType.date.value, ValueType.datetime.value}
 def _check_domain_shape(domain: ColumnDomain, loc: str) -> Iterator[Violation]:
     if domain.additivity is not None and domain.type not in _MEASURES:
         yield Violation(Rule.DOMAIN_SHAPE, loc, f"{domain.type} は尺度ではないので加法性を持たない")
-    if domain.type in _UNIT_BEARING and domain.requires_unit is not True:
+    if domain.type in UNIT_BEARING and domain.requires_unit is not True:
         yield Violation(Rule.DOMAIN_SHAPE, loc, f"{domain.type} は単位が要る（requires_unit: true）")
-    if domain.requires_unit and domain.type not in _UNIT_BEARING:
+    if domain.requires_unit and domain.type not in UNIT_BEARING:
         yield Violation(Rule.DOMAIN_SHAPE, loc, f"{domain.type} は単位を持たない")
     if domain.role in _TIME_ROLES and domain.type not in _TIMES:
         yield Violation(Rule.DOMAIN_SHAPE, loc, f"役割 {domain.role} は日付・日時の型だけ")

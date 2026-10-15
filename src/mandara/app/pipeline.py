@@ -32,6 +32,7 @@ from mandara.llm.model import (
     summarize,
 )
 from mandara.modeler import llm as llm_modeler
+from mandara.modeler import meaning
 from mandara.modeler import rules as modeler
 from mandara.om.invariants import Violation, check
 from mandara.om.encoding_traits import ENCODING_TARGETS
@@ -215,6 +216,10 @@ class TableOutcome:
     dropped: tuple[llm_modeler.Dropped, ...]
     answer: object = None
     """LLM の答え（そのまま）。同じ問いに同じ答えが返る保証は無いので、再現のために記録する。"""
+    propagated: tuple[str, ...] = ()
+    """答えのドメインを、外部キーで同じ意味の他の列へ伝播したもの。"""
+    not_propagated: tuple[str, ...] = ()
+    """伝播しなかった列と理由。"""
 
 
 @dataclass(frozen=True)
@@ -226,6 +231,12 @@ class Refined:
     """途中で止めた理由（予算、見積もりの崩れ）。None は最後まで回った。"""
     not_reached: tuple[str, ...]
     """止めたために問わなかった表（v0 の提案のまま）。"""
+    defect: bool = False
+    """バグの疑い（組の食い違い、伝播の後の検証違反）で止めた。それまでの結果は書いてある。実行は失敗にする。"""
+
+
+class RefineDefectError(Exception):
+    """詰める途中でバグの疑いがあって止めた。それまでの結果（課金済みの答え）は OM と実行の記録に残してある。"""
 
 
 MAX_OUTPUT_TOKENS = 4000
@@ -254,14 +265,24 @@ def refine(workspace: Workspace, model: LanguageModel, first: Sequence[str] = ()
     priority = {name: i for i, name in enumerate(first)}
     order = sorted(ontology.tables, key=lambda t: (priority.get(t.name, len(priority)), t.name))
     inferred_by = f"{llm_modeler.MODELER} ({model.model})"
+    groups = meaning.same_meaning_groups(claims)
+    for group in groups.groups:
+        meaning.group_domain(ontology, group)  # 入力の OM の組が食い違っていれば、問う前に InconsistentGroupError
+    families = meaning.column_families(claims)
 
     outcomes: list[TableOutcome] = []
     stopped: str | None = None
+    defects = (meaning.InconsistentGroupError, meaning.PropagationError)
     for i, table in enumerate(order):
         table_claims = by_table.get(table.name, [])
+        try:
+            hints = llm_modeler.meaning_hints(ontology, table, groups)
+        except defects as e:
+            return _finish(workspace, ontology, order, outcomes, f"バグの疑いで止めた: {type(e).__name__}: {e}",
+                           [t.name for t in order[i:]], defect=True)
         request = StructuredRequest(
             purpose=f"refine {table.name}", system=llm_modeler.SYSTEM,
-            prompt=llm_modeler.brief(table_claims, ontology.vocabulary.column_domains or {}, table.kind),
+            prompt=llm_modeler.brief(table_claims, ontology.vocabulary.column_domains or {}, table.kind, hints),
             schema=llm_modeler.answer_schema(), max_output_tokens=MAX_OUTPUT_TOKENS)
         try:
             response = model.ask(request)
@@ -272,17 +293,28 @@ def refine(workspace: Workspace, model: LanguageModel, first: Sequence[str] = ()
         except (LlmError, llm_modeler.InvalidAnswerError) as e:
             outcomes.append(TableOutcome(table.name, "failed", f"{type(e).__name__}: {e}", (), ()))
             continue
-        applied = llm_modeler.apply_answer(ontology, table.id, answer, table_claims, inferred_by)
-        ontology = applied.ontology
+        try:
+            applied = llm_modeler.apply_answer(ontology, table.id, answer, table_claims, groups, inferred_by)
+            propagated = meaning.propagate(applied.ontology, groups, families)
+        except defects as e:
+            # この表の答えは当てずに、それまでの OM を書く。答え（課金済み）は記録に残す
+            stopped = f"バグの疑いで止めた: {type(e).__name__}: {e}"
+            outcomes.append(TableOutcome(table.name, "failed", stopped, (), (), response.data))
+            return _finish(workspace, ontology, order, outcomes, stopped, [t.name for t in order[i + 1:]],
+                           defect=True)
+        ontology = propagated.ontology
         status = "kept" if applied.table_kept_as_is else ("refined" if applied.applied else "nothing_applied")
-        outcomes.append(TableOutcome(table.name, status, "", applied.applied, applied.dropped, response.data))
+        outcomes.append(TableOutcome(table.name, status, "", applied.applied, applied.dropped, response.data,
+                                     tuple(f"{meaning.label(f.member)} {f.domain}" for f in propagated.filled),
+                                     tuple(f"{meaning.label(n.member)} {n.domain}: {n.reason}"
+                                           for n in propagated.not_filled)))
     return _finish(workspace, ontology, order, outcomes, stopped, [])
 
 
 def _finish(workspace: Workspace, ontology: Ontology, order: Sequence[Table], outcomes: list[TableOutcome],
-            stopped: str | None, not_reached: list[str]) -> Refined:
+            stopped: str | None, not_reached: list[str], defect: bool = False) -> Refined:
     write_ontology(workspace.ontology, ontology)
-    return Refined(tuple(t.name for t in order), tuple(outcomes), stopped, tuple(not_reached))
+    return Refined(tuple(t.name for t in order), tuple(outcomes), stopped, tuple(not_reached), defect)
 
 
 # ---------------------------------------------------------------- レビュー（仕様 6.4、9.3）
@@ -395,9 +427,12 @@ def run(workspace: Workspace, reader: CatalogReader, scope: Scope, gold: Path | 
                 "order": list(refined.order),
                 "tables": [{"table": o.table, "status": o.status, "detail": o.detail, "applied": list(o.applied),
                             "dropped": [{"item": d.item, "reason": d.reason} for d in o.dropped],
+                            "propagated": list(o.propagated), "not_propagated": list(o.not_propagated),
                             "answer": o.answer}
                            for o in refined.outcomes],
             })
+            if refined.defect:
+                raise RefineDefectError(refined.stopped)
     report = None
     if gold is not None:
         with log.stage("evaluate"):

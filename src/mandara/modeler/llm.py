@@ -9,7 +9,10 @@ Domain 層の純粋な関数（LLM の呼び出しは Application がポート�
   - 根拠の ID は渡した主張に含まれるものだけ。enum の値はコメントか CHECK を根拠に、grain も根拠が要る
   - 列の SQL の型族と、ドメインの値の型が両立すること。列・外部キー・ドメインは実在するもの。重複は捨てる
   - is-a は共有主キーのときだけ。辺は中間表で、端は別々の n:1 の has 参照
+  - ドメインの名前に型の名前（identifier など。GENERIC_NAMES）は使えない
   - 人が判断済みの注釈は変えない。v0 が決めた表の種類と食い違う答えは捨てる
+  - 外部キーで同じ意味の列（mandara.modeler.meaning）には、組で1つのドメインだけ。組のドメインが決まっていれば
+    それと違う答えを、決まっていなければ同じ答えの中で食い違う答えを捨てる。組の他の列への伝播は meaning が行う
   - 当てた結果が検証（4.5）で新しい違反を生むなら、違反の起きた項目だけを元に戻す。それでも通らなければ表ごと v0
 - 出すものはすべて status: proposed（AI は承認しない）。確信度は上限 MAX_CONFIDENCE
 """
@@ -22,6 +25,7 @@ from typing import Any, Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from mandara.modeler.meaning import MeaningGroups, SameMeaning, group_domain
 from mandara.om.invariants import Violation, check
 from mandara.om.model import (
     Additivity,
@@ -45,6 +49,7 @@ from mandara.om.model import (
     ValueType,
 )
 from mandara.om.names import qualify
+from mandara.om.value_types import COMPATIBLE, UNIT_BEARING
 from mandara.om.ontology import SELF, Ontology
 
 MODELER = "modeler-llm 0.1"
@@ -52,23 +57,12 @@ NAME = r"^[a-z][a-z0-9_]{0,62}$"
 MAX_CONFIDENCE = 0.9
 """LLM の確信度の上限。一括承認（0.95）には乗せず、人が1件ずつ見るようにする。"""
 
-COMPATIBLE: dict[str, frozenset[str]] = {
-    TypeFamily.integer.value: frozenset({"identifier", "code", "enum", "integer", "quantity", "money", "ratio"}),
-    TypeFamily.decimal.value: frozenset({"money", "quantity", "ratio"}),
-    TypeFamily.float.value: frozenset({"money", "quantity", "ratio"}),
-    TypeFamily.text.value: frozenset({"identifier", "code", "enum", "text"}),
-    TypeFamily.boolean.value: frozenset({"enum"}),
-    TypeFamily.date.value: frozenset({"date"}),
-    TypeFamily.time.value: frozenset({"datetime"}),
-    TypeFamily.timestamp.value: frozenset({"date", "datetime"}),
-    TypeFamily.binary.value: frozenset({"geo.point", "media.image", "media.audio", "media.document"}),
-    TypeFamily.uuid.value: frozenset({"identifier"}),
-    TypeFamily.xml.value: frozenset({"document.xml"}),
-    TypeFamily.json.value: frozenset({"text"}),
-    TypeFamily.other.value: frozenset(v.value for v in ValueType),
-}
-"""列の SQL の型族 → 当ててよい値の型。"""
-
+GENERIC_NAMES = frozenset({*(v.value for v in ValueType if v.value not in UNIT_BEARING), *(f.value for f in TypeFamily)})
+"""新しいドメインの名前に使わせない、型の名前（LLM の答えの採否の方針。OM の不変条件ではない）。
+ドメインは意味で名付ける（identifier ではなく product_id）。型の名前のドメインは別の意味の列をひとまとめにし、
+外部キーの組で伝播すると誤りが組ごと広がる。
+単位の要る型（money / quantity）は除く：単位の要るドメインは伝播しない（mandara.modeler.meaning）ので組ごとには広がらない。
+金額をひとまとめにするか分けるか（粒度）は未決（相談事項）で、それまでは型の名前のままのドメインも許す。"""
 
 # ---------------------------------------------------------------- 答えの形
 
@@ -155,6 +149,11 @@ Each fact has a claim id like clm_0123abcd. Answer ONLY through the answer tool.
   Reuse names from the existing vocabulary when the meaning matches (do not redefine them); otherwise add a new domain
   in new_domains. Domain names are lower_snake_case. Descriptions in Japanese. The domain type must fit the column's
   SQL type family.
+- A column marked "same meaning as N other columns" is joined to them by foreign keys, so they all share ONE domain.
+  If its domain is fixed, use exactly that domain. Otherwise name the domain for what the values denote
+  (e.g. product_id, address_id).
+- Never name a domain after a bare type (identifier, code, enum, text, date, …); such domains are rejected.
+  money and quantity are the exception: one money domain with its unit is fine.
 - money and quantity domains have requires_unit true; each such column needs unit_fixed (one of the allowed units)
   or unit_column (another column in the same table whose domain is a code holding the unit). Only money, quantity,
   integer and ratio may have additivity. event_time / valid_from / valid_to roles are for date or datetime types.
@@ -172,7 +171,27 @@ def _q(text: object) -> str:
     return json.dumps(str(text), ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e")
 
 
-def brief(table_claims: Sequence[Claim], vocabulary: Mapping[str, ColumnDomain], decided_kind: str | None) -> str:
+@dataclass(frozen=True)
+class MeaningHint:
+    """列が外部キーで同じ意味の組に入っていること（問いに書く）。"""
+
+    others: int
+    """組の他の列の数（範囲外の表の列も含む）。"""
+    domain: str | None
+    """組に付いているドメイン。None はまだ無い。"""
+
+
+def meaning_hints(ontology: Ontology, table: Table, groups: MeaningGroups) -> dict[str, MeaningHint]:
+    hints: dict[str, MeaningHint] = {}
+    for name in table.columns or {}:
+        group = groups.of(table.name, name)
+        if group is not None:
+            hints[name] = MeaningHint(len(group.members) - 1, group_domain(ontology, group))
+    return hints
+
+
+def brief(table_claims: Sequence[Claim], vocabulary: Mapping[str, ColumnDomain], decided_kind: str | None,
+          meaning: Mapping[str, MeaningHint]) -> str:
     """表の主張を、根拠の ID つきで読める形にする。自由文はすべて JSON の文字列で、データの区画の中。"""
     by = {p.value: [c for c in table_claims if c.predicate == p.value] for p in ClaimPredicate}
     declared = by[ClaimPredicate.declared_as.value]
@@ -201,6 +220,9 @@ def brief(table_claims: Sequence[Claim], vocabulary: Mapping[str, ColumnDomain],
                   if c.subject.column == name]
         facts += [f"comment {_q(c.text)} ({c.id})" for c in by[ClaimPredicate.described_as.value]
                   if c.subject.column == name]
+        if (hint := meaning.get(name or "")) is not None:
+            facts.append(f"same meaning as {hint.others} other columns (foreign keys); "
+                         + (f"domain fixed: {_q(hint.domain)}" if hint.domain else "domain not named yet"))
         lines.append(f"- {_q(name)}: " + "; ".join(facts))
     for c in by[ClaimPredicate.references.value]:
         target = c.target
@@ -292,7 +314,7 @@ class _Work:
 
 
 def apply_answer(ontology: Ontology, table_id: str, answer: TableAnswer, table_claims: Sequence[Claim],
-                 inferred_by: str) -> Applied:
+                 groups: MeaningGroups, inferred_by: str) -> Applied:
     table = ontology.table(table_id)
     if table is None:
         raise ValueError(f"表が無い: {table_id}")
@@ -306,7 +328,7 @@ def apply_answer(ontology: Ontology, table_id: str, answer: TableAnswer, table_c
             work.drop(item, "同じ項目が答えに2度ある（後勝ちで黙って上書きしない）")
 
     domains = _apply_domains(answer, ontology.vocabulary.column_domains or {}, twice, work)
-    columns = _apply_columns(answer, table, domains, table_claims, twice, work)
+    columns = _apply_columns(answer, ontology, table, domains, table_claims, groups, twice, work)
     relations = list(table.relations or [])
     fk_relation = _foreign_key_relations(table, relations, table_claims, ontology)
     _apply_relations(answer, table, relations, fk_relation, ontology, twice, work)
@@ -345,6 +367,9 @@ def _apply_domains(answer: TableAnswer, existing: Mapping[str, ColumnDomain], tw
             work.drop(item, "既にある（既存の定義を使う）" if same
                       else "既にある同じ名前のドメインと定義が違う（既存の定義を使う）")
             continue
+        if d.name in GENERIC_NAMES:
+            work.drop(item, f"型の名前 {d.name} はドメインの名前に使えない（何を指す値かで名付ける）")
+            continue
         if (d.type == ValueType.enum) != bool(d.values):
             work.drop(item, "enum のドメインは値の一覧を持ち、enum 以外は持たない")
             continue
@@ -367,10 +392,13 @@ def _apply_domains(answer: TableAnswer, existing: Mapping[str, ColumnDomain], tw
     return domains
 
 
-def _apply_columns(answer: TableAnswer, table: Table, domains: Mapping[str, ColumnDomain],
-                   table_claims: Sequence[Claim], twice: set[str], work: _Work) -> dict[str, Column]:
+def _apply_columns(answer: TableAnswer, ontology: Ontology, table: Table, domains: Mapping[str, ColumnDomain],
+                   table_claims: Sequence[Claim], groups: MeaningGroups, twice: set[str],
+                   work: _Work) -> dict[str, Column]:
     families = {c.subject.column: c.family for c in table_claims if c.predicate == ClaimPredicate.typed_as.value}
     columns = dict(table.columns or {})
+    # 1巡目：組に依らない検査。通ったものだけで、組の中の食い違いを判定する（他の理由で落ちる答えを数えない）
+    passed: list[tuple[ColumnAnswer, Column, list[str]]] = []
     for c in answer.columns:
         item = f"column {c.name}"
         if item in twice:
@@ -393,6 +421,22 @@ def _apply_columns(answer: TableAnswer, table: Table, domains: Mapping[str, Colu
         evidence = work.cited(item, c.evidence)
         if evidence is None:
             continue
+        passed.append((c, column, evidence))
+    answered: dict[SameMeaning, set[str]] = {}
+    for c, _, _ in passed:
+        if (group := groups.of(table.name, c.name)) is not None:
+            answered.setdefault(group, set()).add(c.domain)
+    # 2巡目：組の検査（組のドメインと違う、同じ答えの中で組に別々のドメイン）
+    for c, column, evidence in passed:
+        item = f"column {c.name}"
+        if (group := groups.of(table.name, c.name)) is not None:
+            fixed = group_domain(ontology, group)
+            if fixed is not None and fixed != c.domain:
+                work.drop(item, f"外部キーで同じ意味の列のドメインは {fixed}（{len(group.members)} 列の組）")
+                continue
+            if fixed is None and len(answered[group]) > 1:
+                work.drop(item, f"外部キーで同じ意味の列に、同じ答えの中で別々のドメイン {sorted(answered[group])}")
+                continue
         unit = UnitSource(fixed=c.unit_fixed, column=c.unit_column) if (c.unit_fixed or c.unit_column) else None
         columns[c.name] = column.model_copy(update={
             "domain": c.domain, "unit": unit,
