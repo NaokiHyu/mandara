@@ -554,3 +554,20 @@ classes:
       locator:
         description: 出所の中の場所（制約名、ファイルと行など）
         required: true
+
+  # ---------------------------------------------------------------- プロセス境界の契約
+  OntologyDocument:
+    tree_root: true
+    description: >-
+      OM 全体を1つの文書にしたもの。プロセス境界（HTTP API → UI）で受け渡す形。
+      ファイルの配置（仕様 5章）とは別。受け取る側は、①から生成した JSON Schema で検証する
+    attributes:
+      vocabulary:
+        range: Vocabulary
+        required: true
+        inlined: true
+      tables:
+        range: Table
+        multivalued: true
+        inlined: true
+        inlined_as_list: true

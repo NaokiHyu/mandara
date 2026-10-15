@@ -5,9 +5,11 @@ description = "Ontological metadata from existing data sources"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "fastapi>=0.143.1",
     "psycopg[binary]>=3.3.6",
     "pydantic>=2.14.1",
     "pyyaml>=6.0.3",
+    "uvicorn[standard]>=0.54.0",
 ]
 
 [project.scripts]
@@ -19,10 +21,12 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28.1",
     "hypothesis>=6.169.0",
     "linkml==1.12.1",
     "pyright>=1.1.414",
     "pytest>=9.1.1",
+    "types-jsonschema>=4.26.0.20261006",
 ]
 
 [tool.pyright]

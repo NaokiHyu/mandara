@@ -29,9 +29,13 @@ from mandara.omstore.yaml_store import InvalidOntologyError, OntologyWriteRefuse
 from mandara.review.decisions import Approve, Decision, Question, Reject, ReviewError
 from mandara.source.catalog import Scope, SourceError
 
+class UsageError(Exception):
+    """コマンドの引数の誤り。"""
+
+
 _KNOWN_ERRORS = (SourceError, OmLoadError, InvalidClaimsError, LedgerRefusedError, UnstorableNameError,
                  InvalidOntologyError, OntologyWriteRefusedError, InvalidInputError, InvalidForScoringError,
-                 ReviewError, LedgerMismatchError, BulkThresholdError)
+                 ReviewError, LedgerMismatchError, BulkThresholdError, UsageError)
 """データ・ファイル・操作に原因のある失敗。これ以外（モデラーの出力が検証を通らない InvalidProposalError、
 pydantic の ValidationError など）はバグなので、捕まえずにトレースバックごと落とす。"""
 
@@ -111,6 +115,13 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--bulk", type=float, metavar="THRESHOLD",
                    help="確信度がこの値以上の提案を一覧で見せ、確認してから一括で承認する（0.95 以上）")
     p.set_defaults(handler=_review)
+
+    p = commands.add_parser("serve", help="UI のための HTTP API を立てる（読むだけ）")
+    p.add_argument("--work", type=Path, default=Path("work"), help="作業領域（work/<source>/ontology を出す）")
+    p.add_argument("--gold", action="append", default=[], metavar="NAME=DIR", help="正解 OM（繰り返し指定）")
+    p.add_argument("--host", default="127.0.0.1", help="既定はこの機械の中だけ")
+    p.add_argument("--port", type=int, default=8765)
+    p.set_defaults(handler=_serve)
 
     p = commands.add_parser("validate", help="OM のディレクトリを検証する（仕様 4.5）")
     p.add_argument("ontology", type=Path)
@@ -248,6 +259,25 @@ def _ask(out: TextIO, style: _Style, inp: TextIO, workspace: Workspace, queue: p
 
 def _review_summary(out: TextIO, style: _Style, answered: int, total: int) -> int:
     print(f"{style.accent('◆')} {answered} answered · {total - answered} left", file=out)
+    return 0
+
+
+def _serve(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
+    import uvicorn
+
+    from mandara.api.server import create_app, discover
+
+    gold: dict[str, Path] = {}
+    for item in args.gold:
+        name, sep, path = item.partition("=")
+        if not sep or not name or not path:
+            raise UsageError(f"--gold は NAME=DIR の形: {item!r}")
+        gold[name] = Path(path)
+    sources = discover(args.work, gold)
+    print(f"{style.accent('◆ MANDARA')}  serving {len(sources)} ontologies on http://{args.host}:{args.port}", file=out)
+    for s in sources:
+        print(style.dim(f"   {s.id:<28} {s.root}"), file=out)
+    uvicorn.run(create_app(sources), host=args.host, port=args.port, log_level="warning")
     return 0
 
 

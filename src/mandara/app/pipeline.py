@@ -102,6 +102,11 @@ def evaluate(workspace: Workspace, gold: Path) -> Report:
     return report
 
 
+def read_ontology(root: Path) -> Ontology:
+    """見るための OM の読み込み（UI・API から）。"""
+    return load_ontology(root)
+
+
 @dataclass(frozen=True)
 class Validated:
     ontology: Ontology

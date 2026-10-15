@@ -624,6 +624,16 @@ class ClaimSource(ConfiguredBaseModel):
     locator: str = Field(default=..., description="""出所の中の場所（制約名、ファイルと行など）""", json_schema_extra = { "linkml_meta": {'domain_of': ['ClaimSource']} })
 
 
+class OntologyDocument(ConfiguredBaseModel):
+    """
+    OM 全体を1つの文書にしたもの。プロセス境界（HTTP API → UI）で受け渡す形。 ファイルの配置（仕様 5章）とは別。受け取る側は、①から生成した JSON Schema で検証する
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'tree_root': True})
+
+    vocabulary: Vocabulary = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['OntologyDocument']} })
+    tables: Optional[list[Table]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['OntologyDocument']} })
+
+
 # Model rebuild
 # see https://pydantic-docs.helpmanual.io/usage/models/#rebuilding-a-model
 Annotation.model_rebuild()
@@ -643,3 +653,4 @@ ClaimFile.model_rebuild()
 Claim.model_rebuild()
 SourceRef.model_rebuild()
 ClaimSource.model_rebuild()
+OntologyDocument.model_rebuild()
