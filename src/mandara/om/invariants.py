@@ -15,8 +15,10 @@ from typing import Protocol
 from mandara.om.encoding_traits import ENCODING_TARGETS
 from mandara.om.model import (
     AliasEntry,
+    Cardinality,
     Column,
     ColumnDomain,
+    HasKind,
     IsARealization,
     Relation,
     RelationType,
@@ -41,8 +43,8 @@ class Rule(Enum):
     DUPLICATE_ID = "安定ID が重複している"
     UNKNOWN_TARGET = "関係の参照先の表が存在しない"
     UNKNOWN_COLUMN = "存在しない列を指している"
-    CYCLE = "推移的な関係（is-a / part-of / classified-as / derived-from）が表をまたいで循環している"
-    DERIVED_AS_WHOLE = "derived の表が part-of の全体側になっている"
+    CYCLE = "推移的な関係（is-a / part-of / classified-as / derived-from。辺を含む）が表をまたいで循環している"
+    DERIVED_AS_WHOLE = "derived の表が part-of の全体側になっている（辺を含む）"
     UNIT_MISSING = "単位が要るドメインなのに unit が無い"
     UNIT_UNEXPECTED = "単位の要らないドメインに unit がある"
     UNIT_AMBIGUOUS = "unit は fixed / column のちょうど1つでなければならない"
@@ -50,6 +52,7 @@ class Rule(Enum):
     SHARED_KEY_MISMATCH = "shared_key の is-a が、両側の主キー同士で結ばれていない"
     ENUM_SHAPE = "enum の値の定義が不正"
     ENCODING_MISMATCH = "列の encoding の変換先の型が、列ドメインの型と違う"
+    EDGE_SHAPE = "辺（edge）の宣言が不正"
 
 
 @dataclass(frozen=True)
@@ -64,7 +67,7 @@ def check(ontology: Ontology) -> list[Violation]:
         *_check_vocabulary(ontology.vocabulary),
         *_check_ids(ontology.tables),
         *(v for t in ontology.tables for v in _check_table(t, ontology)),
-        *_check_transitive_cycles(ontology.tables),
+        *_check_transitive_cycles(ontology),
     ]
 
 
@@ -153,6 +156,8 @@ def _check_table(table: Table, ontology: Ontology) -> Iterator[Violation]:
 
     for relation in table.relations or []:
         yield from _check_relation(relation, table, ontology)
+
+    yield from _check_edge(table, ontology)
 
 
 def _needs_grain(table: Table, domains: dict[str, ColumnDomain]) -> bool:
@@ -266,6 +271,51 @@ def _check_relation_shape(relation: Relation, table: Table, loc: str) -> Iterato
             yield wrong("via と via_function のちょうど一方が要る")
 
 
+_EDGE_TYPES = {RelationType.has.value, RelationType.part_of.value, RelationType.classified_as.value}
+
+
+def _check_edge(table: Table, ontology: Ontology) -> Iterator[Violation]:
+    edge = table.edge
+    if edge is None:
+        return
+    loc = f"{table.id}.edge"
+    yield from _check_annotation(edge, loc)
+    if table.kind != TableKind.relation.value:
+        yield Violation(Rule.EDGE_SHAPE, loc, f"edge は relation の表にだけ書く。kind={table.kind}")
+    if edge.type not in RELATION_TRAITS:
+        yield Violation(Rule.UNKNOWN_VALUE, loc, f"type={edge.type!r}")
+    elif edge.type not in _EDGE_TYPES:
+        yield Violation(Rule.EDGE_SHAPE, loc, f"{edge.type} は辺にならない")
+    if edge.from_ == edge.to:
+        yield Violation(Rule.EDGE_SHAPE, loc, "from と to が同じ参照")
+    relations = {r.id: r for r in table.relations or []}
+    for side, rel_id in (("from", edge.from_), ("to", edge.to)):
+        relation = relations.get(rel_id)
+        if relation is None:
+            yield Violation(Rule.EDGE_SHAPE, loc, f"{side}={rel_id!r} がこの表の関係に無い")
+        elif (
+            relation.type != RelationType.has.value
+            or relation.has_kind != HasKind.reference.value
+            or relation.cardinality != Cardinality("n:1").value
+        ):
+            yield Violation(Rule.EDGE_SHAPE, loc, f"{side}={rel_id} は n:1 の has（reference）でなければならない")
+    whole = _edge_end(edge.to, table, ontology)
+    if edge.type == RelationType.part_of.value and whole is not None and whole.kind == TableKind.derived.value:
+        yield Violation(Rule.DERIVED_AS_WHOLE, loc, f"to の参照先={whole.id}")
+
+
+def _is_edge_table(table: Table) -> bool:
+    return table.kind == TableKind.relation.value and table.edge is not None and table.edge.type in _EDGE_TYPES
+
+
+def _edge_end(rel_id: str, table: Table, ontology: Ontology) -> Table | None:
+    """辺の端点（この表の参照 rel_id の参照先の表）。参照や参照先が無いときは None（別の規則で違反になる）。"""
+    relation = next((r for r in table.relations or [] if r.id == rel_id), None)
+    if relation is None:
+        return None
+    return table if relation.target == SELF else ontology.table(relation.target)
+
+
 def _check_shared_key(relation: Relation, table: Table, target: Table, loc: str) -> Iterator[Violation]:
     pairs = relation.via or []
     own_key = table.identity.primary if table.identity is not None else None
@@ -281,18 +331,24 @@ def _check_shared_key(relation: Relation, table: Table, target: Table, loc: str)
         )
 
 
-def _check_transitive_cycles(tables: tuple[Table, ...]) -> Iterator[Violation]:
+def _check_transitive_cycles(ontology: Ontology) -> Iterator[Violation]:
     """推移的な関係型ごとに、表をまたいだ循環を検出する。
 
-    自己参照（self。組織の木など）はインスタンスの木を表すので循環として扱わない。
+    自己参照（self。組織の木など）や、同じ表の行同士を結ぶ辺（部品表）は、インスタンスの木を表すので循環として扱わない。
     自分の ID を target に書いたものは _check_relation_shape で落とす。
     """
     for kind in (k for k, traits in RELATION_TRAITS.items() if traits.transitive):
         edges: dict[str, set[str]] = {}
-        for table in tables:
+        for table in ontology.tables:
             for relation in table.relations or []:
                 if relation.type == kind and relation.target not in (SELF, table.id):
                     edges.setdefault(table.id, set()).add(relation.target)
+            # 形の不正な辺（relation 以外の表、辺にならない型）は EDGE_SHAPE で出すので、ここでは数えない
+            if table.edge is not None and table.edge.type == kind and _is_edge_table(table):
+                start = _edge_end(table.edge.from_, table, ontology)
+                end = _edge_end(table.edge.to, table, ontology)
+                if start is not None and end is not None and start.id != end.id:
+                    edges.setdefault(start.id, set()).add(end.id)
         for cycle in _find_cycles(edges):
             yield Violation(Rule.CYCLE, cycle[0], f"{kind}: {' → '.join(cycle)}")
 

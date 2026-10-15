@@ -4,7 +4,8 @@
 - 推移的な関係（is-a / part-of / classified-as / derived-from）で他の表を指すときは、添字の小さい表にしか向けないので循環は生まれない
 - 列名には YAML 1.1 で真偽値や null に化ける名前（on / no / null など）や日本語も混ぜる
 - 複合主キー、代替キー、役割、単位の列参照、物理的な表現、self への関係（via_function / derived-from）も生成する
-- 生成する列名（c… と TRICKY_NAMES）は、外部キー列（ref…）と単位列（…__unit）と重ならない
+- 中間表（relation）には辺（edge）も生成する
+- 生成する列名（c… と TRICKY_NAMES）は、外部キー列（ref… / edge…）と単位列（…__unit）と重ならない
 """
 
 from datetime import date
@@ -18,6 +19,7 @@ from mandara.om.model import (
     ColumnDomain,
     ColumnPair,
     DomainRole,
+    Edge,
     EnumValue,
     HasKind,
     Identity,
@@ -93,7 +95,7 @@ def _pairs(pairs: list[tuple[str, str]]) -> list[ColumnPair]:
 
 @st.composite
 def ontologies(draw: st.DrawFn, max_tables: int = 5) -> Ontology:
-    def annotate[M: (Column, Relation, Table)](model: M) -> M:
+    def annotate[M: (Column, Relation, Edge, Table)](model: M) -> M:
         return model.model_copy(update=draw(provenance()))
 
     n = draw(st.integers(min_value=1, max_value=max_tables))
@@ -185,6 +187,31 @@ def ontologies(draw: st.DrawFn, max_tables: int = 5) -> Ontology:
             )
             relations.append(annotate(derived))
 
+        edge = None
+        if kind == TableKind.relation and i and draw(st.booleans()):
+            # 中間表の辺。始点の表は終点の表と同じか後ろ（添字が大きい）にして、循環を作らない
+            end = draw(st.integers(min_value=0, max_value=i - 1))
+            start = draw(st.integers(min_value=end, max_value=i - 1))
+            ends: dict[str, str] = {}
+            for side, t in (("from", start), ("to", end)):
+                target = tables[t]
+                target_pk = target.identity.primary if target.identity is not None else []
+                fks = [f"edge{side}_{j}" for j in range(len(target_pk))]
+                for fk in fks:
+                    columns[fk] = annotate(Column(name=fk, domain="key", status=_PLACEHOLDER))
+                ends[side] = f"rel_t{i}_edge{side}"
+                relations.append(annotate(Relation(
+                    id=ends[side], type=RelationType.has, has_kind=HasKind.reference, target=target.id,
+                    via=_pairs(list(zip(fks, target_pk, strict=True))), cardinality=Cardinality("n:1"),
+                    status=_PLACEHOLDER,
+                )))
+            edge_types = [RelationType.has, RelationType.classified_as]
+            if tables[end].kind != TableKind.derived.value:
+                edge_types.append(RelationType.part_of)
+            edge = annotate(Edge.model_validate(
+                {"type": draw(st.sampled_from(edge_types)), "from": ends["from"], "to": ends["to"], "status": _PLACEHOLDER}
+            ))
+
         has_amount = any(c.domain == "amount" for c in columns.values())
         needs_grain = kind == TableKind.event or (kind == TableKind.domain and has_amount)
         table = Table(
@@ -197,6 +224,7 @@ def ontologies(draw: st.DrawFn, max_tables: int = 5) -> Ontology:
             identity=Identity(primary=primary, alternates=[KeyColumns(columns=a) for a in alternates] or None),
             columns=columns,
             relations=relations or None,
+            edge=edge,
             status=_PLACEHOLDER,
         )
         tables.append(annotate(table))

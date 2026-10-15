@@ -18,6 +18,7 @@ from mandara.om.model import (
     Column,
     ColumnDomain,
     ColumnPair,
+    Edge,
     EnumValue,
     HasKind,
     Identity,
@@ -94,6 +95,17 @@ def _rel(rel_id: str, rtype: RelationType, target: str, pairs: list[tuple[str, s
     return Relation.model_validate({"id": rel_id, "type": rtype, "target": target, "via": via, "status": R, **kw})
 
 
+def _edge_table(table_id: str, edge_type: RelationType, start: str, end: str, *,
+                kind: TableKind = TableKind.relation, from_: str = "rel_ef", to: str = "rel_et",
+                from_card: str = "n:1", from_type: RelationType = RelationType.has,
+                from_has_kind: HasKind | None = HasKind.reference) -> Table:
+    """start の表から end の表への辺を持つ中間表。どちらの表も主キーは id 1列。"""
+    return _table(table_id, kind=kind, columns=[_col("id"), _col("f"), _col("t")], relations=[
+        _rel("rel_ef", from_type, start, [("f", "id")], has_kind=from_has_kind, cardinality=from_card),
+        _rel("rel_et", RelationType.has, end, [("t", "id")], has_kind=HasKind.reference, cardinality="n:1"),
+    ]).model_copy(update={"edge": Edge.model_validate({"type": edge_type, "from": from_, "to": to, "status": R})})
+
+
 def _add(o: Ontology, *tables: Table) -> Ontology:
     return replace(o, tables=(*o.tables, *tables))
 
@@ -160,6 +172,9 @@ MUTATIONS: dict[Rule, Mutation] = {
     Rule.ENCODING_MISMATCH: lambda o: _add(o, _table("tbl_m", columns=[
         _col("id"), _col("place", domain="label").model_copy(update={"encoding": SourceEncoding.sqlserver_geography}),
     ])),
+    Rule.EDGE_SHAPE: lambda o: _add(
+        o, _table("tbl_ma"), _edge_table("tbl_me", RelationType.part_of, "tbl_ma", "tbl_ma", kind=TableKind.domain)
+    ),
     Rule.ENUM_SHAPE: lambda o: replace(
         o,
         vocabulary=o.vocabulary.model_copy(update={"column_domains": {
@@ -225,3 +240,44 @@ def test_cycle_is_detected_for_every_transitive_type(rtype: str, data: st.DataOb
     )
     cycles = [v for v in check(ontology) if v.rule == Rule.CYCLE]
     assert cycles and all(v.detail.startswith(f"{rtype}:") for v in cycles)
+
+
+EDGE_PATHS: dict[str, tuple[Rule, Mutation]] = {
+    "kind": (Rule.EDGE_SHAPE, lambda o: _add(
+        o, _table("tbl_ma"), _edge_table("tbl_me", RelationType.has, "tbl_ma", "tbl_ma", kind=TableKind.event))),
+    "is-a": (Rule.EDGE_SHAPE, lambda o: _add(
+        o, _table("tbl_ma"), _edge_table("tbl_me", RelationType.is_a, "tbl_ma", "tbl_ma"))),
+    "same-end": (Rule.EDGE_SHAPE, lambda o: _add(
+        o, _table("tbl_ma"), _edge_table("tbl_me", RelationType.has, "tbl_ma", "tbl_ma", to="rel_ef"))),
+    "missing-end": (Rule.EDGE_SHAPE, lambda o: _add(
+        o, _table("tbl_ma"), _edge_table("tbl_me", RelationType.has, "tbl_ma", "tbl_ma", to="rel_nope"))),
+    "not-n:1": (Rule.EDGE_SHAPE, lambda o: _add(
+        o, _table("tbl_ma"), _edge_table("tbl_me", RelationType.has, "tbl_ma", "tbl_ma", from_card="1:1"))),
+    "attribute": (Rule.EDGE_SHAPE, lambda o: _add(
+        o, _table("tbl_ma"),
+        _edge_table("tbl_me", RelationType.has, "tbl_ma", "tbl_ma", from_has_kind=HasKind.attribute))),
+    "not-has": (Rule.EDGE_SHAPE, lambda o: _add(
+        o, _table("tbl_ma"),
+        _edge_table("tbl_me", RelationType.has, "tbl_ma", "tbl_ma", from_type=RelationType.part_of, from_has_kind=None))),
+    "derived-whole": (Rule.DERIVED_AS_WHOLE, lambda o: _add(
+        o, _table("tbl_ma"), _table("tbl_md", kind=TableKind.derived),
+        _edge_table("tbl_me", RelationType.part_of, "tbl_ma", "tbl_md"))),
+    "cycle": (Rule.CYCLE, lambda o: _add(
+        o, _table("tbl_ma", relations=[_rel("rel_ma", RelationType.part_of, "tbl_mb", [("id", "id")])]),
+        _table("tbl_mb"), _edge_table("tbl_me", RelationType.part_of, "tbl_mb", "tbl_ma"))),
+}
+
+
+@pytest.mark.parametrize("path", list(EDGE_PATHS))
+@given(data=st.data())
+def test_broken_edge_is_detected(path: str, data: st.DataObject) -> None:
+    """辺の各規則（形、derived を全体にしない、表の間の関係と合わせた循環）が辺にも効くこと。"""
+    rule, mutate = EDGE_PATHS[path]
+    assert rule in {v.rule for v in check(mutate(data.draw(ontologies())))}
+
+
+@given(data=st.data())
+def test_edge_between_rows_of_one_table_is_not_a_cycle(data: st.DataObject) -> None:
+    """部品表のように、同じ表の行同士を結ぶ辺はインスタンスの木で、循環ではない。"""
+    ontology = _add(data.draw(ontologies()), _table("tbl_ma"), _edge_table("tbl_me", RelationType.part_of, "tbl_ma", "tbl_ma"))
+    assert check(ontology) == []

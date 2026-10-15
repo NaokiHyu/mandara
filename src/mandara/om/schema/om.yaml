@@ -29,7 +29,9 @@ enums:
       domain:
         description: ものを表す表。ライフサイクルを持ちうる。コマンド可
       relation:
-        description: もの同士の関係を表す表（n:m 中間表）。属性を持ってよい。コマンド可
+        description: >-
+          もの同士の関係を表す表（n:m 中間表）。属性を持ってよい。コマンド可。
+          edge を宣言すると、1行がもの同士を結ぶ1本の辺になり、列はその辺の属性になる
       event:
         description: 出来事を表す表。不変・追記のみ。コマンド不可
       derived:
@@ -278,6 +280,30 @@ classes:
         multivalued: true
         inlined: true
         inlined_as_list: true
+      edge:
+        description: relation の表だけが持てる。この表の行が実現する、もの同士の関係
+        range: Edge
+        inlined: true
+
+  Edge:
+    description: >-
+      中間表の1行を、もの同士を結ぶ1本の辺とみなす（プロパティグラフの辺）。
+      from と to は、この表が持つ n:1 の参照（has / reference）の ID。
+      辺の関係型の意味論（推移性、循環の禁止、ドリルダウン）は、表の間の関係と同じに効く。
+      from / to の列が NULL の行は辺にならない。type が has の辺は参照（reference）を表す
+    mixins:
+      - Annotation
+    attributes:
+      type:
+        description: has / part-of / classified-as のどれか。is-a は型の間の関係、derived-from は関数による導出なので、辺にはならない
+        range: RelationType
+        required: true
+      from:
+        description: 辺の始点側の参照の ID（part-of なら部分、classified-as なら分類されるもの）
+        required: true
+      to:
+        description: 辺の終点側の参照の ID（part-of なら全体、classified-as なら分類）
+        required: true
 
   Identity:
     description: >-

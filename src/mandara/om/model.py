@@ -103,7 +103,7 @@ class TableKind(str, Enum):
     """
     relation = "relation"
     """
-    もの同士の関係を表す表（n:m 中間表）。属性を持ってよい。コマンド可
+    もの同士の関係を表す表（n:m 中間表）。属性を持ってよい。コマンド可。 edge を宣言すると、1行がもの同士を結ぶ1本の辺になり、列はその辺の属性になる
     """
     event = "event"
     """
@@ -284,7 +284,7 @@ class ColumnDomain(ConfiguredBaseModel):
 
     name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain', 'AliasEntry', 'Table', 'Column']} })
     description: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain']} })
-    type: ValueType = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain', 'Relation']} })
+    type: ValueType = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain', 'Edge', 'Relation']} })
     role: Optional[DomainRole] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain', 'Relation']} })
     additivity: Optional[Additivity] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain']} })
     requires_unit: Optional[bool] = Field(default=None, description="""true なら、この列ドメインを使う列は unit（量と単位の組、C5）を宣言しなければならない""", json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain']} })
@@ -331,6 +331,7 @@ class Table(Annotation):
     identity: Optional[Identity] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Table']} })
     columns: Optional[dict[str, Column]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'KeyColumns', 'Relation']} })
     relations: Optional[list[Relation]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Table']} })
+    edge: Optional[Edge] = Field(default=None, description="""relation の表だけが持てる。この表の行が実現する、もの同士の関係""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table']} })
     status: ReviewStatus = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation']} })
     confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0, json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation']} })
     evidence: Optional[list[str]] = Field(default=None, description="""主張台帳（6.6）の主張ID""", json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation']} })
@@ -351,6 +352,24 @@ class Table(Annotation):
             err_msg = f"Invalid id format: {v}"
             raise ValueError(err_msg)
         return v
+
+
+class Edge(Annotation):
+    """
+    中間表の1行を、もの同士を結ぶ1本の辺とみなす（プロパティグラフの辺）。 from と to は、この表が持つ n:1 の参照（has / reference）の ID。 辺の関係型の意味論（推移性、循環の禁止、ドリルダウン）は、表の間の関係と同じに効く。 from / to の列が NULL の行は辺にならない。type が has の辺は参照（reference）を表す
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'mixins': ['Annotation']})
+
+    type: RelationType = Field(default=..., description="""has / part-of / classified-as のどれか。is-a は型の間の関係、derived-from は関数による導出なので、辺にはならない""", json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain', 'Edge', 'Relation']} })
+    from_: str = Field(default=..., alias="from", description="""辺の始点側の参照の ID（part-of なら部分、classified-as なら分類されるもの）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Edge', 'ColumnPair']} })
+    to: str = Field(default=..., description="""辺の終点側の参照の ID（part-of なら全体、classified-as なら分類）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Edge', 'ColumnPair']} })
+    status: ReviewStatus = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation']} })
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0, json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation']} })
+    evidence: Optional[list[str]] = Field(default=None, description="""主張台帳（6.6）の主張ID""", json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation']} })
+    inferred_by: Optional[str] = Field(default=None, description="""提案者のモデル名と版、実行ID""", json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation']} })
+    reviewed_by: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation']} })
+    reviewed_at: Optional[date] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation']} })
+    note: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation']} })
 
 
 class Identity(ConfiguredBaseModel):
@@ -397,7 +416,7 @@ class Relation(Annotation):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'mixins': ['Annotation']})
 
     id: str = Field(default=..., description="""関係の安定ID。同じ表への複数の参照（C2）を区別する""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Relation']} })
-    type: RelationType = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain', 'Relation']} })
+    type: RelationType = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain', 'Edge', 'Relation']} })
     has_kind: Optional[HasKind] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Relation']} })
     role: Optional[str] = Field(default=None, description="""参照の役割（C2。例 bill_to / ship_to）""", json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain', 'Relation']} })
     target: str = Field(default=..., description="""参照先の表の安定ID。自己参照は self と書き、自分の安定ID は書かない""", json_schema_extra = { "linkml_meta": {'domain_of': ['Relation']} })
@@ -432,8 +451,8 @@ class Relation(Annotation):
 class ColumnPair(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
 
-    from_: str = Field(default=..., alias="from", json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnPair']} })
-    to: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnPair']} })
+    from_: str = Field(default=..., alias="from", json_schema_extra = { "linkml_meta": {'domain_of': ['Edge', 'ColumnPair']} })
+    to: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Edge', 'ColumnPair']} })
 
 
 # Model rebuild
@@ -444,6 +463,7 @@ ColumnDomain.model_rebuild()
 EnumValue.model_rebuild()
 AliasEntry.model_rebuild()
 Table.model_rebuild()
+Edge.model_rebuild()
 Identity.model_rebuild()
 KeyColumns.model_rebuild()
 Column.model_rebuild()

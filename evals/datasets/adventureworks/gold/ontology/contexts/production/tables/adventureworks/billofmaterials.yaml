@@ -7,11 +7,6 @@ grain: 1行 = ある期間に、ある組立品に使われる1つの構成部�
 identity:
   primary:
   - billofmaterialsid
-  alternates:
-  - columns:
-    - productassemblyid
-    - componentid
-    - startdate
 columns:
   billofmaterialsid:
     domain: bill_of_materials_id
@@ -88,8 +83,9 @@ columns:
     - 列名 modifieddate
     inferred_by: gold-draft
 relations:
-- id: rel_billofmaterials_partof_assembly
-  type: part-of
+- id: rel_billofmaterials_assembly
+  type: has
+  has_kind: reference
   role: assembly
   target: tbl_production_product
   via:
@@ -102,7 +98,7 @@ relations:
   - FK 制約
   - '表コメント: the heirarchical relationship between a parent product and its components'
   inferred_by: gold-draft
-  note: 構成の1行は、組立品の構成の部分。製品と製品の part-of（部品 → 組立品）は、この関係と rel_billofmaterials_component の合成で、①には直接書けない
+  note: NULL を許す。NULL の行（最上位の製品）は辺にならない
 - id: rel_billofmaterials_component
   type: has
   has_kind: reference
@@ -117,9 +113,20 @@ relations:
   evidence:
   - FK 制約
   inferred_by: gold-draft
+edge:
+  type: part-of
+  from: rel_billofmaterials_component
+  to: rel_billofmaterials_assembly
+  status: proposed
+  confidence: 0.85
+  evidence:
+  - '表コメント: the heirarchical relationship between a parent product and its components'
+  - 組立品 ≠ 部品（CHECK 制約）
+  - bomlevel 1〜4 の多段の木
+  inferred_by: gold-draft
 status: proposed
 confidence: 0.9
 evidence:
 - '表コメント: Items required to make bicycles and bicycle subassemblies'
 inferred_by: gold-draft
-note: 製品の自己参照の木（部品表）を、期間つきの中間表で持つ。代替キーは PostgreSQL 版では制約が無く、データでのみ一意（2679 行で重複 0）。組立品の NULL を同じ値とみなした一意で、UNIQUE 制約ではこの意味は保証されない
+note: 部品 part-of 組立品（製品同士）の辺を、期間・数量つきの中間表で持つ。（組立品, 部品, 開始日）はデータ上一意（2679 行で重複 0）だが、組立品が NULL を持つので代替キーにしない（仕様 4.2）
