@@ -1,0 +1,13 @@
+# LLM の単価（USD / 100 万トークン）。公開の事実なので git に乗せる。変わったら更新し、確認した日付を書き換える。
+# 出典：https://platform.claude.com/docs/en/about-claude/pricing（2026-10-15 に確認）
+# 入力の量で単価の段が変わるモデルは、max_input_tokens（1 回の問いの入力）ごとに段を書く。null は上限なし。
+checked_at: 2026-10-15
+source: https://platform.claude.com/docs/en/about-claude/pricing
+models:
+  claude-haiku-5-5:
+    - {max_input_tokens: 100000, input_per_mtok: 0.10, output_per_mtok: 0.50}
+    - {max_input_tokens: null, input_per_mtok: 0.50, output_per_mtok: 2.50}
+  claude-sonnet-5-5:
+    - {max_input_tokens: null, input_per_mtok: 2.0, output_per_mtok: 10.0}
+  claude-opus-5-5:
+    - {max_input_tokens: null, input_per_mtok: 4.0, output_per_mtok: 20.0}

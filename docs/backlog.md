@@ -13,6 +13,7 @@
 ## 決まっていること
 | 日付 | 決定 |
 |---|---|
+| 2026-10-15 | LLM は claude-haiku-5-5（既定）。1 回の実行の予算は 10 円（為替 150 円/ドル）。API キーは .env（git に乗せない）。列ドメインの採点は「同じドメインに属する列の組」の一致で測る |
 | 2026-10-15 | UI の見た目は案 C「静かな司令室」、パッケージ管理は pnpm |
 | 2026-10-15 | UI は TypeScript + React + Vite。地図は MapLibre GL、グラフは Cytoscape.js。Python はローカルの HTTP API（FastAPI）で OM と DB の読みを出す。境界の契約は OM ファイルと JSON。TS の型は①から生成する |
 | 2026-10-15 | 決定的な抽出器の主張はキャッシュとして git に乗せない。主張の ID は内容のハッシュで決める（再生成しても同じ ID） |
@@ -46,7 +47,7 @@
 ## 段 3：LLM による推論
 | ID | タスク | 状態 | 依存 |
 |---|---|---|---|
-| [T3.1](tasks/T3.1-llm-adapter.md) | LLM の Adapter | 未着手 | — |
+| [T3.1](tasks/T3.1-llm-adapter.md) | LLM の Adapter | 完了 | — |
 | [T3.2](tasks/T3.2-modeler-v1.md) | モデラー v1（列ドメイン、表種別、grain、役割、is-a、enum ラベル、単位） | 未着手 | T3.1, T2.* |
 | [T3.3](tasks/T3.3-conflicts.md) | 証拠の衝突の検出と問い化 | 未着手 | T3.2 |
 | [T3.4](tasks/T3.4-hide-truth-eval.md) | 正解隠蔽テスト | 未着手 | T3.2 |

@@ -13,7 +13,7 @@ import time
 from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import TextIO
+from typing import TextIO, cast
 
 from mandara.app import pipeline
 from mandara.app.pipeline import BulkThresholdError, LedgerMismatchError
@@ -21,6 +21,10 @@ from mandara.app.pipeline import Workspace
 from mandara.connectors.postgres.catalog_reader import PostgresCatalogReader
 from mandara.connectors.postgres.column_reader import PostgresColumnReader
 from mandara.evaluation.score import InvalidForScoringError, Report
+from mandara.llm.claude.model import ClaudeModel
+from mandara.llm.model import BudgetedModel, LlmError, StructuredRequest, summarize
+from mandara.settings.llm import SettingsError, parse_settings
+from mandara.settings.llm_prices import UnknownPricingError, load_pricing
 from mandara.om.model import TableKind
 from mandara.modeler.rules import InvalidInputError
 from mandara.omstore.claim_store import InvalidClaimsError, LedgerRefusedError
@@ -37,7 +41,8 @@ class UsageError(Exception):
 
 _KNOWN_ERRORS = (SourceError, OmLoadError, InvalidClaimsError, LedgerRefusedError, UnstorableNameError,
                  InvalidOntologyError, OntologyWriteRefusedError, InvalidInputError, InvalidForScoringError,
-                 ReviewError, LedgerMismatchError, BulkThresholdError, UsageError)
+                 ReviewError, LedgerMismatchError, BulkThresholdError, UsageError, LlmError, SettingsError,
+                 UnknownPricingError)
 """データ・ファイル・操作に原因のある失敗。これ以外（モデラーの出力が検証を通らない InvalidProposalError、
 pydantic の ValidationError など）はバグなので、捕まえずにトレースバックごと落とす。"""
 
@@ -127,6 +132,10 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--host", default="127.0.0.1", help="既定はこの機械の中だけ")
     p.add_argument("--port", type=int, default=8765)
     p.set_defaults(handler=_serve)
+
+    p = commands.add_parser("llm-check", help="LLM の設定と接続を確かめる（本物の API を1回呼ぶ。費用は予算の範囲）")
+    p.add_argument("--env", type=Path, default=Path(".env"), help="設定のファイル（既定 .env）。環境変数が優先")
+    p.set_defaults(handler=_llm_check)
 
     p = commands.add_parser("validate", help="OM のディレクトリを検証する（仕様 4.5）")
     p.add_argument("ontology", type=Path)
@@ -300,6 +309,34 @@ def _serve(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
         print(style.dim(f"   connect {name}"), file=out)
     uvicorn.run(create_app(sources, readers), host=args.host, port=args.port, log_level="warning")
     return 0
+
+
+def _llm(env_file: Path) -> BudgetedModel:
+    """.env と環境変数から、予算つきの LLM を組み立てる（composition root）。"""
+    from dotenv import dotenv_values
+
+    # .env は任意（無ければ環境変数だけ）。足りない設定は parse_settings が名前を挙げてエラーにする
+    from_file = dotenv_values(env_file) if env_file.is_file() else {}
+    settings = parse_settings({**from_file, **os.environ})
+    pricing = load_pricing(settings.model)
+    return BudgetedModel(ClaudeModel.from_api_key(settings.model, settings.api_key), pricing, settings.budget_usd)
+
+
+def _llm_check(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
+    llm = _llm(args.env)
+    request = StructuredRequest(
+        purpose="llm-check", system="あなたは接続の確認に答える。", prompt="ok に true を入れて答える。",
+        schema={"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]},
+        max_output_tokens=50,
+    )
+    response = llm.ask(request)
+    data: object = response.data
+    ok = isinstance(data, dict) and cast(dict[str, object], data).get("ok") is True
+    spent = summarize(llm.spends)
+    print(f"{style.accent('◆ LLM')}  {response.model}  {style.good('ok') if ok else style.bad('unexpected answer')}  "
+          f"{spent['input_tokens']} in / {spent['output_tokens']} out  ${spent['cost_usd']}  "
+          f"{style.dim(f'(budget ${llm.limit_usd:.4f})')}", file=out)
+    return 0 if ok else 1
 
 
 def _validate(args: argparse.Namespace, out: TextIO, style: _Style) -> int:

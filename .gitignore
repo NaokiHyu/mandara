@@ -6,3 +6,6 @@ __pycache__/
 work/
 ui/node_modules/
 ui/dist/
+.env
+.env.*
+!.env.example
