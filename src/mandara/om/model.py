@@ -72,7 +72,7 @@ linkml_meta = LinkMLMeta({'default_prefix': 'om',
      'description': 'オントロジカルメタデータ（OM）の形を定義する。仕様 4章、7.6 の①。 '
                     'ここに書くのは「注釈とは何か」であり、個々のオントロジーの中身（顧客、注文など）ではない。 '
                     '構造的な語彙（表種別、関係型など）は Mandara の意味論に結びつくので enum として持つ。 '
-                    '拡張できる語彙（列ドメイン、enum の値、表記揺れ）はデータ（vocabulary.yaml）として持つ。',
+                    '拡張できる語彙（意味型、enum の値、表記揺れ）はデータ（vocabulary.yaml）として持つ。',
      'id': 'https://w3id.org/mandara/om',
      'imports': ['linkml:types'],
      'license': 'Apache-2.0',
@@ -108,10 +108,6 @@ class TableKind(str, Enum):
     event = "event"
     """
     出来事を表す表。不変・追記のみ。コマンド不可
-    """
-    derived = "derived"
-    """
-    計算・集計で導出された表。コマンド不可
     """
 
 
@@ -162,9 +158,9 @@ class Additivity(str, Enum):
     non_additive = "non-additive"
 
 
-class DomainRole(str, Enum):
+class SemanticRole(str, Enum):
     """
-    列ドメインの役割
+    意味型の役割
     """
     event_time = "event_time"
     valid_from = "valid_from"
@@ -177,7 +173,7 @@ class DomainRole(str, Enum):
 
 class ValueType(str, Enum):
     """
-    列ドメインの値の意味の型。物理的な表現（バイナリ形式、文字コードなど）は含めない。 物理的な表現は列の encoding に書く。意味の型への変換は encoding ごとのコーデック（I/O の無い純粋な変換。DB コネクタから独立したもの）の責務とする
+    意味型の値の型。物理的な表現（バイナリ形式、文字コードなど）は含めない。 物理的な表現は列の encoding に書く。意味の型への変換は encoding ごとのコーデック（I/O の無い純粋な変換。DB コネクタから独立したもの）の責務とする
     """
     identifier = "identifier"
     code = "code"
@@ -408,23 +404,23 @@ class Vocabulary(ConfiguredBaseModel):
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'tree_root': True})
 
-    column_domains: Optional[dict[str, ColumnDomain]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Vocabulary']} })
+    semantic_types: Optional[dict[str, SemanticType]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Vocabulary']} })
     aliases: Optional[dict[str, Union[str, AliasEntry]]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Vocabulary']} })
 
 
-class ColumnDomain(ConfiguredBaseModel):
+class SemanticType(ConfiguredBaseModel):
     """
-    列ドメイン。「同じ意味」を表す
+    意味型。列の値が何を意味するか（住所の ID、受注日、金額）。別の表の列でも、意味が同じなら同じ意味型にする。 同じ値の型でも意味が違えば別の意味型にする（受注日と出荷日）
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
 
-    name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain', 'AliasEntry', 'Table', 'Column']} })
-    description: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain']} })
-    type: ValueType = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain', 'Edge', 'Relation']} })
-    role: Optional[DomainRole] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain', 'Relation']} })
-    additivity: Optional[Additivity] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain']} })
-    requires_unit: Optional[bool] = Field(default=None, description="""true なら、この列ドメインを使う列は unit（量と単位の組、C5）を宣言しなければならない""", json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain']} })
-    values: Optional[list[EnumValue]] = Field(default=None, description="""type が enum のときの値の一覧（C6）。値の集合はデータからではなく、宣言・証拠から決める""", json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain']} })
+    name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'AliasEntry', 'Table', 'Column']} })
+    description: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType']} })
+    type: ValueType = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'Edge', 'Relation']} })
+    role: Optional[SemanticRole] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'Relation']} })
+    additivity: Optional[Additivity] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType']} })
+    requires_unit: Optional[bool] = Field(default=None, description="""true なら、この意味型を使う列は unit（量と単位の組、C5）を宣言しなければならない""", json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType']} })
+    values: Optional[list[EnumValue]] = Field(default=None, description="""type が enum のときの値の一覧（C6）。値の集合はデータからではなく、宣言・証拠から決める""", json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType']} })
 
 
 class EnumValue(Annotation):
@@ -446,7 +442,7 @@ class EnumValue(Annotation):
 class AliasEntry(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
 
-    name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain', 'AliasEntry', 'Table', 'Column']} })
+    name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'AliasEntry', 'Table', 'Column']} })
     terms: list[str] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['AliasEntry']} })
 
 
@@ -459,10 +455,11 @@ class Table(Annotation):
          'tree_root': True})
 
     id: str = Field(default=..., description="""安定ID。改名しても変わらない""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Relation', 'Claim', 'OntologyListing', 'EvidenceLine']} })
-    name: str = Field(default=..., description="""ソース上の名前（schema.table）""", json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain', 'AliasEntry', 'Table', 'Column']} })
+    name: str = Field(default=..., description="""ソース上の名前（schema.table）""", json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'AliasEntry', 'Table', 'Column']} })
     source: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Claim', 'SourceRef']} })
     context: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table']} })
     kind: Optional[TableKind] = Field(default=None, description="""表種別。提案の段階では未決（無い）でもよい（規則や証拠で決まらないものを既定値で埋めない）。 approved の表には必須""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'ClaimSource', 'OntologyListing', 'ReviewAnswer']} })
+    derived: Optional[bool] = Field(default=None, description="""計算・集計で導出された表（ビューなど）。kind（何を表すか）とは別の軸で、どの kind とも組み合わさる。 コマンド不可。part-of の全体側にならない。ソースが実体の表なら書かない""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table']} })
     grain: Optional[str] = Field(default=None, description="""1行が何を表すか（10.4）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table']} })
     identity: Optional[Identity] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Table']} })
     columns: Optional[dict[str, Column]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'KeyColumns', 'Relation', 'Claim']} })
@@ -496,7 +493,7 @@ class Edge(Annotation):
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'mixins': ['Annotation']})
 
-    type: RelationType = Field(default=..., description="""has / part-of / classified-as のどれか。is-a は型の間の関係、derived-from は関数による導出なので、辺にはならない""", json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain', 'Edge', 'Relation']} })
+    type: RelationType = Field(default=..., description="""has / part-of / classified-as のどれか。is-a は型の間の関係、derived-from は関数による導出なので、辺にはならない""", json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'Edge', 'Relation']} })
     from_: str = Field(default=..., alias="from", description="""辺の始点側の参照の ID（part-of なら部分、classified-as なら分類されるもの）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Edge', 'ColumnPair']} })
     to: str = Field(default=..., description="""辺の終点側の参照の ID（part-of なら全体、classified-as なら分類）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Edge', 'ColumnPair']} })
     status: ReviewStatus = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation']} })
@@ -527,8 +524,8 @@ class KeyColumns(ConfiguredBaseModel):
 class Column(Annotation):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'mixins': ['Annotation']})
 
-    name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain', 'AliasEntry', 'Table', 'Column']} })
-    domain: Optional[str] = Field(default=None, description="""vocabulary の column_domains のキー""", json_schema_extra = { "linkml_meta": {'domain_of': ['Column']} })
+    name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'AliasEntry', 'Table', 'Column']} })
+    semantic_type: Optional[str] = Field(default=None, description="""vocabulary の semantic_types のキー""", json_schema_extra = { "linkml_meta": {'domain_of': ['Column']} })
     pii: Optional[bool] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Column']} })
     unit: Optional[UnitSource] = Field(default=None, description="""量の単位の出所（C5）。fixed / column のちょうど1つ""", json_schema_extra = { "linkml_meta": {'domain_of': ['Column']} })
     encoding: Optional[SourceEncoding] = Field(default=None, description="""ソース上の値の物理的な表現。意味の型の標準的な表現と同じなら書かない""", json_schema_extra = { "linkml_meta": {'domain_of': ['Column']} })
@@ -552,9 +549,9 @@ class Relation(Annotation):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'mixins': ['Annotation']})
 
     id: str = Field(default=..., description="""関係の安定ID。同じ表への複数の参照（C2）を区別する""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Relation', 'Claim', 'OntologyListing', 'EvidenceLine']} })
-    type: RelationType = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain', 'Edge', 'Relation']} })
+    type: RelationType = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'Edge', 'Relation']} })
     has_kind: Optional[HasKind] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Relation']} })
-    role: Optional[str] = Field(default=None, description="""参照の役割（C2。例 bill_to / ship_to）""", json_schema_extra = { "linkml_meta": {'domain_of': ['ColumnDomain', 'Relation']} })
+    role: Optional[str] = Field(default=None, description="""参照の役割（C2。例 bill_to / ship_to）""", json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'Relation']} })
     target: str = Field(default=..., description="""参照先の表の安定ID。自己参照は self と書き、自分の安定ID は書かない""", json_schema_extra = { "linkml_meta": {'domain_of': ['Relation', 'Claim']} })
     via: Optional[list[ColumnPair]] = Field(default=None, description="""結合に使う列の対応。複合キーなら複数""", json_schema_extra = { "linkml_meta": {'domain_of': ['Relation']} })
     via_function: Optional[str] = Field(default=None, description="""列の等値で結べない関係（C4。パス文字列の木など）を結ぶ決定的関数の安定ID""", json_schema_extra = { "linkml_meta": {'domain_of': ['Relation']} })
@@ -776,7 +773,7 @@ class PointFailure(ConfiguredBaseModel):
 # see https://pydantic-docs.helpmanual.io/usage/models/#rebuilding-a-model
 Annotation.model_rebuild()
 Vocabulary.model_rebuild()
-ColumnDomain.model_rebuild()
+SemanticType.model_rebuild()
 EnumValue.model_rebuild()
 AliasEntry.model_rebuild()
 Table.model_rebuild()

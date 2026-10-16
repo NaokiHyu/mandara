@@ -133,7 +133,7 @@ def test_adventureworks_stage1_score() -> None:
         "relation_types": (8, 15, 15),  # 型は、端点が両方にある関係（15本）だけで測る
         "edges": (0, 1, 0),
         "column_types": (0, 141, 0),
-        "column_domain_pairs": (0, 234, 0),
+        "semantic_type_pairs": (0, 234, 0),
         "grain_present": (0, 5, 0),
     }
 

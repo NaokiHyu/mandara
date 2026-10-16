@@ -48,6 +48,7 @@ function stylesheet(contextCount: number): StylesheetJson {
     { selector: "node[status = 'proposed']", style: { "border-style": "dashed" } },
     { selector: "node[status = 'rejected']", style: { opacity: 0.35 } },
     { selector: "node[!kind]", style: { color: t("--text-dim") } },
+    { selector: "node[?derived]", style: { "font-style": "italic" } },
     { selector: "node:selected", style: { "border-width": 2, "border-color": t("--accent"), color: t("--text-strong") } },
     {
       selector: "edge",

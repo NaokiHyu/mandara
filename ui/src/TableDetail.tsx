@@ -1,6 +1,6 @@
-// 表の詳細：種類、粒度、レビューの状態と確信度、同一性、列（ドメイン、単位、enum の値）、関係、辺。
+// 表の詳細：種類、粒度、レビューの状態と確信度、同一性、列（意味型、単位、enum の値）、関係、辺。
 // 参照先の解決と結合の表し方は graph.ts のものを使う（二重に持たない）。解決できなければ、隠さずにエラーを出す。
-import type { ColumnDomain, OntologyDocument, Relation, Table } from "./om/model";
+import type { OntologyDocument, Relation, SemanticType, Table } from "./om/model";
 import { GraphError, joins, resolveTarget, shortName } from "./graph";
 import { asKind, asRelationType, KIND, RELATION } from "./vocabulary";
 
@@ -10,7 +10,7 @@ export function TableDetail({ doc, table, onSelect }: {
   onSelect: (tableId: string) => void;
 }) {
   const byId = new Map(doc.tables.map((t) => [t.id, t]));
-  const domains = doc.vocabulary.column_domains ?? {};
+  const semanticTypes = doc.vocabulary.semantic_types ?? {};
 
   return (
     <aside className="detail" aria-label={`表 ${table.name} の詳細`}>
@@ -21,6 +21,7 @@ export function TableDetail({ doc, table, onSelect }: {
 
       <dl className="facts">
         <dt>kind</dt><dd>{table.kind === undefined ? <span className="dim">未決</span> : KIND[asKind(table.kind)].text}</dd>
+        {table.derived && (<><dt>derived</dt><dd>計算で導出された表（ビューなど）</dd></>)}
         <dt>grain</dt><dd>{table.grain ?? <span className="dim">—</span>}</dd>
         <dt>review</dt><dd><Status status={table.status} confidence={table.confidence} /></dd>
         {table.identity && (
@@ -37,15 +38,15 @@ export function TableDetail({ doc, table, onSelect }: {
       <h2>columns <span className="dim">{Object.keys(table.columns ?? {}).length}</span></h2>
       <table className="grid">
         <thead>
-          <tr><th>name</th><th>domain · values</th><th>unit</th></tr>
+          <tr><th>name</th><th>semantic type · values</th><th>unit</th></tr>
         </thead>
         <tbody>
           {Object.values(table.columns ?? {}).map((c) => (
             <tr key={c.name} className={`status-${c.status}`}>
               <td className="name">{c.name}</td>
               <td>
-                {c.domain ?? <span className="dim">—</span>}
-                {c.domain !== undefined && <EnumValues domain={domains[c.domain]} />}
+                {c.semantic_type ?? <span className="dim">—</span>}
+                {c.semantic_type !== undefined && <EnumValues semanticType={semanticTypes[c.semantic_type]} />}
               </td>
               <td className="dim">{c.unit?.fixed ?? (c.unit?.column !== undefined ? `per ${c.unit.column}` : null)}</td>
             </tr>
@@ -111,7 +112,7 @@ function Status({ status, confidence }: { status: string; confidence?: number | 
   );
 }
 
-function EnumValues({ domain }: { domain: ColumnDomain | undefined }) {
-  if (domain?.values === undefined || domain.values.length === 0) return null;
-  return <div className="dim small">{domain.values.map((v) => `${v.code}=${v.label}`).join(" · ")}</div>;
+function EnumValues({ semanticType }: { semanticType: SemanticType | undefined }) {
+  if (semanticType?.values === undefined || semanticType.values.length === 0) return null;
+  return <div className="dim small">{semanticType.values.map((v) => `${v.code}=${v.label}`).join(" · ")}</div>;
 }

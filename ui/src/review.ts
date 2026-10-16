@@ -20,7 +20,7 @@ export function asSubject(value: string): ReviewSubject {
 
 /** 種類を選ぶキー（CLI の mandara review と同じ）。 */
 export const KIND_KEYS: Record<string, TableKind> = {
-  d: TableKind.domain, r: TableKind.relation, e: TableKind.event, v: TableKind.derived,
+  d: TableKind.domain, r: TableKind.relation, e: TableKind.event,
 };
 
 export type KeyAction = { type: "answer"; answer: ReviewAnswer } | { type: "skip" } | { type: "move"; by: number };

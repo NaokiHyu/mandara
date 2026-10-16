@@ -177,6 +177,7 @@ def _table(
         source=source,
         context=schema,
         kind=kind,
+        derived=True if _derived(declared) else None,
         identity=identity,
         columns=columns or None,
         relations=relations or None,
@@ -189,13 +190,12 @@ def _table(
 def _kind(declared: Claim, primary: Claim | None, references: list[Claim]) -> tuple[TableKind | None, list[str]]:
     """仕様 4.1 の定義にそのまま当たる表だけに種類を付ける。当たらなければ未決。
 
-    - derived：ビュー・マテリアライズドビュー（計算で導出された表）
+    ビュー・マテリアライズドビューは計算で導出された表（derived。kind とは別の軸、_derived）で、種類は規則では
+    決めない（未決）。relation の規則は実体の表の識別制約を前提にしており、ビューの主キーは制約として強制されない
     - relation：主キーが、列の組の異なる2本以上の外部キーの和になっている（もの同士の組で識別される中間表。属性はあってよい）。
       各外部キーの列は主キーの真部分集合（1本で主キー全体を覆う外部キーは、1:1 の拡張や is-a であって中間表ではない）
     """
-    if declared.object_kind in (ObjectKind.view.value, ObjectKind.materialized_view.value):
-        return TableKind.derived, []
-    if primary is None:
+    if _derived(declared) or primary is None:
         return None, []
     key = frozenset(_columns(primary))
     parts: dict[frozenset[str], Claim] = {}
@@ -206,6 +206,11 @@ def _kind(declared: Claim, primary: Claim | None, references: list[Claim]) -> tu
     if len(parts) >= 2 and frozenset[str]().union(*parts) == key:
         return TableKind.relation, sorted(fk.id for fk in parts.values())
     return None, []
+
+
+def _derived(declared: Claim) -> bool:
+    """ビュー・マテリアライズドビューは計算で導出された表。根拠は declared_as の主張（表の根拠に入っている）。"""
+    return declared.object_kind in (ObjectKind.view.value, ObjectKind.materialized_view.value)
 
 
 class _Annotation(TypedDict):

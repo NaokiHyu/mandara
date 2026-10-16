@@ -12,56 +12,56 @@ identity:
     - countryregioncode
 columns:
   stateprovinceid:
-    domain: state_province_id
+    semantic_type: state_province_id
     status: proposed
     confidence: 0.95
     evidence:
     - PK
     inferred_by: gold-draft
   stateprovincecode:
-    domain: state_province_code
+    semantic_type: state_province_code
     status: proposed
     confidence: 0.85
     evidence:
     - '列コメント: ISO standard'
     inferred_by: gold-draft
   countryregioncode:
-    domain: country_region_code
+    semantic_type: country_region_code
     status: proposed
     confidence: 0.95
     evidence:
     - FK → countryregion
     inferred_by: gold-draft
   isonlystateprovinceflag:
-    domain: state_code_availability
+    semantic_type: state_code_availability
     status: proposed
     confidence: 0.8
     evidence:
     - 列コメント
     inferred_by: gold-draft
   name:
-    domain: display_name
+    semantic_type: display_name
     status: proposed
     confidence: 0.9
     evidence:
     - 列コメント
     inferred_by: gold-draft
   territoryid:
-    domain: sales_territory_id
+    semantic_type: sales_territory_id
     status: proposed
     confidence: 0.9
     evidence:
     - FK → salesterritory（正解 OM の範囲外）
     inferred_by: gold-draft
   rowguid:
-    domain: row_uuid
+    semantic_type: row_uuid
     status: proposed
     confidence: 0.95
     evidence:
     - 列名 rowguid
     inferred_by: gold-draft
   modifieddate:
-    domain: modified_at
+    semantic_type: modified_at
     status: proposed
     confidence: 0.95
     evidence:

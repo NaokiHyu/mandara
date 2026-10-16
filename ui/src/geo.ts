@@ -8,10 +8,10 @@ export interface GeoColumn {
 }
 
 export function geoColumns(doc: OntologyDocument): GeoColumn[] {
-  const domains = doc.vocabulary.column_domains ?? {};
+  const semanticTypes = doc.vocabulary.semantic_types ?? {};
   return doc.tables.flatMap((t) =>
     Object.values(t.columns ?? {})
-      .filter((c) => c.domain !== undefined && domains[c.domain]?.type === ValueType.geoFULL_STOPpoint)
+      .filter((c) => c.semantic_type !== undefined && semanticTypes[c.semantic_type]?.type === ValueType.geoFULL_STOPpoint)
       .map((c) => ({ tableId: t.id, tableName: t.name, column: c.name })),
   );
 }

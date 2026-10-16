@@ -1,4 +1,4 @@
-column_domains:
+semantic_types:
   business_entity_id:
     description: 人・店舗・仕入先・従業員に共通の識別子（BusinessEntity）
     type: identifier

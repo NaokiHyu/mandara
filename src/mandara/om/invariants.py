@@ -17,8 +17,8 @@ from mandara.om.model import (
     AliasEntry,
     Cardinality,
     Column,
-    DomainRole,
-    ColumnDomain,
+    SemanticRole,
+    SemanticType,
     HasKind,
     IsARealization,
     Relation,
@@ -36,7 +36,7 @@ from mandara.om.value_types import UNIT_BEARING
 
 
 class Rule(Enum):
-    UNKNOWN_DOMAIN = "列ドメインが語彙に無い"
+    UNKNOWN_SEMANTIC_TYPE = "意味型が語彙に無い"
     UNKNOWN_VALUE = "閉じた集合に無い値（レビュー状態、表種別、関係型、値の型、単位、物理的な表現）"
     KEY_MISMATCH = "辞書のキーと要素の name が食い違っている"
     APPROVED_WITHOUT_REVIEW = "approved なのに reviewed_by / reviewed_at が無い"
@@ -50,15 +50,15 @@ class Rule(Enum):
     UNKNOWN_COLUMN = "存在しない列を指している"
     CYCLE = "推移的な関係（is-a / part-of / classified-as / derived-from。辺を含む）が表をまたいで循環している"
     DERIVED_AS_WHOLE = "derived の表が part-of の全体側になっている（辺を含む）"
-    UNIT_MISSING = "単位が要るドメインなのに unit が無い"
-    UNIT_UNEXPECTED = "単位の要らないドメインに unit がある"
+    UNIT_MISSING = "単位が要る意味型なのに unit が無い"
+    UNIT_UNEXPECTED = "単位の要らない意味型に unit がある"
     UNIT_AMBIGUOUS = "unit は fixed / column のちょうど1つでなければならない"
     RELATION_SHAPE = "関係の型と、その関係が持つフィールドが合っていない"
     SHARED_KEY_MISMATCH = "shared_key の is-a が、両側の主キー同士で結ばれていない"
     ENUM_SHAPE = "enum の値の定義が不正"
-    DOMAIN_SHAPE = "列ドメインの型と、役割・加法性・単位の要否が合っていない"
+    SEMANTIC_TYPE_SHAPE = "意味型の値の型と、役割・加法性・単位の要否が合っていない"
     UNIT_COLUMN = "単位を持つ列の指定が不正（自分自身、単位のコードでない列）"
-    ENCODING_MISMATCH = "列の encoding の変換先の型が、列ドメインの型と違う"
+    ENCODING_MISMATCH = "列の encoding の変換先の型が、意味型の値の型と違う"
     EDGE_SHAPE = "辺（edge）の宣言が不正"
 
 
@@ -82,8 +82,8 @@ def check(ontology: Ontology) -> list[Violation]:
 
 
 def _check_vocabulary(vocabulary: Vocabulary) -> Iterator[Violation]:
-    domains = vocabulary.column_domains or {}
-    yield from _check_keys(domains, "vocabulary.column_domains")
+    semantic_types = vocabulary.semantic_types or {}
+    yield from _check_keys(semantic_types, "vocabulary.semantic_types")
     aliases: dict[str, AliasEntry] = {}
     for key, entry in (vocabulary.aliases or {}).items():
         # 生成型は LinkML の簡略形（値が文字列だけ）も許すが、OM では使わない
@@ -92,13 +92,13 @@ def _check_vocabulary(vocabulary: Vocabulary) -> Iterator[Violation]:
         else:
             yield Violation(Rule.UNKNOWN_VALUE, f"vocabulary.aliases.{key}", "簡略形（文字列だけ）は使わない")
     yield from _check_keys(aliases, "vocabulary.aliases")
-    for name, domain in domains.items():
-        loc = f"vocabulary.column_domains.{name}"
-        if domain.type not in _VALUE_TYPES:
-            yield Violation(Rule.UNKNOWN_VALUE, loc, f"type={domain.type!r}")
-        yield from _check_domain_shape(domain, loc)
-        values = domain.values or []
-        if domain.type == "enum":
+    for name, semantic_type in semantic_types.items():
+        loc = f"vocabulary.semantic_types.{name}"
+        if semantic_type.type not in _VALUE_TYPES:
+            yield Violation(Rule.UNKNOWN_VALUE, loc, f"type={semantic_type.type!r}")
+        yield from _check_semantic_type_shape(semantic_type, loc)
+        values = semantic_type.values or []
+        if semantic_type.type == "enum":
             if not values:
                 yield Violation(Rule.ENUM_SHAPE, loc, "enum なのに values が無い")
             for code in _duplicates(v.code for v in values):
@@ -106,25 +106,25 @@ def _check_vocabulary(vocabulary: Vocabulary) -> Iterator[Violation]:
             for i, value in enumerate(values):
                 yield from _check_annotation(value, f"{loc}.values[{i}]")
         elif values:
-            yield Violation(Rule.ENUM_SHAPE, loc, f"type が {domain.type!r} なのに values がある")
+            yield Violation(Rule.ENUM_SHAPE, loc, f"type が {semantic_type.type!r} なのに values がある")
 
 
 _VALUE_TYPES = {t.value for t in ValueType}
 _MEASURES = {ValueType.integer.value, ValueType.ratio.value, ValueType.quantity.value, ValueType.money.value}
 """加法性を持てる型（尺度）。"""
-_TIME_ROLES = {DomainRole.event_time.value, DomainRole.valid_from.value, DomainRole.valid_to.value}
+_TIME_ROLES = {SemanticRole.event_time.value, SemanticRole.valid_from.value, SemanticRole.valid_to.value}
 _TIMES = {ValueType.date.value, ValueType.datetime.value}
 
 
-def _check_domain_shape(domain: ColumnDomain, loc: str) -> Iterator[Violation]:
-    if domain.additivity is not None and domain.type not in _MEASURES:
-        yield Violation(Rule.DOMAIN_SHAPE, loc, f"{domain.type} は尺度ではないので加法性を持たない")
-    if domain.type in UNIT_BEARING and domain.requires_unit is not True:
-        yield Violation(Rule.DOMAIN_SHAPE, loc, f"{domain.type} は単位が要る（requires_unit: true）")
-    if domain.requires_unit and domain.type not in UNIT_BEARING:
-        yield Violation(Rule.DOMAIN_SHAPE, loc, f"{domain.type} は単位を持たない")
-    if domain.role in _TIME_ROLES and domain.type not in _TIMES:
-        yield Violation(Rule.DOMAIN_SHAPE, loc, f"役割 {domain.role} は日付・日時の型だけ")
+def _check_semantic_type_shape(semantic_type: SemanticType, loc: str) -> Iterator[Violation]:
+    if semantic_type.additivity is not None and semantic_type.type not in _MEASURES:
+        yield Violation(Rule.SEMANTIC_TYPE_SHAPE, loc, f"{semantic_type.type} は尺度ではないので加法性を持たない")
+    if semantic_type.type in UNIT_BEARING and semantic_type.requires_unit is not True:
+        yield Violation(Rule.SEMANTIC_TYPE_SHAPE, loc, f"{semantic_type.type} は単位が要る（requires_unit: true）")
+    if semantic_type.requires_unit and semantic_type.type not in UNIT_BEARING:
+        yield Violation(Rule.SEMANTIC_TYPE_SHAPE, loc, f"{semantic_type.type} は単位を持たない")
+    if semantic_type.role in _TIME_ROLES and semantic_type.type not in _TIMES:
+        yield Violation(Rule.SEMANTIC_TYPE_SHAPE, loc, f"役割 {semantic_type.role} は日付・日時の型だけ")
 
 
 class _Named(Protocol):
@@ -158,7 +158,7 @@ _UNITS = {u.value for u in Unit}
 def _check_table(table: Table, ontology: Ontology) -> Iterator[Violation]:
     loc = table.id
     columns = table.columns or {}
-    domains = ontology.vocabulary.column_domains or {}
+    semantic_types = ontology.vocabulary.semantic_types or {}
 
     yield from _check_annotation(table, loc)
     yield from _check_keys(columns, f"{loc}.columns")
@@ -167,6 +167,8 @@ def _check_table(table: Table, ontology: Ontology) -> Iterator[Violation]:
             yield Violation(Rule.UNDECIDED_KIND, loc, "")
     elif table.kind not in _TABLE_KINDS:
         yield Violation(Rule.UNKNOWN_VALUE, loc, f"kind={table.kind!r}")
+    if table.derived is False:  # 導出された表なら true、実体の表なら書かない。false という3つ目の書き方を作らない
+        yield Violation(Rule.UNKNOWN_VALUE, loc, "derived=False（実体の表には derived を書かない）")
 
     if table.identity is not None:
         keys = [table.identity.primary, *(k.columns for k in table.identity.alternates or [])]
@@ -176,11 +178,11 @@ def _check_table(table: Table, ontology: Ontology) -> Iterator[Violation]:
         for key in _duplicates(",".join(sorted(k)) for k in keys):
             yield Violation(Rule.DUPLICATE_KEY, f"{loc}.identity", f"列の組 {{{key}}}")
 
-    if _is_blank(table.grain) and _needs_grain(table, domains):
+    if _is_blank(table.grain) and _needs_grain(table, semantic_types):
         yield Violation(Rule.MISSING_GRAIN, loc, f"kind={table.kind}")
 
     for name, column in columns.items():
-        yield from _check_column(column, f"{loc}.columns.{name}", columns, domains)
+        yield from _check_column(column, f"{loc}.columns.{name}", columns, semantic_types)
 
     for relation in table.relations or []:
         yield from _check_relation(relation, table, ontology)
@@ -190,17 +192,17 @@ def _check_table(table: Table, ontology: Ontology) -> Iterator[Violation]:
     yield from _check_edge(table, ontology)
 
 
-def _needs_grain(table: Table, domains: dict[str, ColumnDomain]) -> bool:
-    """event 表、または尺度（additivity を持つドメインの列）を持つ domain 表。
+def _needs_grain(table: Table, semantic_types: dict[str, SemanticType]) -> bool:
+    """event 表、または尺度（additivity を持つ意味型の列）を持つ domain 表。
 
-    語彙に無いドメインの列は尺度かどうか判定できない。その列は UNKNOWN_DOMAIN として別に出る。
+    語彙に無い意味型の列は尺度かどうか判定できない。その列は UNKNOWN_SEMANTIC_TYPE として別に出る。
     """
     if table.kind == TableKind.event.value:
         return True
     if table.kind != TableKind.domain.value:
         return False
     return any(
-        (d := domains.get(c.domain or "")) is not None and d.additivity is not None
+        (d := semantic_types.get(c.semantic_type or "")) is not None and d.additivity is not None
         for c in (table.columns or {}).values()
     )
 
@@ -209,28 +211,28 @@ def _check_column(
     column: Column,
     loc: str,
     columns: dict[str, Column],
-    domains: dict[str, ColumnDomain],
+    semantic_types: dict[str, SemanticType],
 ) -> Iterator[Violation]:
     yield from _check_annotation(column, loc)
 
-    domain = domains.get(column.domain) if column.domain is not None else None
-    if column.domain is not None and domain is None:
-        yield Violation(Rule.UNKNOWN_DOMAIN, loc, f"domain={column.domain!r}")
+    semantic_type = semantic_types.get(column.semantic_type) if column.semantic_type is not None else None
+    if column.semantic_type is not None and semantic_type is None:
+        yield Violation(Rule.UNKNOWN_SEMANTIC_TYPE, loc, f"semantic_type={column.semantic_type!r}")
     if column.encoding is not None:
         target = ENCODING_TARGETS.get(column.encoding)
         if target is None:
             yield Violation(Rule.UNKNOWN_VALUE, loc, f"encoding={column.encoding!r}")
-        elif domain is not None and domain.type != target:
-            yield Violation(Rule.ENCODING_MISMATCH, loc, f"encoding={column.encoding} は {target} に変換する。domain.type={domain.type}")
+        elif semantic_type is not None and semantic_type.type != target:
+            yield Violation(Rule.ENCODING_MISMATCH, loc, f"encoding={column.encoding} は {target} に変換する。semantic_type.type={semantic_type.type}")
 
-    requires_unit = domain is not None and bool(domain.requires_unit)
+    requires_unit = semantic_type is not None and bool(semantic_type.requires_unit)
     unit = column.unit
     if unit is None:
         if requires_unit:
-            yield Violation(Rule.UNIT_MISSING, loc, f"domain={column.domain!r}")
+            yield Violation(Rule.UNIT_MISSING, loc, f"semantic_type={column.semantic_type!r}")
         return
-    if domain is not None and not requires_unit:
-        yield Violation(Rule.UNIT_UNEXPECTED, loc, f"domain={column.domain!r}")
+    if semantic_type is not None and not requires_unit:
+        yield Violation(Rule.UNIT_UNEXPECTED, loc, f"semantic_type={column.semantic_type!r}")
     if unit.fixed is not None and unit.fixed not in _UNITS:
         yield Violation(Rule.UNKNOWN_VALUE, f"{loc}.unit", f"fixed={unit.fixed!r}")
     sources = [s for s in (unit.fixed, unit.column) if s is not None]
@@ -241,9 +243,9 @@ def _check_column(
     elif unit.column is not None:
         if unit.column == column.name:
             yield Violation(Rule.UNIT_COLUMN, f"{loc}.unit", "自分自身を単位の列にしている")
-        unit_domain = domains.get(columns[unit.column].domain or "")
-        if unit_domain is not None and unit_domain.type != ValueType.code.value:
-            yield Violation(Rule.UNIT_COLUMN, f"{loc}.unit", f"単位の列 {unit.column} の型が code ではない（{unit_domain.type}）")
+        unit_semantic_type = semantic_types.get(columns[unit.column].semantic_type or "")
+        if unit_semantic_type is not None and unit_semantic_type.type != ValueType.code.value:
+            yield Violation(Rule.UNIT_COLUMN, f"{loc}.unit", f"単位の列 {unit.column} の型が code ではない（{unit_semantic_type.type}）")
 
 
 # ---------------------------------------------------------------- 関係
@@ -262,7 +264,7 @@ def _check_relation(relation: Relation, table: Table, ontology: Ontology) -> Ite
         yield Violation(Rule.UNKNOWN_TARGET, loc, f"target={relation.target!r}")
         return
 
-    if relation.type == RelationType.part_of.value and target.kind == TableKind.derived.value:
+    if relation.type == RelationType.part_of.value and target.derived:
         yield Violation(Rule.DERIVED_AS_WHOLE, loc, f"target={target.id}")
 
     own = table.columns or {}
@@ -342,7 +344,7 @@ def _check_edge(table: Table, ontology: Ontology) -> Iterator[Violation]:
         ):
             yield Violation(Rule.EDGE_SHAPE, loc, f"{side}={rel_id} は n:1 の has（reference）でなければならない")
     whole = _edge_end(edge.to, table, ontology)
-    if edge.type == RelationType.part_of.value and whole is not None and whole.kind == TableKind.derived.value:
+    if edge.type == RelationType.part_of.value and whole is not None and whole.derived:
         yield Violation(Rule.DERIVED_AS_WHOLE, loc, f"to の参照先={whole.id}")
 
 

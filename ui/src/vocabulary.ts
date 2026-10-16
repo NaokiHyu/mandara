@@ -6,7 +6,6 @@ export const KIND: Record<TableKind, { mark: string; text: string; color: string
   [TableKind.domain]: { mark: "D", text: "domain — もの", color: "--accent" },
   [TableKind.relation]: { mark: "R", text: "relation — もの同士の関係", color: "--ok" },
   [TableKind.event]: { mark: "E", text: "event — 出来事", color: "--warn" },
-  [TableKind.derived]: { mark: "V", text: "derived — 導出", color: "--text-dim" },
 };
 
 export interface LineStyle {

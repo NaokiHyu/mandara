@@ -13,7 +13,7 @@ identity:
     - salesorderdetailid
 columns:
   salesorderid:
-    domain: sales_order_id
+    semantic_type: sales_order_id
     status: proposed
     confidence: 0.95
     evidence:
@@ -21,7 +21,7 @@ columns:
     - FK → salesorderheader
     inferred_by: gold-draft
   salesorderdetailid:
-    domain: sales_order_detail_id
+    semantic_type: sales_order_detail_id
     status: proposed
     confidence: 0.9
     evidence:
@@ -29,14 +29,14 @@ columns:
     - '列コメント: One incremental unique number per product sold'
     inferred_by: gold-draft
   carriertrackingnumber:
-    domain: carrier_tracking_number
+    semantic_type: carrier_tracking_number
     status: proposed
     confidence: 0.85
     evidence:
     - 列コメント
     inferred_by: gold-draft
   orderqty:
-    domain: order_quantity
+    semantic_type: order_quantity
     unit:
       fixed: each
     status: proposed
@@ -45,21 +45,21 @@ columns:
     - '列コメント: Quantity ordered per product'
     inferred_by: gold-draft
   productid:
-    domain: product_id
+    semantic_type: product_id
     status: proposed
     confidence: 0.95
     evidence:
     - FK → product
     inferred_by: gold-draft
   specialofferid:
-    domain: special_offer_id
+    semantic_type: special_offer_id
     status: proposed
     confidence: 0.9
     evidence:
     - 複合 FK (specialofferid, productid) → specialofferproduct（範囲外）
     inferred_by: gold-draft
   unitprice:
-    domain: unit_price
+    semantic_type: unit_price
     unit:
       fixed: USD
     status: proposed
@@ -69,7 +69,7 @@ columns:
     - product.listprice と同じ尺度
     inferred_by: gold-draft
   unitpricediscount:
-    domain: discount_rate
+    semantic_type: discount_rate
     status: proposed
     confidence: 0.8
     evidence:
@@ -77,14 +77,14 @@ columns:
     - 列コメントは Discount amount（金額）と書いている（衝突）
     inferred_by: gold-draft
   rowguid:
-    domain: row_uuid
+    semantic_type: row_uuid
     status: proposed
     confidence: 0.95
     evidence:
     - 列名 rowguid
     inferred_by: gold-draft
   modifieddate:
-    domain: modified_at
+    semantic_type: modified_at
     status: proposed
     confidence: 0.95
     evidence:

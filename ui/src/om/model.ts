@@ -1,6 +1,6 @@
 // 生成物。手で編集しない。元: src/mandara/om/schema/om.yaml / 生成: scripts/gen_ui_types.sh
 export type date = string;
-export type ColumnDomainName = string;
+export type SemanticTypeName = string;
 export type AliasEntryName = string;
 export type TableId = string;
 export type ColumnName = string;
@@ -24,8 +24,6 @@ export enum TableKind {
     relation = "relation",
     /** 出来事を表す表。不変・追記のみ。コマンド不可 */
     event = "event",
-    /** 計算・集計で導出された表。コマンド不可 */
-    derived = "derived",
 };
 /**
 * 関係型（4.1）。推移性と逆関係は各値の annotations に持つ
@@ -67,9 +65,9 @@ export enum Additivity {
     non_additive = "non-additive",
 };
 /**
-* 列ドメインの役割
+* 意味型の役割
 */
-export enum DomainRole {
+export enum SemanticRole {
     
     event_time = "event_time",
     valid_from = "valid_from",
@@ -78,7 +76,7 @@ export enum DomainRole {
     technical = "technical",
 };
 /**
-* 列ドメインの値の意味の型。物理的な表現（バイナリ形式、文字コードなど）は含めない。 物理的な表現は列の encoding に書く。意味の型への変換は encoding ごとのコーデック（I/O の無い純粋な変換。DB コネクタから独立したもの）の責務とする
+* 意味型の値の型。物理的な表現（バイナリ形式、文字コードなど）は含めない。 物理的な表現は列の encoding に書く。意味の型への変換は encoding ごとのコーデック（I/O の無い純粋な変換。DB コネクタから独立したもの）の責務とする
 */
 export enum ValueType {
     
@@ -266,21 +264,21 @@ export interface Annotation {
  * vocabulary.yaml。拡張できる語彙の閉じた集合
  */
 export interface Vocabulary {
-    column_domains?: {[index: ColumnDomainName]: ColumnDomain },
+    semantic_types?: {[index: SemanticTypeName]: SemanticType },
     aliases?: {[index: AliasEntryName]: AliasEntry },
 }
 
 
 /**
- * 列ドメイン。「同じ意味」を表す
+ * 意味型。列の値が何を意味するか（住所の ID、受注日、金額）。別の表の列でも、意味が同じなら同じ意味型にする。 同じ値の型でも意味が違えば別の意味型にする（受注日と出荷日）
  */
-export interface ColumnDomain {
+export interface SemanticType {
     name: string,
     description?: string,
     type: string,
     role?: string,
     additivity?: string,
-    /** true なら、この列ドメインを使う列は unit（量と単位の組、C5）を宣言しなければならない */
+    /** true なら、この意味型を使う列は unit（量と単位の組、C5）を宣言しなければならない */
     requires_unit?: boolean,
     /** type が enum のときの値の一覧（C6）。値の集合はデータからではなく、宣言・証拠から決める */
     values?: EnumValue[],
@@ -318,6 +316,8 @@ export interface Table extends Annotation {
     context: string,
     /** 表種別。提案の段階では未決（無い）でもよい（規則や証拠で決まらないものを既定値で埋めない）。 approved の表には必須 */
     kind?: string,
+    /** 計算・集計で導出された表（ビューなど）。kind（何を表すか）とは別の軸で、どの kind とも組み合わさる。 コマンド不可。part-of の全体側にならない。ソースが実体の表なら書かない */
+    derived?: boolean,
     /** 1行が何を表すか（10.4） */
     grain?: string,
     identity?: Identity,
@@ -359,8 +359,8 @@ export interface KeyColumns {
 
 export interface Column extends Annotation {
     name: string,
-    /** vocabulary の column_domains のキー */
-    domain?: string,
+    /** vocabulary の semantic_types のキー */
+    semantic_type?: string,
     pii?: boolean,
     /** 量の単位の出所（C5）。fixed / column のちょうど1つ */
     unit?: UnitSource,

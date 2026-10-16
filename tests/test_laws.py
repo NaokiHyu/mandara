@@ -18,7 +18,7 @@ from mandara.om.invariants import Rule, check
 from mandara.om.model import (
     Additivity,
     Column,
-    ColumnDomain,
+    SemanticType,
     ColumnPair,
     Edge,
     EnumValue,
@@ -80,15 +80,15 @@ Mutation = Callable[[Ontology], Ontology]
 R = ReviewStatus.rejected  # 注釈の必須項目が最も少ない状態。壊したい規則以外を巻き込まない
 
 
-def _col(name: str, domain: str = "key", unit: UnitSource | None = None) -> Column:
-    return Column(name=name, domain=domain, unit=unit, status=R)
+def _col(name: str, semantic_type: str = "key", unit: UnitSource | None = None) -> Column:
+    return Column(name=name, semantic_type=semantic_type, unit=unit, status=R)
 
 
 def _table(table_id: str, *, kind: TableKind = TableKind.domain, columns: list[Column] | None = None,
-           relations: list[Relation] | None = None, grain: str | None = "1行 = 1件") -> Table:
+           relations: list[Relation] | None = None, grain: str | None = "1行 = 1件", derived: bool | None = None) -> Table:
     cols = columns or [_col("id")]
     return Table(
-        id=table_id, name=f"s.{table_id}", source="src", context="ctx", kind=kind, grain=grain,
+        id=table_id, name=f"s.{table_id}", source="src", context="ctx", kind=kind, grain=grain, derived=derived,
         identity=Identity(primary=["id"]), columns={c.name: c for c in cols}, relations=relations, status=R,
     )
 
@@ -122,7 +122,7 @@ def _replace_first(o: Ontology, table: Table) -> Ontology:
 
 
 MUTATIONS: dict[Rule, Mutation] = {
-    Rule.UNKNOWN_DOMAIN: lambda o: _add(o, _table("tbl_m", columns=[_col("id", domain="no_such_domain")])),
+    Rule.UNKNOWN_SEMANTIC_TYPE: lambda o: _add(o, _table("tbl_m", columns=[_col("id", semantic_type="no_such_semantic_type")])),
     Rule.UNKNOWN_VALUE: lambda o: _replace_first(o, _first(o).model_copy(update={"status": "maybe"})),
     Rule.KEY_MISMATCH: lambda o: _add(
         o, _table("tbl_m").model_copy(update={"columns": {"id": _col("id"), "a": _col("b")}})
@@ -156,16 +156,16 @@ MUTATIONS: dict[Rule, Mutation] = {
     ),
     Rule.DERIVED_AS_WHOLE: lambda o: _add(
         o,
-        _table("tbl_md", kind=TableKind.derived),
+        _table("tbl_md", derived=True),
         _table("tbl_mp", relations=[_rel("rel_mp", RelationType.part_of, "tbl_md", [("id", "id")])]),
     ),
-    Rule.UNIT_MISSING: lambda o: _add(o, _table("tbl_m", columns=[_col("id"), _col("price", domain="amount")])),
+    Rule.UNIT_MISSING: lambda o: _add(o, _table("tbl_m", columns=[_col("id"), _col("price", semantic_type="amount")])),
     Rule.UNIT_UNEXPECTED: lambda o: _add(o, _table("tbl_m", columns=[_col("id", unit=UnitSource(fixed=Unit.USD))])),
     Rule.UNIT_AMBIGUOUS: lambda o: _add(
         o,
         _table("tbl_m", columns=[
-            _col("id"), _col("u", domain="unit_code"),
-            _col("price", domain="amount", unit=UnitSource(fixed=Unit.USD, column="u")),
+            _col("id"), _col("u", semantic_type="unit_code"),
+            _col("price", semantic_type="amount", unit=UnitSource(fixed=Unit.USD, column="u")),
         ]),
     ),
     Rule.RELATION_SHAPE: lambda o: _add(
@@ -179,26 +179,33 @@ MUTATIONS: dict[Rule, Mutation] = {
         ]),
     ),
     Rule.ENCODING_MISMATCH: lambda o: _add(o, _table("tbl_m", columns=[
-        _col("id"), _col("place", domain="label").model_copy(update={"encoding": SourceEncoding.sqlserver_geography}),
+        _col("id"), _col("place", semantic_type="label").model_copy(update={"encoding": SourceEncoding.sqlserver_geography}),
     ])),
     Rule.EDGE_SHAPE: lambda o: _add(
         o, _table("tbl_ma"), _edge_table("tbl_me", RelationType.part_of, "tbl_ma", "tbl_ma", kind=TableKind.domain)
     ),
-    Rule.DOMAIN_SHAPE: lambda o: replace(o, vocabulary=o.vocabulary.model_copy(update={"column_domains": {
-        **(o.vocabulary.column_domains or {}),
-        "bad": ColumnDomain(name="bad", type=ValueType.text, additivity=Additivity.additive)}})),
+    Rule.SEMANTIC_TYPE_SHAPE: lambda o: replace(o, vocabulary=o.vocabulary.model_copy(update={"semantic_types": {
+        **(o.vocabulary.semantic_types or {}),
+        "bad": SemanticType(name="bad", type=ValueType.text, additivity=Additivity.additive)}})),
     Rule.UNIT_COLUMN: lambda o: _add(o, _table("tbl_m", columns=[
-        _col("id"), _col("price", domain="amount", unit=UnitSource(column="price"))])),
+        _col("id"), _col("price", semantic_type="amount", unit=UnitSource(column="price"))])),
     Rule.ENUM_SHAPE: lambda o: replace(
         o,
-        vocabulary=o.vocabulary.model_copy(update={"column_domains": {
-            **(o.vocabulary.column_domains or {}),
-            "dup": ColumnDomain(name="dup", type=ValueType.enum, values=[
+        vocabulary=o.vocabulary.model_copy(update={"semantic_types": {
+            **(o.vocabulary.semantic_types or {}),
+            "dup": SemanticType(name="dup", type=ValueType.enum, values=[
                 EnumValue(code="1", label="a", status=R), EnumValue(code="1", label="b", status=R),
             ]),
         }}),
     ),
 }
+
+
+@given(ontologies())
+def test_derived_is_true_or_absent(ontology: Ontology) -> None:
+    """derived は true か、書かないかの2通りだけ。false は表現の正規形を崩すので拒否する。"""
+    broken = replace(ontology, tables=(ontology.tables[0].model_copy(update={"derived": False}), *ontology.tables[1:]))
+    assert Rule.UNKNOWN_VALUE in {v.rule for v in check(broken)}
 
 
 def test_every_rule_has_a_mutation() -> None:
@@ -215,12 +222,12 @@ def test_broken_ontology_is_detected(rule: Rule, data: st.DataObject) -> None:
 
 
 UNKNOWN_VALUE_PATHS: dict[str, Mutation] = {
-    "type": lambda o: replace(o, vocabulary=o.vocabulary.model_copy(update={"column_domains": {
-        **(o.vocabulary.column_domains or {}),
-        "x": ColumnDomain(name="x", type=ValueType.text).model_copy(update={"type": "geo.point.binary"}),
+    "type": lambda o: replace(o, vocabulary=o.vocabulary.model_copy(update={"semantic_types": {
+        **(o.vocabulary.semantic_types or {}),
+        "x": SemanticType(name="x", type=ValueType.text).model_copy(update={"type": "geo.point.binary"}),
     }})),
     "unit.fixed": lambda o: _add(o, _table("tbl_m", columns=[
-        _col("id"), _col("price", domain="amount", unit=UnitSource.model_construct(fixed="kg")),
+        _col("id"), _col("price", semantic_type="amount", unit=UnitSource.model_construct(fixed="kg")),
     ])),
     "encoding": lambda o: _add(o, _table("tbl_m", columns=[_col("id").model_copy(update={"encoding": "wkb"})])),
 }
@@ -274,7 +281,7 @@ EDGE_PATHS: dict[str, tuple[Rule, Mutation]] = {
         o, _table("tbl_ma"),
         _edge_table("tbl_me", RelationType.has, "tbl_ma", "tbl_ma", from_type=RelationType.part_of, from_has_kind=None))),
     "derived-whole": (Rule.DERIVED_AS_WHOLE, lambda o: _add(
-        o, _table("tbl_ma"), _table("tbl_md", kind=TableKind.derived),
+        o, _table("tbl_ma"), _table("tbl_md", derived=True),
         _edge_table("tbl_me", RelationType.part_of, "tbl_ma", "tbl_md"))),
     "cycle": (Rule.CYCLE, lambda o: _add(
         o, _table("tbl_ma", relations=[_rel("rel_ma", RelationType.part_of, "tbl_mb", [("id", "id")])]),
@@ -314,5 +321,5 @@ def test_annotations_visit_everything(ontology: Ontology) -> None:
     visited = [a for _, a in ontology.annotations()]
     tables = ontology.tables
     expected = (len(tables) + sum(len(t.columns or {}) + len(t.relations or []) + (t.edge is not None) for t in tables)
-                + sum(len(d.values or []) for d in (ontology.vocabulary.column_domains or {}).values()))
+                + sum(len(d.values or []) for d in (ontology.vocabulary.semantic_types or {}).values()))
     assert len(visited) == expected

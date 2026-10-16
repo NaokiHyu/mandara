@@ -2,7 +2,8 @@
 
 - 健全：出力は検証（4.5）を通る。すべて proposed で、evidence の主張 ID は台帳に実在する
 - 対応：カタログのオブジェクト → 表がちょうど1つ、範囲内の外部キー → 関係がちょうど1つ。範囲外は Skipped に残る
-- 規則：表の種類は、確実な規則（ビュー → derived、外部キーだけの主キー → relation）にだけ付き、ほかは未決
+- 規則：表の種類は、確実な規則（外部キーだけの主キー → relation）にだけ付き、ほかは未決。
+  ビューは計算で導出された表（derived。種類とは別の軸）で、種類は規則では決まらない
 - 安定 ID：表・関係の ID は、その存在を示す主張だけで決まる（ほかの事実が変わっても変わらない）
 - ストア：生成した OM は書いて読める。人の判断を含む OM は上書きしない
 """
@@ -78,11 +79,11 @@ def _is_junction(table: Table) -> bool:
 def test_kind_only_from_definitions(catalog: Catalog) -> None:
     by_name = {t.name: t for t in _propose(catalog).ontology.tables}
     for source_table in catalog.tables:
-        kind = by_name[qualify(source_table.schema, source_table.name)].kind
+        table = by_name[qualify(source_table.schema, source_table.name)]
         is_view = source_table.kind in (ObjectKind.view, ObjectKind.materialized_view)
-        assert (kind == TableKind.derived.value) == is_view
-        assert (kind == TableKind.relation.value) == (not is_view and _is_junction(source_table))
-        assert kind in (None, TableKind.derived.value, TableKind.relation.value)
+        assert (table.derived is True) == is_view and table.derived in (True, None)
+        assert (table.kind == TableKind.relation.value) == (not is_view and _is_junction(source_table))
+        assert table.kind in (None, TableKind.relation.value)
 
 
 def _junction_candidate(*fks: tuple[str, ...], pk: tuple[str, ...] = ("a", "b"), extra: tuple[str, ...] = ()) -> Table:
@@ -194,7 +195,7 @@ def test_human_decisions_are_not_overwritten(tmp_path: Path) -> None:
     root = tmp_path / "ontology"
     write_ontology(root, ontology)
     approved = ontology.tables[0].model_copy(update={
-        "status": "approved", "reviewed_by": "alice", "reviewed_at": date(2026, 10, 15)})
+        "status": "approved", "kind": "domain", "reviewed_by": "alice", "reviewed_at": date(2026, 10, 15)})
     write_ontology(root, replace(ontology, tables=(approved,)))
     with pytest.raises(OntologyWriteRefusedError, match="人の判断"):
         write_ontology(root, ontology)
@@ -212,7 +213,8 @@ def test_adventureworks_proposal(tmp_path: Path) -> None:
     assert len(tables) == 68 + 19 + 2
     assert proposal.skipped == ()
     assert sum(len(t.relations or []) for t in tables.values()) == 90
-    assert sum(t.kind == TableKind.derived.value for t in tables.values()) == 21
+    assert sum(t.derived is True for t in tables.values()) == 21
+    assert all(t.kind is None for t in tables.values() if t.derived)
     assert tables["sales.specialofferproduct"].kind == TableKind.relation.value
     assert tables["sales.salesorderdetail"].kind is None  # 規則では決まらない
     detail = tables["sales.salesorderdetail"].identity

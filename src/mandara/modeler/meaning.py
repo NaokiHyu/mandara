@@ -1,13 +1,13 @@
-"""同じ意味の列：外部キーでつながった列の組から、同じドメインになるべき列を決める。
+"""同じ意味の列：外部キーでつながった列の組から、同じ意味型になるべき列を決める。
 
 Domain 層の純粋な関数。
-- 外部キーの列と、参照先の列は同じ物を指す（値が参照先の値そのもの）ので、同じ意味（同じドメイン）。
+- 外部キーの列と、参照先の列は同じ物を指す（値が参照先の値そのもの）ので、同じ意味（同じ意味型）。
   参照は推移的にたどる（customer.personid → person.businessentityid → businessentity.businessentityid）。
-  役割の違い（請求先と配送先の住所など）はドメインではなく関係の役割で表す
+  役割の違い（請求先と配送先の住所など）は意味型ではなく関係の役割で表す
 - 確定に使う根拠は、宣言された外部キー（references の主張）だけ。弱い根拠（列名、値の包含、DB のドメイン型など）で
   まとめると、同じ意味の推移性で誤りが連鎖するので、ここでは使わない
-- 伝播（propagate）：組のどこかの列にドメインが付いたら、まだ付いていない組の列に同じドメインを付ける。
-  名前を付けるのは LLM（v1）で、組を決めるのはここ。組の中で食い違うドメインは作らない（v1 が捨てる）
+- 伝播（propagate）：組のどこかの列に意味型が付いたら、まだ付いていない組の列に同じ意味型を付ける。
+  名前を付けるのは LLM（v1）で、組を決めるのはここ。組の中で食い違う意味型は作らない（v1 が捨てる）
 """
 
 from collections.abc import Iterable, Mapping, Sequence
@@ -82,14 +82,14 @@ def column_families(claims: Iterable[Claim]) -> dict[Member, str]:
 
 
 class InconsistentGroupError(Exception):
-    """外部キーで同じ意味の列に、別々のドメインが付いている。"""
+    """外部キーで同じ意味の列に、別々の意味型が付いている。"""
 
 
-def group_domain(ontology: Ontology, group: SameMeaning) -> str | None:
-    """組の列に付いているドメイン。付いていなければ None。食い違っていればエラー（黙ってどれかを選ばない）。"""
-    found = {column.domain for _, column in _columns(ontology, group) if column.domain is not None}
+def group_semantic_type(ontology: Ontology, group: SameMeaning) -> str | None:
+    """組の列に付いている意味型。付いていなければ None。食い違っていればエラー（黙ってどれかを選ばない）。"""
+    found = {column.semantic_type for _, column in _columns(ontology, group) if column.semantic_type is not None}
     if len(found) > 1:
-        raise InconsistentGroupError(f"外部キーで同じ意味の列に、別々のドメインがある: {sorted(found)} "
+        raise InconsistentGroupError(f"外部キーで同じ意味の列に、別々の意味型がある: {sorted(found)} "
                                      f"（{sorted(label(m) for m in group.members)[:5]} …）")
     return next(iter(found), None)
 
@@ -97,7 +97,7 @@ def group_domain(ontology: Ontology, group: SameMeaning) -> str | None:
 @dataclass(frozen=True)
 class Fill:
     member: Member
-    domain: str
+    semantic_type: str
 
 
 @dataclass(frozen=True)
@@ -105,7 +105,7 @@ class NotFilled:
     """伝播しなかった列。黙って捨てず、実行の記録に残す。"""
 
     member: Member
-    domain: str
+    semantic_type: str
     reason: str
 
 
@@ -121,41 +121,41 @@ class PropagationError(Exception):
 
 
 def propagate(ontology: Ontology, groups: MeaningGroups, families: Mapping[Member, str]) -> Propagated:
-    """組のドメインを、ドメインがまだ無い組の列に付ける。冪等。families は列の SQL の型族（column_families）。
+    """組の意味型を、意味型がまだ無い組の列に付ける。冪等。families は列の SQL の型族（column_families）。
 
-    付けないもの（理由を残す）：人が判断済みの列、型族と値の型が両立しない列、単位の要るドメイン（単位を決められない）、
-    組のドメインが人の判断や確信度の無い列から来ているもの（人の判断からの伝播は未対応。T6.1 で決める）。
+    付けないもの（理由を残す）：人が判断済みの列、型族と値の型が両立しない列、単位の要る意味型（単位を決められない）、
+    組の意味型が人の判断や確信度の無い列から来ているもの（人の判断からの伝播は未対応。T6.1 で決める）。
     """
-    domains = ontology.vocabulary.column_domains or {}
+    semantic_types = ontology.vocabulary.semantic_types or {}
     updates: dict[str, dict[str, Column]] = {}
     filled: list[Fill] = []
     not_filled: list[NotFilled] = []
     for group in groups.groups:
-        name = group_domain(ontology, group)
+        name = group_semantic_type(ontology, group)
         if name is None:
             continue
-        domain = domains[name]
-        origins = [c for _, c in _columns(ontology, group) if c.domain == name]
+        semantic_type = semantic_types[name]
+        origins = [c for _, c in _columns(ontology, group) if c.semantic_type == name]
         for table, column in _columns(ontology, group):
             member = (table, column.name)
-            if column.domain is not None:
+            if column.semantic_type is not None:
                 continue
             if column.status != ReviewStatus.proposed.value:
                 not_filled.append(NotFilled(member, name, f"人が判断済み（{column.status}）"))
                 continue
             if any(o.status != ReviewStatus.proposed.value or o.confidence is None for o in origins):
-                not_filled.append(NotFilled(member, name, "組のドメインが人の判断か確信度の無い列から来ている"
+                not_filled.append(NotFilled(member, name, "組の意味型が人の判断か確信度の無い列から来ている"
                                                           "（人の判断からの伝播は未対応）"))
                 continue
             family = families.get(member)
-            if family is None or domain.type not in COMPATIBLE[family]:
-                not_filled.append(NotFilled(member, name, f"列の型族 {family} に、値の型 {domain.type} は当てられない"))
+            if family is None or semantic_type.type not in COMPATIBLE[family]:
+                not_filled.append(NotFilled(member, name, f"列の型族 {family} に、値の型 {semantic_type.type} は当てられない"))
                 continue
-            if domain.requires_unit:
-                not_filled.append(NotFilled(member, name, "単位の要るドメインは、単位を決められないので伝播しない"))
+            if semantic_type.requires_unit:
+                not_filled.append(NotFilled(member, name, "単位の要る意味型は、単位を決められないので伝播しない"))
                 continue
             updates.setdefault(table, {})[column.name] = column.model_copy(update={
-                "domain": name, "confidence": min(o.confidence for o in origins if o.confidence is not None),
+                "semantic_type": name, "confidence": min(o.confidence for o in origins if o.confidence is not None),
                 "inferred_by": PROPAGATOR, "evidence": sorted({*(column.evidence or []), *group.evidence})})
             filled.append(Fill(member, name))
     if not updates:

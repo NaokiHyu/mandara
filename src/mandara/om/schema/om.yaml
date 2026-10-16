@@ -5,7 +5,7 @@ description: >-
   オントロジカルメタデータ（OM）の形を定義する。仕様 4章、7.6 の①。
   ここに書くのは「注釈とは何か」であり、個々のオントロジーの中身（顧客、注文など）ではない。
   構造的な語彙（表種別、関係型など）は Mandara の意味論に結びつくので enum として持つ。
-  拡張できる語彙（列ドメイン、enum の値、表記揺れ）はデータ（vocabulary.yaml）として持つ。
+  拡張できる語彙（意味型、enum の値、表記揺れ）はデータ（vocabulary.yaml）として持つ。
 version: 0.1.0
 license: Apache-2.0
 prefixes:
@@ -34,8 +34,6 @@ enums:
           edge を宣言すると、1行がもの同士を結ぶ1本の辺になり、列はその辺の属性になる
       event:
         description: 出来事を表す表。不変・追記のみ。コマンド不可
-      derived:
-        description: 計算・集計で導出された表。コマンド不可
   RelationType:
     description: 関係型（4.1）。推移性と逆関係は各値の annotations に持つ
     permissible_values:
@@ -82,8 +80,8 @@ enums:
       additive:
       semi-additive:
       non-additive:
-  DomainRole:
-    description: 列ドメインの役割
+  SemanticRole:
+    description: 意味型の役割
     permissible_values:
       event_time:
       valid_from:
@@ -92,7 +90,7 @@ enums:
         description: 業務の意味を持たない列（行の技術ID、監査用の日時・更新者）。UI・ツール面・推論から既定で外す
   ValueType:
     description: >-
-      列ドメインの値の意味の型。物理的な表現（バイナリ形式、文字コードなど）は含めない。
+      意味型の値の型。物理的な表現（バイナリ形式、文字コードなど）は含めない。
       物理的な表現は列の encoding に書く。意味の型への変換は encoding ごとのコーデック（I/O の無い純粋な変換。DB コネクタから独立したもの）の責務とする
     permissible_values:
       identifier:
@@ -275,8 +273,8 @@ classes:
     tree_root: true
     description: vocabulary.yaml。拡張できる語彙の閉じた集合
     attributes:
-      column_domains:
-        range: ColumnDomain
+      semantic_types:
+        range: SemanticType
         multivalued: true
         inlined: true
         inlined_as_list: false
@@ -286,8 +284,10 @@ classes:
         inlined: true
         inlined_as_list: false
 
-  ColumnDomain:
-    description: 列ドメイン。「同じ意味」を表す
+  SemanticType:
+    description: >-
+      意味型。列の値が何を意味するか（住所の ID、受注日、金額）。別の表の列でも、意味が同じなら同じ意味型にする。
+      同じ値の型でも意味が違えば別の意味型にする（受注日と出荷日）
     slots:
       - name
       - description
@@ -296,11 +296,11 @@ classes:
         range: ValueType
         required: true
       role:
-        range: DomainRole
+        range: SemanticRole
       additivity:
         range: Additivity
       requires_unit:
-        description: true なら、この列ドメインを使う列は unit（量と単位の組、C5）を宣言しなければならない
+        description: true なら、この意味型を使う列は unit（量と単位の組、C5）を宣言しなければならない
         range: boolean
       values:
         description: type が enum のときの値の一覧（C6）。値の集合はデータからではなく、宣言・証拠から決める
@@ -357,6 +357,11 @@ classes:
           表種別。提案の段階では未決（無い）でもよい（規則や証拠で決まらないものを既定値で埋めない）。
           approved の表には必須
         range: TableKind
+      derived:
+        description: >-
+          計算・集計で導出された表（ビューなど）。kind（何を表すか）とは別の軸で、どの kind とも組み合わさる。
+          コマンド不可。part-of の全体側にならない。ソースが実体の表なら書かない
+        range: boolean
       grain:
         description: 1行が何を表すか（10.4）
       identity:
@@ -424,8 +429,8 @@ classes:
     slots:
       - name
     attributes:
-      domain:
-        description: vocabulary の column_domains のキー
+      semantic_type:
+        description: vocabulary の semantic_types のキー
       pii:
         range: boolean
       unit:

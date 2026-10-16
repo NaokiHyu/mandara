@@ -8,7 +8,7 @@
 
 | 対象 | 中身 | 仕様 |
 |---|---|---|
-| 語彙 | 表種別、関係型（推移・逆）、has の細分、基数、列ドメイン、加法性、関数種別、表記揺れ、バックエンド種別 | 4.1 |
+| 語彙 | 表種別、関係型（推移・逆）、has の細分、基数、意味型、加法性、関数種別、表記揺れ、バックエンド種別 | 4.1 |
 | 表 | 安定ID、名前、コンテキスト、種別、粒度、同一性（主キー・代替キー）、読み経路、バックエンド | 4.2 |
 | 列 | ドメイン、PII | 4.2、13 |
 | 関係 | 型、has の細分、対象、経由列、基数、時間 | 4.2 |
@@ -26,7 +26,7 @@
 ## A. メタモデル①（LinkML）
 2026-10-14 着手：`src/mandara/om/schema/om.yaml`。pydantic の型は `scripts/gen_om_model.sh` で生成する（`src/mandara/om/model.py`、生成物）。
 - 構造的な語彙（表種別、関係型、has の細分、基数、加法性、ドメインの役割、レビュー状態）は①の enum にした。関係型の推移性と逆関係は、enum の値の annotations に持たせた
-- 拡張できる語彙（列ドメイン、enum の値、表記揺れ）はデータ（vocabulary.yaml）に置いた
+- 拡張できる語彙（意味型、enum の値、表記揺れ）はデータ（vocabulary.yaml）に置いた
 - まだ①に無いもの：コマンド、backend、read_from、watch、メトリクス、変換関数、コンテキストマップ、主張
 - [ ] ①の置き場所とパッケージ構成を決める（Mandara 本体側。ontology リポジトリ側ではない）
 - [ ] 注釈の共通フィールド（4.4）を mixin として定義する
@@ -135,7 +135,7 @@ AW には、is-a の物理的な実装パターンが少なくとも3つある�
 - [ ] grain を自由文だけで持つか、キー列の集合として検証できる形にもするか
 
 ## D. 検証（4.5）と法則テスト
-- [ ] 4.5 の各不変条件を 1 つずつ実装する（語彙外の値、event / derived にコマンドが無い、is-a と part-of の非循環、参照先 ID の存在、approved に reviewed_by がある、grain が必須、semi-additive / non-additive の sum 禁止、backend の決定、replica の freshness_sla、watch の budget と dedupe）
+- [ ] 4.5 の各不変条件を 1 つずつ実装する（語彙外の値、event と derived: true の表にコマンドが無い、is-a と part-of の非循環、参照先 ID の存在、approved に reviewed_by がある、grain が必須、semi-additive / non-additive の sum 禁止、backend の決定、replica の freshness_sla、watch の budget と dedupe）
 - [ ] 検証エラーの型を設計する。どの注釈の、どの規則に、なぜ違反したか。複数のエラーをまとめて返す
 - [ ] Hypothesis の生成器：妥当な OM を生成するものと、壊れた OM を生成するもの
 - [ ] 法則
@@ -237,7 +237,7 @@ AW には、is-a の物理的な実装パターンが少なくとも3つある�
 - [x] `ColumnDomain.type` と `unit.fixed` を①の enum（ValueType / Unit）にした。不明な値は UNKNOWN_VALUE
 - [x] 意味の型 `geo.point` と、列の `encoding`（SourceEncoding。今は sqlserver_geography だけ）に分けた。変換はソースの Adapter の責務
 - [x] product → subcategory、subcategory → category、employee の上司を has（reference）にした。分類への所属や上司は全体と部分ではない
-- [x] encoding の変換先の型を①に持ち（decodes_to → encoding_traits.py）、列ドメインの型と違えば ENCODING_MISMATCH。変換は DB コネクタではなく encoding ごとのコーデックの責務と仕様に明記
+- [x] encoding の変換先の型を①に持ち（decodes_to → encoding_traits.py）、意味型の値の型と違えば ENCODING_MISMATCH。変換は DB コネクタではなく encoding ごとのコーデックの責務と仕様に明記
 - [x] 仕様 10.4 の「品目→品目分類」を part-of のドリルダウン例から外し、未決（15.2）にした
 
 要相談：

@@ -9,7 +9,7 @@ identity:
   - billofmaterialsid
 columns:
   billofmaterialsid:
-    domain: bill_of_materials_id
+    semantic_type: bill_of_materials_id
     status: proposed
     confidence: 0.95
     evidence:
@@ -17,7 +17,7 @@ columns:
     - '列コメント: Primary key for BillOfMaterials records'
     inferred_by: gold-draft
   productassemblyid:
-    domain: product_id
+    semantic_type: product_id
     status: proposed
     confidence: 0.95
     evidence:
@@ -26,7 +26,7 @@ columns:
     inferred_by: gold-draft
     note: NULL を許す。NULL の 103 行は bomlevel 0 で、最上位の製品を表す（CHECK 制約）
   componentid:
-    domain: product_id
+    semantic_type: product_id
     status: proposed
     confidence: 0.95
     evidence:
@@ -34,14 +34,14 @@ columns:
     - '列コメント: Component identification number'
     inferred_by: gold-draft
   startdate:
-    domain: valid_from
+    semantic_type: valid_from
     status: proposed
     confidence: 0.85
     evidence:
     - '列コメント: Date the component started being used in the assembly item'
     inferred_by: gold-draft
   enddate:
-    domain: valid_to
+    semantic_type: valid_to
     status: proposed
     confidence: 0.85
     evidence:
@@ -49,7 +49,7 @@ columns:
     - CHECK enddate > startdate OR enddate IS NULL
     inferred_by: gold-draft
   unitmeasurecode:
-    domain: unit_measure_code
+    semantic_type: unit_measure_code
     status: proposed
     confidence: 0.9
     evidence:
@@ -57,7 +57,7 @@ columns:
     - '列コメント: Standard code identifying the unit of measure for the quantity'
     inferred_by: gold-draft
   bomlevel:
-    domain: tree_depth
+    semantic_type: tree_depth
     status: proposed
     confidence: 0.75
     evidence:
@@ -66,7 +66,7 @@ columns:
     inferred_by: gold-draft
     note: 組立品の木から導ける値を、ソースが持っている
   perassemblyqty:
-    domain: component_quantity
+    semantic_type: component_quantity
     unit:
       column: unitmeasurecode
     status: proposed
@@ -76,7 +76,7 @@ columns:
     - 単位は EA / OZ / IN が混在（別列）
     inferred_by: gold-draft
   modifieddate:
-    domain: modified_at
+    semantic_type: modified_at
     status: proposed
     confidence: 0.95
     evidence:

@@ -1,4 +1,4 @@
-"""列の SQL の型族と、意味の値の型の両立（どの型族の列に、どの値の型のドメインを当ててよいか）。
+"""列の SQL の型族と、意味の値の型の両立（どの型族の列に、どの値の型の意味型を当ててよいか）。
 
 Domain 層。モデラー（規則、LLM、同じ意味の伝播）に共通の規則。
 """
@@ -23,4 +23,4 @@ COMPATIBLE: dict[str, frozenset[str]] = {
 """列の SQL の型族 → 当ててよい値の型。"""
 
 UNIT_BEARING = frozenset({ValueType.quantity.value, ValueType.money.value})
-"""単位が要る値の型（DOMAIN_SHAPE）。"""
+"""単位が要る値の型（SEMANTIC_TYPE_SHAPE）。"""

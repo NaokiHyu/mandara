@@ -8,7 +8,7 @@ identity:
   - businessentityid
 columns:
   businessentityid:
-    domain: business_entity_id
+    semantic_type: business_entity_id
     status: proposed
     confidence: 0.95
     evidence:
@@ -16,21 +16,21 @@ columns:
     - FK → businessentity
     inferred_by: gold-draft
   persontype:
-    domain: person_type
+    semantic_type: person_type
     status: proposed
     confidence: 0.85
     evidence:
     - 列コメントに値の一覧
     inferred_by: gold-draft
   namestyle:
-    domain: name_style
+    semantic_type: name_style
     status: proposed
     confidence: 0.85
     evidence:
     - 列コメント
     inferred_by: gold-draft
   title:
-    domain: person_title
+    semantic_type: person_title
     pii: true
     status: proposed
     confidence: 0.8
@@ -38,7 +38,7 @@ columns:
     - 列コメント
     inferred_by: gold-draft
   firstname:
-    domain: person_given_name
+    semantic_type: person_given_name
     pii: true
     status: proposed
     confidence: 0.9
@@ -46,7 +46,7 @@ columns:
     - 列コメント
     inferred_by: gold-draft
   middlename:
-    domain: person_middle_name
+    semantic_type: person_middle_name
     pii: true
     status: proposed
     confidence: 0.9
@@ -54,7 +54,7 @@ columns:
     - 列コメント
     inferred_by: gold-draft
   lastname:
-    domain: person_family_name
+    semantic_type: person_family_name
     pii: true
     status: proposed
     confidence: 0.9
@@ -62,7 +62,7 @@ columns:
     - 列コメント
     inferred_by: gold-draft
   suffix:
-    domain: person_suffix
+    semantic_type: person_suffix
     pii: true
     status: proposed
     confidence: 0.8
@@ -70,14 +70,14 @@ columns:
     - 列コメント
     inferred_by: gold-draft
   emailpromotion:
-    domain: email_promotion
+    semantic_type: email_promotion
     status: proposed
     confidence: 0.85
     evidence:
     - 列コメントに値の一覧
     inferred_by: gold-draft
   additionalcontactinfo:
-    domain: xml_document
+    semantic_type: xml_document
     pii: true
     status: proposed
     confidence: 0.8
@@ -86,7 +86,7 @@ columns:
     - 列コメント
     inferred_by: gold-draft
   demographics:
-    domain: xml_document
+    semantic_type: xml_document
     pii: true
     status: proposed
     confidence: 0.8
@@ -95,14 +95,14 @@ columns:
     - '列コメント: 趣味・収入など'
     inferred_by: gold-draft
   rowguid:
-    domain: row_uuid
+    semantic_type: row_uuid
     status: proposed
     confidence: 0.95
     evidence:
     - 列名 rowguid
     inferred_by: gold-draft
   modifieddate:
-    domain: modified_at
+    semantic_type: modified_at
     status: proposed
     confidence: 0.95
     evidence:

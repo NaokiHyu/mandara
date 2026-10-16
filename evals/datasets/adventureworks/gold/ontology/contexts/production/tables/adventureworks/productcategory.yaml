@@ -8,28 +8,28 @@ identity:
   - productcategoryid
 columns:
   productcategoryid:
-    domain: product_category_id
+    semantic_type: product_category_id
     status: proposed
     confidence: 0.95
     evidence:
     - PK
     inferred_by: gold-draft
   name:
-    domain: display_name
+    semantic_type: display_name
     status: proposed
     confidence: 0.9
     evidence:
     - 列コメント
     inferred_by: gold-draft
   rowguid:
-    domain: row_uuid
+    semantic_type: row_uuid
     status: proposed
     confidence: 0.95
     evidence:
     - 列名 rowguid
     inferred_by: gold-draft
   modifieddate:
-    domain: modified_at
+    semantic_type: modified_at
     status: proposed
     confidence: 0.95
     evidence:

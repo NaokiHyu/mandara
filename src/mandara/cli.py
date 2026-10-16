@@ -202,7 +202,7 @@ def _eval(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
     return 0
 
 
-_KIND_KEYS = {"d": TableKind.domain, "r": TableKind.relation, "e": TableKind.event, "v": TableKind.derived}
+_KIND_KEYS = {"d": TableKind.domain, "r": TableKind.relation, "e": TableKind.event}
 
 
 def _review(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
@@ -253,7 +253,7 @@ def _ask(out: TextIO, style: _Style, inp: TextIO, workspace: Workspace, queue: p
     for j, claim_id in enumerate(shown):
         branch = "└" if j == len(shown) - 1 else "├"
         print(style.dim(f"   {branch} {queue.evidence[claim_id]}"), file=out)
-    keys = "[d]omain [r]elation [e]vent [v]derived" if q.needs_kind else "[y]es"
+    keys = "[d]omain [r]elation [e]vent" if q.needs_kind else "[y]es"
     while True:
         print(f"   {keys}  [n]o  [s]kip  [q]uit > ", end="", file=out, flush=True)
         line = inp.readline()
@@ -408,6 +408,8 @@ def _propose_line(out: TextIO, style: _Style, proposed: pipeline.Proposed) -> No
     for t in ontology.tables:
         kinds[t.kind or "undecided"] = kinds.get(t.kind or "undecided", 0) + 1
     breakdown = " · ".join(f"{k} {n}" for k, n in sorted(kinds.items()))
+    derived = sum(t.derived is True for t in ontology.tables)
+    breakdown += f"; derived {derived}" if derived else ""
     relations = sum(len(t.relations or []) for t in ontology.tables)
     skipped = len(proposed.proposal.skipped)
     tail = f" · {style.bad(f'{skipped} skipped')}" if skipped else ""

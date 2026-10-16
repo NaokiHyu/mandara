@@ -8,7 +8,7 @@ identity:
   - businessentityid
 columns:
   businessentityid:
-    domain: business_entity_id
+    semantic_type: business_entity_id
     status: proposed
     confidence: 0.95
     evidence:
@@ -16,14 +16,14 @@ columns:
     - 列コメント
     inferred_by: gold-draft
   rowguid:
-    domain: row_uuid
+    semantic_type: row_uuid
     status: proposed
     confidence: 0.95
     evidence:
     - 列名 rowguid、型 uuid、全表に存在
     inferred_by: gold-draft
   modifieddate:
-    domain: modified_at
+    semantic_type: modified_at
     status: proposed
     confidence: 0.95
     evidence:

@@ -8,14 +8,14 @@ identity:
   - addressid
 columns:
   addressid:
-    domain: address_id
+    semantic_type: address_id
     status: proposed
     confidence: 0.95
     evidence:
     - PK
     inferred_by: gold-draft
   addressline1:
-    domain: address_line
+    semantic_type: address_line
     pii: true
     status: proposed
     confidence: 0.9
@@ -23,7 +23,7 @@ columns:
     - 列コメント
     inferred_by: gold-draft
   addressline2:
-    domain: address_line
+    semantic_type: address_line
     pii: true
     status: proposed
     confidence: 0.9
@@ -31,28 +31,28 @@ columns:
     - 列コメント
     inferred_by: gold-draft
   city:
-    domain: city_name
+    semantic_type: city_name
     status: proposed
     confidence: 0.9
     evidence:
     - 列コメント
     inferred_by: gold-draft
   stateprovinceid:
-    domain: state_province_id
+    semantic_type: state_province_id
     status: proposed
     confidence: 0.95
     evidence:
     - FK → stateprovince
     inferred_by: gold-draft
   postalcode:
-    domain: postal_code
+    semantic_type: postal_code
     status: proposed
     confidence: 0.9
     evidence:
     - 列コメント
     inferred_by: gold-draft
   spatiallocation:
-    domain: geo_point
+    semantic_type: geo_point
     encoding: sqlserver_geography
     status: proposed
     confidence: 0.85
@@ -61,14 +61,14 @@ columns:
     - 22 バイト、先頭 E6100000010C（SRID 4326 の点）
     inferred_by: gold-draft
   rowguid:
-    domain: row_uuid
+    semantic_type: row_uuid
     status: proposed
     confidence: 0.95
     evidence:
     - 列名 rowguid
     inferred_by: gold-draft
   modifieddate:
-    domain: modified_at
+    semantic_type: modified_at
     status: proposed
     confidence: 0.95
     evidence:

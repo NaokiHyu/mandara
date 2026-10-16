@@ -16,14 +16,14 @@ kind: domain
 identity:
   primary: [id]
 columns:
-  id: {domain: key, status: rejected}
+  id: {semantic_type: key, status: rejected}
 status: rejected
 """
 
 
 @pytest.mark.parametrize(
     ("old", "new"),
-    [("{domain: key,", "{domain: key, encoding: wkb,"), ("kind: domain", "kind: view")],
+    [("{semantic_type: key,", "{semantic_type: key, encoding: wkb,"), ("kind: domain", "kind: view")],
     ids=["encoding", "kind"],
 )
 def test_value_outside_closed_set_is_rejected_on_read(old: str, new: str) -> None:
@@ -38,24 +38,24 @@ def test_minimal_table_is_readable() -> None:
 
 def test_yaml11_boolean_key_is_rejected() -> None:
     with pytest.raises(ValueError, match="文字列ではない"):
-        parse_table(MINIMAL.replace("  id: {domain: key", "  on: {domain: key"))
+        parse_table(MINIMAL.replace("  id: {semantic_type: key", "  on: {semantic_type: key"))
 
 
 def test_quoted_yaml11_key_is_kept() -> None:
-    table = parse_table(MINIMAL.replace("  id: {domain: key", "  'on': {domain: key").replace("[id]", "['on']"))
+    table = parse_table(MINIMAL.replace("  id: {semantic_type: key", "  'on': {semantic_type: key").replace("[id]", "['on']"))
     assert list(table.columns or {}) == ["on"]
 
 
 def test_name_inside_body_is_rejected() -> None:
     with pytest.raises(ValueError, match="name はキーで書く"):
-        parse_table(MINIMAL.replace("{domain: key,", "{name: id, domain: key,"))
+        parse_table(MINIMAL.replace("{semantic_type: key,", "{name: id, semantic_type: key,"))
 
 
 def test_dump_rejects_key_name_mismatch() -> None:
     table = Table(
         id="tbl_x", name="s.x", source="src", context="ctx", kind=TableKind.domain,
         identity=Identity(primary=["a"]),
-        columns={"a": Column(name="b", domain="key", status=ReviewStatus.rejected)},
+        columns={"a": Column(name="b", semantic_type="key", status=ReviewStatus.rejected)},
         status=ReviewStatus.rejected,
     )
     with pytest.raises(ValueError, match="食い違う"):
@@ -63,7 +63,7 @@ def test_dump_rejects_key_name_mismatch() -> None:
 
 
 def _ontology_root(tmp_path: Path) -> Path:
-    (tmp_path / "vocabulary.yaml").write_text("column_domains:\n  key: {type: identifier}\n", encoding="utf-8")
+    (tmp_path / "vocabulary.yaml").write_text("semantic_types:\n  key: {type: identifier}\n", encoding="utf-8")
     return tmp_path
 
 

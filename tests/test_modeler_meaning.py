@@ -1,7 +1,7 @@
-"""同じ意味の列（外部キーの組）と、ドメインの伝播。
+"""同じ意味の列（外部キーの組）と、意味型の伝播。
 
 - 組：外部キーの列の対応を推移的に閉じたもの。素朴な実装（連結成分の探索）と一致し、主張の順に依らない
-- 伝播：組のドメインを、まだ付いていない列に付ける。冪等で、検証を通り、組の中でドメインが食い違わない
+- 伝播：組の意味型を、まだ付いていない列に付ける。冪等で、検証を通り、組の中で意味型が食い違わない
 """
 
 import random
@@ -18,7 +18,7 @@ from mandara.modeler.meaning import (
     MeaningGroups,
     Member,
     column_families,
-    group_domain,
+    group_semantic_type,
     label,
     propagate,
     same_meaning_groups,
@@ -32,7 +32,7 @@ from mandara.om.model import (
     ClaimSource,
     ClaimSourceKind,
     Column,
-    ColumnDomain,
+    SemanticType,
     ReviewStatus,
     SourceRef,
     ValueType,
@@ -133,95 +133,95 @@ def test_adventureworks_business_entity_ids_form_one_group() -> None:
     assert GROUPS.of("production.product", "productid") != group
 
 
-def _with_domain(ontology: Ontology, table: str, column: str, domain: ColumnDomain, confidence: float) -> Ontology:
+def _with_semantic_type(ontology: Ontology, table: str, column: str, semantic_type: SemanticType, confidence: float) -> Ontology:
     vocabulary = ontology.vocabulary.model_copy(update={
-        "column_domains": {**(ontology.vocabulary.column_domains or {}), domain.name: domain}})
+        "semantic_types": {**(ontology.vocabulary.semantic_types or {}), semantic_type.name: semantic_type}})
     target = next(t for t in ontology.tables if t.name == table)
     location = qualify(target.id, "columns", column)
     columns = target.columns or {}
-    updated = columns[column].model_copy(update={"domain": domain.name, "confidence": confidence})
+    updated = columns[column].model_copy(update={"semantic_type": semantic_type.name, "confidence": confidence})
     return Ontology(vocabulary, ontology.tables).replace_annotation(location, updated)
 
 
-ADDRESS_ID = ColumnDomain(name="address_id", type=ValueType.identifier, description="住所の ID")
+ADDRESS_ID = SemanticType(name="address_id", type=ValueType.identifier, description="住所の ID")
 
 
 def test_propagation_fills_the_group_and_is_idempotent() -> None:
-    seeded = _with_domain(V0, "person.address", "addressid", ADDRESS_ID, 0.8)
+    seeded = _with_semantic_type(V0, "person.address", "addressid", ADDRESS_ID, 0.8)
     once = propagate(seeded, GROUPS, FAMILIES)
     group = GROUPS.of("person.address", "addressid")
     assert group is not None
     expected = {label(m) for m in group.members if m != ("person.address", "addressid")
                 and any(t.name == m[0] for t in V0.tables)}
-    assert {label(f.member) for f in once.filled} == expected and {f.domain for f in once.filled} == {"address_id"}
+    assert {label(f.member) for f in once.filled} == expected and {f.semantic_type for f in once.filled} == {"address_id"}
     assert check(once.ontology) == []
     for name in ("billtoaddressid", "shiptoaddressid"):
         header = next(t for t in once.ontology.tables if t.name == "sales.salesorderheader")
         column = (header.columns or {})[name]
-        assert (column.domain, column.confidence, column.inferred_by) == ("address_id", 0.8, PROPAGATOR)
+        assert (column.semantic_type, column.confidence, column.inferred_by) == ("address_id", 0.8, PROPAGATOR)
         assert set(group.evidence) <= set(column.evidence or [])
     twice = propagate(once.ontology, GROUPS, FAMILIES)
     assert twice.filled == () and twice.ontology == once.ontology
 
 
 def test_units_are_not_guessed_when_propagating() -> None:
-    amount = ColumnDomain(name="amount", type=ValueType.money, description="金額", requires_unit=True)
-    seeded = _with_domain(V0, "person.address", "addressid", amount, 0.8)
+    amount = SemanticType(name="amount", type=ValueType.money, description="金額", requires_unit=True)
+    seeded = _with_semantic_type(V0, "person.address", "addressid", amount, 0.8)
     result = propagate(seeded, GROUPS, FAMILIES)
     assert result.filled == ()
-    assert result.not_filled and all(n.reason == "単位の要るドメインは、単位を決められないので伝播しない"
+    assert result.not_filled and all(n.reason == "単位の要る意味型は、単位を決められないので伝播しない"
                                      for n in result.not_filled)
 
 
 def test_conflicting_domains_in_a_group_are_an_error() -> None:
-    other = ColumnDomain(name="place_id", type=ValueType.identifier, description="別名")
-    seeded = _with_domain(_with_domain(V0, "person.address", "addressid", ADDRESS_ID, 0.8),
+    other = SemanticType(name="place_id", type=ValueType.identifier, description="別名")
+    seeded = _with_semantic_type(_with_semantic_type(V0, "person.address", "addressid", ADDRESS_ID, 0.8),
                           "sales.salesorderheader", "billtoaddressid", other, 0.8)
     group = GROUPS.of("person.address", "addressid")
     assert group is not None
     with pytest.raises(InconsistentGroupError):
-        group_domain(seeded, group)
+        group_semantic_type(seeded, group)
     with pytest.raises(InconsistentGroupError):
         propagate(seeded, GROUPS, FAMILIES)
 
 
 # ---------------------------------------------------------------- 伝播の法則
 
-POOL = [ADDRESS_ID, ColumnDomain(name="thing_id", type=ValueType.identifier, description="例"),
-        ColumnDomain(name="kind_code", type=ValueType.code, description="例"),
-        ColumnDomain(name="amount", type=ValueType.money, description="例", requires_unit=True),
-        ColumnDomain(name="day", type=ValueType.date, description="例")]
+POOL = [ADDRESS_ID, SemanticType(name="thing_id", type=ValueType.identifier, description="例"),
+        SemanticType(name="kind_code", type=ValueType.code, description="例"),
+        SemanticType(name="amount", type=ValueType.money, description="例", requires_unit=True),
+        SemanticType(name="day", type=ValueType.date, description="例")]
 SEEDABLE = [g for g in GROUPS.groups if sum(any(t.name == m[0] for t in V0.tables) for m in g.members) >= 2]
 
 
 @st.composite
 def seeded_ontologies(draw: st.DrawFn) -> Ontology:
-    """組ごとに高々1つのドメインを、組の列のいくつかに付けた OM（人の判断、確信度の無い列を含む）。"""
-    vocabulary = V0.vocabulary.model_copy(update={"column_domains": {d.name: d for d in POOL}})
+    """組ごとに高々1つの意味型を、組の列のいくつかに付けた OM（人の判断、確信度の無い列を含む）。"""
+    vocabulary = V0.vocabulary.model_copy(update={"semantic_types": {d.name: d for d in POOL}})
     ontology = Ontology(vocabulary, V0.tables)
     by_name = {t.name: t for t in V0.tables}
     for group in draw(st.lists(st.sampled_from(SEEDABLE), max_size=6, unique_by=lambda g: g.members)):
-        domain = draw(st.sampled_from(POOL)).name
+        semantic_type = draw(st.sampled_from(POOL)).name
         present = sorted(m for m in group.members if m[0] in by_name)
         for table, column in draw(st.lists(st.sampled_from(present), min_size=1, max_size=3, unique=True)):
             location = qualify(by_name[table].id, "columns", column)
             current = dict(ontology.annotations())[location]
             status = draw(st.sampled_from([ReviewStatus.proposed, ReviewStatus.proposed, ReviewStatus.approved]))
             ontology = ontology.replace_annotation(location, current.model_copy(update={
-                "domain": domain, "status": status.value,
+                "semantic_type": semantic_type, "status": status.value,
                 "confidence": draw(st.none() | st.floats(0, 1))}))
-        # ドメインの無いまま人が判断した列（伝播で変えてはいけない）
+        # 意味型の無いまま人が判断した列（伝播で変えてはいけない）
         for table, column in draw(st.lists(st.sampled_from(present), max_size=1)):
             location = qualify(by_name[table].id, "columns", column)
             current = dict(ontology.annotations())[location]
-            if isinstance(current, Column) and current.domain is None:
+            if isinstance(current, Column) and current.semantic_type is None:
                 ontology = ontology.replace_annotation(location, current.model_copy(update={
                     "status": ReviewStatus.approved.value}))
     return ontology
 
 
 def _column_states(ontology: Ontology) -> dict[Member, tuple[object, ...]]:
-    return {(t.name, n): (c.domain, c.status, c.confidence) for t in ontology.tables
+    return {(t.name, n): (c.semantic_type, c.status, c.confidence) for t in ontology.tables
             for n, c in (t.columns or {}).items()}
 
 
@@ -230,16 +230,16 @@ def _column_states(ontology: Ontology) -> dict[Member, tuple[object, ...]]:
 def test_propagation_laws(seeded: Ontology) -> None:
     result = propagate(seeded, GROUPS, FAMILIES)
     before, after = _column_states(seeded), _column_states(result.ontology)
-    filled = {f.member: f.domain for f in result.filled}
-    # 単調：付けた列以外は変えない（ドメインのある列、人が判断済みの列はそのまま）
+    filled = {f.member: f.semantic_type for f in result.filled}
+    # 単調：付けた列以外は変えない（意味型のある列、人が判断済みの列はそのまま）
     assert {m for m in before if before[m] != after[m]} == set(filled)
-    for member, domain in filled.items():
+    for member, semantic_type in filled.items():
         group = GROUPS.of(*member)
         assert group is not None and before[member][0] is None and before[member][1] == ReviewStatus.proposed.value
-        # 付けたドメインは組のドメイン
-        assert domain == group_domain(seeded, group) == after[member][0]
-    # 勘定：組のドメインがあって、ドメインの無い列は、付けたか理由つきで付けなかったかのどちらか1つ
-    expected = [m for g in GROUPS.groups if group_domain(seeded, g) is not None
+        # 付けた意味型は組の意味型
+        assert semantic_type == group_semantic_type(seeded, group) == after[member][0]
+    # 勘定：組の意味型があって、意味型の無い列は、付けたか理由つきで付けなかったかのどちらか1つ
+    expected = [m for g in GROUPS.groups if group_semantic_type(seeded, g) is not None
                 for m in sorted(g.members) if m in before and before[m][0] is None]
     assert sorted([*filled, *(n.member for n in result.not_filled)]) == sorted(expected)
     assert all(n.reason for n in result.not_filled)

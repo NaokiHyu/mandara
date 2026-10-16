@@ -21,8 +21,12 @@ KIND_LABELS = {
     TableKind.domain.value: "domain（もの）",
     TableKind.relation.value: "relation（もの同士の関係）",
     TableKind.event.value: "event（出来事）",
-    TableKind.derived.value: "derived（導出された表）",
 }
+
+
+def _derived_note(table: Table) -> str:
+    """計算で導出された表（ビューなど）なら、そう添える。種類（何を表すか）は別に問う。"""
+    return "（計算で導出された表）" if table.derived else ""
 
 
 EVIDENCE_LINES = 3
@@ -92,10 +96,10 @@ def _question(where: str, annotation: Annotated, ontology: Ontology, names: dict
     table_id: str | None = _table_id(where)
     match annotation:
         case Table(kind=None):
-            subject, text = ReviewSubject.table, f"表 {annotation.name} の種類はどれですか？"
+            subject, text = ReviewSubject.table, f"表 {annotation.name}{_derived_note(annotation)} の種類はどれですか？"
             needs_kind = True
         case Table(kind=str() as kind):
-            subject, text = ReviewSubject.table, f"表 {annotation.name} は {KIND_LABELS.get(kind, kind)} ですか？"
+            subject, text = ReviewSubject.table, f"表 {annotation.name}{_derived_note(annotation)} は {KIND_LABELS.get(kind, kind)} ですか？"
         case Relation():
             table = _owner(where, ontology)
             target = table.name if annotation.target == SELF else names.get(annotation.target, annotation.target)
@@ -110,9 +114,9 @@ def _question(where: str, annotation: Annotated, ontology: Ontology, names: dict
         case Column():
             subject, text = ReviewSubject.column, _column_text(_owner(where, ontology), annotation, ontology)
         case EnumValue():
-            domain = split_qualified(where)[1]
+            semantic_type = split_qualified(where)[1]
             table_id = None
-            subject, text = ReviewSubject.enum_value, f"列ドメイン {domain} の値 {annotation.code} は「{annotation.label}」ですか？"
+            subject, text = ReviewSubject.enum_value, f"意味型 {semantic_type} の値 {annotation.code} は「{annotation.label}」ですか？"
         case _:
             raise AssertionError(f"想定外の注釈: {type(annotation).__name__}")
     return Question(where, table_id, subject, text, annotation.confidence, tuple(annotation.evidence or []),
@@ -120,18 +124,18 @@ def _question(where: str, annotation: Annotated, ontology: Ontology, names: dict
 
 
 def _column_text(table: Table, column: Column, ontology: Ontology) -> str:
-    """ドメインが付いていれば、その意味（型、説明、単位）を問う。無ければ列を OM に含めるかを問う。"""
+    """意味型が付いていれば、その意味（型、説明、単位）を問う。無ければ列を OM に含めるかを問う。"""
     name = f"{table.name}.{column.name}"
-    if column.domain is None:
+    if column.semantic_type is None:
         return f"列 {name} を OM に含めますか？"
-    domain = (ontology.vocabulary.column_domains or {}).get(column.domain)
-    if domain is None:
-        raise AssertionError(f"検証済みの OM で、列のドメインが語彙に無い: {name} {column.domain}")
-    meaning = f"{domain.type}：{domain.description}" if domain.description else str(domain.type)
+    semantic_type = (ontology.vocabulary.semantic_types or {}).get(column.semantic_type)
+    if semantic_type is None:
+        raise AssertionError(f"検証済みの OM で、列の意味型が語彙に無い: {name} {column.semantic_type}")
+    meaning = f"{semantic_type.type}：{semantic_type.description}" if semantic_type.description else str(semantic_type.type)
     unit = ""
     if column.unit is not None:
         unit = f"、単位 {column.unit.fixed}" if column.unit.fixed else f"、単位は列 {column.unit.column}"
-    return f"列 {name} は {column.domain}（{meaning}{unit}）ですか？"
+    return f"列 {name} は {column.semantic_type}（{meaning}{unit}）ですか？"
 
 
 
@@ -230,9 +234,9 @@ def _own(annotation: Annotated, field: str) -> object:
 
 
 def _without_annotations(ontology: Ontology) -> object:
-    domains = ontology.vocabulary.column_domains or {}
+    semantic_types = ontology.vocabulary.semantic_types or {}
     return (
-        [(name, d.model_copy(update={"values": None})) for name, d in domains.items()],
+        [(name, d.model_copy(update={"values": None})) for name, d in semantic_types.items()],
         list((ontology.vocabulary.aliases or {}).items()),
         [t.id for t in ontology.tables],
     )

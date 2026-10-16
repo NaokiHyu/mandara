@@ -14,14 +14,14 @@ identity:
     - name
 columns:
   productid:
-    domain: product_id
+    semantic_type: product_id
     status: proposed
     confidence: 0.95
     evidence:
     - PK
     inferred_by: gold-draft
   name:
-    domain: display_name
+    semantic_type: display_name
     status: proposed
     confidence: 0.9
     evidence:
@@ -29,7 +29,7 @@ columns:
     - データ上一意（504 行）。UNIQUE 制約は無い
     inferred_by: gold-draft
   productnumber:
-    domain: product_number
+    semantic_type: product_number
     status: proposed
     confidence: 0.9
     evidence:
@@ -37,28 +37,28 @@ columns:
     - データ上一意。UNIQUE 制約は無い
     inferred_by: gold-draft
   makeflag:
-    domain: make_flag
+    semantic_type: make_flag
     status: proposed
     confidence: 0.9
     evidence:
     - 列コメント
     inferred_by: gold-draft
   finishedgoodsflag:
-    domain: salable_flag
+    semantic_type: salable_flag
     status: proposed
     confidence: 0.9
     evidence:
     - 列コメント
     inferred_by: gold-draft
   color:
-    domain: product_color
+    semantic_type: product_color
     status: proposed
     confidence: 0.85
     evidence:
     - 列コメント
     inferred_by: gold-draft
   safetystocklevel:
-    domain: stock_threshold
+    semantic_type: stock_threshold
     unit:
       fixed: each
     status: proposed
@@ -67,7 +67,7 @@ columns:
     - '列コメント: Minimum inventory quantity'
     inferred_by: gold-draft
   reorderpoint:
-    domain: stock_threshold
+    semantic_type: stock_threshold
     unit:
       fixed: each
     status: proposed
@@ -76,7 +76,7 @@ columns:
     - 列コメント
     inferred_by: gold-draft
   standardcost:
-    domain: standard_cost
+    semantic_type: standard_cost
     unit:
       fixed: USD
     status: proposed
@@ -86,7 +86,7 @@ columns:
     - 受注金額と同じ通貨と推定
     inferred_by: gold-draft
   listprice:
-    domain: unit_price
+    semantic_type: unit_price
     unit:
       fixed: USD
     status: proposed
@@ -95,7 +95,7 @@ columns:
     - '列コメント: Selling price'
     inferred_by: gold-draft
   size:
-    domain: product_size
+    semantic_type: product_size
     status: proposed
     confidence: 0.7
     evidence:
@@ -104,7 +104,7 @@ columns:
     inferred_by: gold-draft
     note: 数値のときの単位は sizeunitmeasurecode。text ドメインなので unit は付けていない。要検討
   sizeunitmeasurecode:
-    domain: unit_measure_code
+    semantic_type: unit_measure_code
     status: proposed
     confidence: 0.85
     evidence:
@@ -112,7 +112,7 @@ columns:
     - FK → unitmeasure（範囲外）
     inferred_by: gold-draft
   weightunitmeasurecode:
-    domain: unit_measure_code
+    semantic_type: unit_measure_code
     status: proposed
     confidence: 0.85
     evidence:
@@ -120,7 +120,7 @@ columns:
     - FK → unitmeasure（範囲外）
     inferred_by: gold-draft
   weight:
-    domain: product_weight
+    semantic_type: product_weight
     unit:
       column: weightunitmeasurecode
     status: proposed
@@ -130,7 +130,7 @@ columns:
     - 単位は LB と G が混在（別列）
     inferred_by: gold-draft
   daystomanufacture:
-    domain: lead_time_days
+    semantic_type: lead_time_days
     unit:
       fixed: day
     status: proposed
@@ -139,70 +139,70 @@ columns:
     - 列コメント
     inferred_by: gold-draft
   productline:
-    domain: product_line
+    semantic_type: product_line
     status: proposed
     confidence: 0.9
     evidence:
     - 列コメントに値の一覧
     inferred_by: gold-draft
   class:
-    domain: product_class
+    semantic_type: product_class
     status: proposed
     confidence: 0.9
     evidence:
     - 列コメントに値の一覧
     inferred_by: gold-draft
   style:
-    domain: product_style
+    semantic_type: product_style
     status: proposed
     confidence: 0.9
     evidence:
     - 列コメントに値の一覧
     inferred_by: gold-draft
   productsubcategoryid:
-    domain: product_subcategory_id
+    semantic_type: product_subcategory_id
     status: proposed
     confidence: 0.95
     evidence:
     - FK → productsubcategory
     inferred_by: gold-draft
   productmodelid:
-    domain: product_model_id
+    semantic_type: product_model_id
     status: proposed
     confidence: 0.9
     evidence:
     - FK → productmodel（範囲外）
     inferred_by: gold-draft
   sellstartdate:
-    domain: sell_start_date
+    semantic_type: sell_start_date
     status: proposed
     confidence: 0.85
     evidence:
     - 列コメント
     inferred_by: gold-draft
   sellenddate:
-    domain: sell_end_date
+    semantic_type: sell_end_date
     status: proposed
     confidence: 0.85
     evidence:
     - 列コメント
     inferred_by: gold-draft
   discontinueddate:
-    domain: discontinued_date
+    semantic_type: discontinued_date
     status: proposed
     confidence: 0.85
     evidence:
     - 列コメント
     inferred_by: gold-draft
   rowguid:
-    domain: row_uuid
+    semantic_type: row_uuid
     status: proposed
     confidence: 0.95
     evidence:
     - 列名 rowguid
     inferred_by: gold-draft
   modifieddate:
-    domain: modified_at
+    semantic_type: modified_at
     status: proposed
     confidence: 0.95
     evidence:

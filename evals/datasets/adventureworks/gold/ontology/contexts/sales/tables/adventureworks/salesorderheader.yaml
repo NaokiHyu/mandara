@@ -9,42 +9,42 @@ identity:
   - salesorderid
 columns:
   salesorderid:
-    domain: sales_order_id
+    semantic_type: sales_order_id
     status: proposed
     confidence: 0.95
     evidence:
     - PK
     inferred_by: gold-draft
   revisionnumber:
-    domain: revision_number
+    semantic_type: revision_number
     status: proposed
     confidence: 0.8
     evidence:
     - 列コメント
     inferred_by: gold-draft
   orderdate:
-    domain: order_date
+    semantic_type: order_date
     status: proposed
     confidence: 0.9
     evidence:
     - 列コメント
     inferred_by: gold-draft
   duedate:
-    domain: due_date
+    semantic_type: due_date
     status: proposed
     confidence: 0.9
     evidence:
     - 列コメント
     inferred_by: gold-draft
   shipdate:
-    domain: ship_date
+    semantic_type: ship_date
     status: proposed
     confidence: 0.9
     evidence:
     - 列コメント
     inferred_by: gold-draft
   status:
-    domain: order_status
+    semantic_type: order_status
     status: proposed
     confidence: 0.85
     evidence:
@@ -52,28 +52,28 @@ columns:
     - 観測値は 5 のみ
     inferred_by: gold-draft
   onlineorderflag:
-    domain: online_order_flag
+    semantic_type: online_order_flag
     status: proposed
     confidence: 0.9
     evidence:
     - 列コメント
     inferred_by: gold-draft
   purchaseordernumber:
-    domain: purchase_order_number
+    semantic_type: purchase_order_number
     status: proposed
     confidence: 0.85
     evidence:
     - 列コメント
     inferred_by: gold-draft
   accountnumber:
-    domain: account_number
+    semantic_type: account_number
     status: proposed
     confidence: 0.8
     evidence:
     - 列コメント
     inferred_by: gold-draft
   customerid:
-    domain: customer_id
+    semantic_type: customer_id
     status: proposed
     confidence: 0.9
     evidence:
@@ -81,42 +81,42 @@ columns:
     - 列コメントは Customer.BusinessEntityID と書いているが、customer の PK は customerid（衝突）
     inferred_by: gold-draft
   salespersonid:
-    domain: business_entity_id
+    semantic_type: business_entity_id
     status: proposed
     confidence: 0.85
     evidence:
     - FK → salesperson（範囲外）
     inferred_by: gold-draft
   territoryid:
-    domain: sales_territory_id
+    semantic_type: sales_territory_id
     status: proposed
     confidence: 0.9
     evidence:
     - FK → salesterritory（範囲外）
     inferred_by: gold-draft
   billtoaddressid:
-    domain: address_id
+    semantic_type: address_id
     status: proposed
     confidence: 0.95
     evidence:
     - FK → address
     inferred_by: gold-draft
   shiptoaddressid:
-    domain: address_id
+    semantic_type: address_id
     status: proposed
     confidence: 0.95
     evidence:
     - FK → address
     inferred_by: gold-draft
   shipmethodid:
-    domain: ship_method_id
+    semantic_type: ship_method_id
     status: proposed
     confidence: 0.9
     evidence:
     - FK → shipmethod（範囲外）
     inferred_by: gold-draft
   creditcardid:
-    domain: credit_card_id
+    semantic_type: credit_card_id
     pii: true
     status: proposed
     confidence: 0.85
@@ -124,7 +124,7 @@ columns:
     - FK → creditcard（範囲外）
     inferred_by: gold-draft
   creditcardapprovalcode:
-    domain: credit_card_approval_code
+    semantic_type: credit_card_approval_code
     pii: true
     status: proposed
     confidence: 0.8
@@ -132,14 +132,14 @@ columns:
     - 列コメント
     inferred_by: gold-draft
   currencyrateid:
-    domain: currency_rate_id
+    semantic_type: currency_rate_id
     status: proposed
     confidence: 0.85
     evidence:
     - FK → currencyrate（範囲外）
     inferred_by: gold-draft
   subtotal:
-    domain: money
+    semantic_type: money
     unit:
       fixed: USD
     status: proposed
@@ -150,7 +150,7 @@ columns:
     - currencyrate の換算元はすべて USD
     inferred_by: gold-draft
   taxamt:
-    domain: money
+    semantic_type: money
     unit:
       fixed: USD
     status: proposed
@@ -160,7 +160,7 @@ columns:
     - subtotal と同じ通貨と推定
     inferred_by: gold-draft
   freight:
-    domain: money
+    semantic_type: money
     unit:
       fixed: USD
     status: proposed
@@ -170,7 +170,7 @@ columns:
     - subtotal と同じ通貨と推定
     inferred_by: gold-draft
   totaldue:
-    domain: money
+    semantic_type: money
     unit:
       fixed: USD
     status: proposed
@@ -179,21 +179,21 @@ columns:
     - '列コメント: Subtotal + TaxAmt + Freight'
     inferred_by: gold-draft
   comment:
-    domain: free_comment
+    semantic_type: free_comment
     status: proposed
     confidence: 0.8
     evidence:
     - 列コメント
     inferred_by: gold-draft
   rowguid:
-    domain: row_uuid
+    semantic_type: row_uuid
     status: proposed
     confidence: 0.95
     evidence:
     - 列名 rowguid
     inferred_by: gold-draft
   modifieddate:
-    domain: modified_at
+    semantic_type: modified_at
     status: proposed
     confidence: 0.95
     evidence:

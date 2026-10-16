@@ -31,8 +31,8 @@ class Ontology:
 
         場所は部品を修飾名の規則（mandara.om.names.qualify）でつないだ文字列。部品に "." があっても重ならない。
         """
-        for name, domain in (self.vocabulary.column_domains or {}).items():
-            for value in domain.values or []:
+        for name, semantic_type in (self.vocabulary.semantic_types or {}).items():
+            for value in semantic_type.values or []:
                 yield qualify("vocabulary", name, value.code), value
         for table in self.tables:
             yield table.id, table
@@ -47,13 +47,13 @@ class Ontology:
         """annotations() の location の注釈を new に置き換えた OM。"""
         if dict(self.annotations()).get(location) is None:
             raise KeyError(f"注釈が無い: {location}")
-        domains = {
-            name: domain.model_copy(update={"values": [
-                new if qualify("vocabulary", name, value.code) == location else value for value in domain.values]})
-            if domain.values else domain
-            for name, domain in (self.vocabulary.column_domains or {}).items()
+        semantic_types = {
+            name: semantic_type.model_copy(update={"values": [
+                new if qualify("vocabulary", name, value.code) == location else value for value in semantic_type.values]})
+            if semantic_type.values else semantic_type
+            for name, semantic_type in (self.vocabulary.semantic_types or {}).items()
         }
-        vocabulary = self.vocabulary.model_copy(update={"column_domains": domains}) if domains else self.vocabulary
+        vocabulary = self.vocabulary.model_copy(update={"semantic_types": semantic_types}) if semantic_types else self.vocabulary
 
         def table(t: Table) -> Table:
             if t.id == location:

@@ -8,42 +8,42 @@ identity:
   - customerid
 columns:
   customerid:
-    domain: customer_id
+    semantic_type: customer_id
     status: proposed
     confidence: 0.95
     evidence:
     - PK
     inferred_by: gold-draft
   personid:
-    domain: business_entity_id
+    semantic_type: business_entity_id
     status: proposed
     confidence: 0.9
     evidence:
     - FK → person
     inferred_by: gold-draft
   storeid:
-    domain: business_entity_id
+    semantic_type: business_entity_id
     status: proposed
     confidence: 0.9
     evidence:
     - FK → store
     inferred_by: gold-draft
   territoryid:
-    domain: sales_territory_id
+    semantic_type: sales_territory_id
     status: proposed
     confidence: 0.9
     evidence:
     - FK → salesterritory（範囲外）
     inferred_by: gold-draft
   rowguid:
-    domain: row_uuid
+    semantic_type: row_uuid
     status: proposed
     confidence: 0.95
     evidence:
     - 列名 rowguid
     inferred_by: gold-draft
   modifieddate:
-    domain: modified_at
+    semantic_type: modified_at
     status: proposed
     confidence: 0.95
     evidence:

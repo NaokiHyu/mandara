@@ -155,9 +155,9 @@ def read_points(ontology: Ontology, table_id: str, column: str, reader: ColumnRe
     found = (table.columns or {}).get(column)
     if found is None:
         raise PointsError(f"列が無い: {table.name}.{column}")
-    domain = (ontology.vocabulary.column_domains or {}).get(found.domain or "")
-    if domain is None or domain.type != ValueType("geo.point").value:
-        raise PointsError(f"{table.name}.{column} は geo.point の列ではない（domain={found.domain}）")
+    semantic_type = (ontology.vocabulary.semantic_types or {}).get(found.semantic_type or "")
+    if semantic_type is None or semantic_type.type != ValueType("geo.point").value:
+        raise PointsError(f"{table.name}.{column} は geo.point の列ではない（semantic_type={found.semantic_type}）")
     if found.encoding is None:
         raise PointsError(f"{table.name}.{column} の物理的な表現（encoding）が分からないので、点に変換できない")
     if ENCODING_TARGETS.get(found.encoding) != ValueType("geo.point").value:
@@ -217,7 +217,7 @@ class TableOutcome:
     answer: object = None
     """LLM の答え（そのまま）。同じ問いに同じ答えが返る保証は無いので、再現のために記録する。"""
     propagated: tuple[str, ...] = ()
-    """答えのドメインを、外部キーで同じ意味の他の列へ伝播したもの。"""
+    """答えの意味型を、外部キーで同じ意味の他の列へ伝播したもの。"""
     not_propagated: tuple[str, ...] = ()
     """伝播しなかった列と理由。"""
 
@@ -267,7 +267,7 @@ def refine(workspace: Workspace, model: LanguageModel, first: Sequence[str] = ()
     inferred_by = f"{llm_modeler.MODELER} ({model.model})"
     groups = meaning.same_meaning_groups(claims)
     for group in groups.groups:
-        meaning.group_domain(ontology, group)  # 入力の OM の組が食い違っていれば、問う前に InconsistentGroupError
+        meaning.group_semantic_type(ontology, group)  # 入力の OM の組が食い違っていれば、問う前に InconsistentGroupError
     families = meaning.column_families(claims)
 
     outcomes: list[TableOutcome] = []
@@ -282,7 +282,7 @@ def refine(workspace: Workspace, model: LanguageModel, first: Sequence[str] = ()
                            [t.name for t in order[i:]], defect=True)
         request = StructuredRequest(
             purpose=f"refine {table.name}", system=llm_modeler.SYSTEM,
-            prompt=llm_modeler.brief(table_claims, ontology.vocabulary.column_domains or {}, table.kind, hints),
+            prompt=llm_modeler.brief(table_claims, ontology.vocabulary.semantic_types or {}, table.kind, hints),
             schema=llm_modeler.answer_schema(), max_output_tokens=MAX_OUTPUT_TOKENS)
         try:
             response = model.ask(request)
@@ -305,8 +305,8 @@ def refine(workspace: Workspace, model: LanguageModel, first: Sequence[str] = ()
         ontology = propagated.ontology
         status = "kept" if applied.table_kept_as_is else ("refined" if applied.applied else "nothing_applied")
         outcomes.append(TableOutcome(table.name, status, "", applied.applied, applied.dropped, response.data,
-                                     tuple(f"{meaning.label(f.member)} {f.domain}" for f in propagated.filled),
-                                     tuple(f"{meaning.label(n.member)} {n.domain}: {n.reason}"
+                                     tuple(f"{meaning.label(f.member)} {f.semantic_type}" for f in propagated.filled),
+                                     tuple(f"{meaning.label(n.member)} {n.semantic_type}: {n.reason}"
                                            for n in propagated.not_filled)))
     return _finish(workspace, ontology, order, outcomes, stopped, [])
 
@@ -517,6 +517,7 @@ def _proposal_counts(ontology: Ontology) -> dict[str, object]:
     return {
         "tables": len(ontology.tables),
         "kinds": dict(sorted(Counter(t.kind or "undecided" for t in ontology.tables).items())),
+        "derived": sum(t.derived is True for t in ontology.tables),
         "relations": sum(len(t.relations or []) for t in ontology.tables),
         "columns": sum(len(t.columns or {}) for t in ontology.tables),
     }

@@ -21,9 +21,9 @@ from mandara.om.model import (
     ClaimSourceKind,
     Cardinality,
     Column,
-    ColumnDomain,
+    SemanticType,
     ColumnPair,
-    DomainRole,
+    SemanticRole,
     Edge,
     EnumValue,
     HasKind,
@@ -48,14 +48,14 @@ from mandara.om.model import (
 from mandara.om.ontology import SELF, Ontology
 
 VOCABULARY = Vocabulary(
-    column_domains={
-        "key": ColumnDomain(name="key", type=ValueType.identifier),
-        "label": ColumnDomain(name="label", type=ValueType.text),
-        "unit_code": ColumnDomain(name="unit_code", type=ValueType.code),
-        "amount": ColumnDomain(name="amount", type=ValueType.money, additivity=Additivity.additive, requires_unit=True),
-        "at": ColumnDomain(name="at", type=ValueType.datetime, role=DomainRole.event_time),
-        "point": ColumnDomain(name="point", type=ValueType("geo.point")),
-        "state": ColumnDomain(
+    semantic_types={
+        "key": SemanticType(name="key", type=ValueType.identifier),
+        "label": SemanticType(name="label", type=ValueType.text),
+        "unit_code": SemanticType(name="unit_code", type=ValueType.code),
+        "amount": SemanticType(name="amount", type=ValueType.money, additivity=Additivity.additive, requires_unit=True),
+        "at": SemanticType(name="at", type=ValueType.datetime, role=SemanticRole.event_time),
+        "point": SemanticType(name="point", type=ValueType("geo.point")),
+        "state": SemanticType(
             name="state",
             type=ValueType.enum,
             values=[
@@ -111,23 +111,24 @@ def ontologies(draw: st.DrawFn, max_tables: int = 5) -> Ontology:
     tables: list[Table] = []
     for i in range(n):
         kind = draw(st.none() | st.sampled_from(tuple(TableKind)))  # None は未決（提案の段階）
+        derived = draw(st.booleans())  # 計算で導出された表（kind とは別の軸。どの kind とも組み合わさる）
         names = draw(st.lists(column_names, min_size=1, max_size=6, unique=True))
         pk_size = draw(st.integers(min_value=1, max_value=min(2, len(names))))
         primary, rest = names[:pk_size], names[pk_size:]
 
-        columns: dict[str, Column] = {c: annotate(Column(name=c, domain="key", status=_PLACEHOLDER)) for c in primary}
+        columns: dict[str, Column] = {c: annotate(Column(name=c, semantic_type="key", status=_PLACEHOLDER)) for c in primary}
         for c in rest:
-            domain = draw(st.sampled_from((*PLAIN_DOMAINS, "amount")))
+            semantic_type = draw(st.sampled_from((*PLAIN_DOMAINS, "amount")))
             unit = None
-            if domain == "amount":
+            if semantic_type == "amount":
                 if draw(st.booleans()):
                     unit = UnitSource(fixed=draw(st.sampled_from(tuple(Unit))))
                 else:
                     unit_col = f"{c}__unit"
-                    columns[unit_col] = annotate(Column(name=unit_col, domain="unit_code", status=_PLACEHOLDER))
+                    columns[unit_col] = annotate(Column(name=unit_col, semantic_type="unit_code", status=_PLACEHOLDER))
                     unit = UnitSource(column=unit_col)
-            encoding = draw(st.none() | st.sampled_from(tuple(SourceEncoding))) if domain == "point" else None
-            columns[c] = annotate(Column(name=c, domain=domain, unit=unit, encoding=encoding, status=_PLACEHOLDER))
+            encoding = draw(st.none() | st.sampled_from(tuple(SourceEncoding))) if semantic_type == "point" else None
+            columns[c] = annotate(Column(name=c, semantic_type=semantic_type, unit=unit, encoding=encoding, status=_PLACEHOLDER))
 
         # 代替キーは、主キーとも互いとも違う列の組
         alternates = draw(
@@ -146,7 +147,7 @@ def ontologies(draw: st.DrawFn, max_tables: int = 5) -> Ontology:
             if len(target_pk) == len(primary) and t not in is_a_done:
                 choices.append(RelationType.is_a)
             rtype = draw(st.sampled_from(choices))
-            if rtype == RelationType.part_of and target.kind == TableKind.derived.value:
+            if rtype == RelationType.part_of and target.derived:
                 rtype = RelationType.has
             rel_id = f"rel_t{i}_{k}"
             if rtype == RelationType.is_a:
@@ -162,7 +163,7 @@ def ontologies(draw: st.DrawFn, max_tables: int = 5) -> Ontology:
             else:
                 fks = [f"ref{k}_{j}" for j in range(len(target_pk))]
                 for fk in fks:
-                    columns[fk] = annotate(Column(name=fk, domain="key", status=_PLACEHOLDER))
+                    columns[fk] = annotate(Column(name=fk, semantic_type="key", status=_PLACEHOLDER))
                 relation = Relation(
                     id=rel_id,
                     type=rtype,
@@ -178,7 +179,7 @@ def ontologies(draw: st.DrawFn, max_tables: int = 5) -> Ontology:
         if draw(st.booleans()):
             # 自己参照の木（部品表のような part-of、分類の木、上司のような参照）。derived は part-of の全体側になれない
             tree_type = draw(st.sampled_from((RelationType.has, RelationType.part_of, RelationType.classified_as)))
-            if kind == TableKind.derived and tree_type == RelationType.part_of:
+            if derived and tree_type == RelationType.part_of:
                 tree_type = RelationType.has
             tree = Relation(
                 id=f"rel_t{i}_tree",
@@ -191,7 +192,7 @@ def ontologies(draw: st.DrawFn, max_tables: int = 5) -> Ontology:
             )
             relations.append(annotate(tree))
         if draw(st.booleans()):
-            derived = Relation(
+            derivation = Relation(
                 id=f"rel_t{i}_derived",
                 type=RelationType.derived_from,
                 target=SELF,
@@ -199,7 +200,7 @@ def ontologies(draw: st.DrawFn, max_tables: int = 5) -> Ontology:
                 columns=draw(st.lists(st.sampled_from(sorted(columns)), min_size=1, max_size=2, unique=True)),
                 status=_PLACEHOLDER,
             )
-            relations.append(annotate(derived))
+            relations.append(annotate(derivation))
 
         edge = None
         if kind == TableKind.relation and i and draw(st.booleans()):
@@ -212,7 +213,7 @@ def ontologies(draw: st.DrawFn, max_tables: int = 5) -> Ontology:
                 target_pk = target.identity.primary if target.identity is not None else []
                 fks = [f"edge{side}_{j}" for j in range(len(target_pk))]
                 for fk in fks:
-                    columns[fk] = annotate(Column(name=fk, domain="key", status=_PLACEHOLDER))
+                    columns[fk] = annotate(Column(name=fk, semantic_type="key", status=_PLACEHOLDER))
                 ends[side] = f"rel_t{i}_edge{side}"
                 relations.append(annotate(Relation(
                     id=ends[side], type=RelationType.has, has_kind=HasKind.reference, target=target.id,
@@ -220,13 +221,13 @@ def ontologies(draw: st.DrawFn, max_tables: int = 5) -> Ontology:
                     status=_PLACEHOLDER,
                 )))
             edge_types = [RelationType.has, RelationType.classified_as]
-            if tables[end].kind != TableKind.derived.value:
+            if not tables[end].derived:
                 edge_types.append(RelationType.part_of)
             edge = annotate(Edge.model_validate(
                 {"type": draw(st.sampled_from(edge_types)), "from": ends["from"], "to": ends["to"], "status": _PLACEHOLDER}
             ))
 
-        has_amount = any(c.domain == "amount" for c in columns.values())
+        has_amount = any(c.semantic_type == "amount" for c in columns.values())
         needs_grain = kind == TableKind.event or (kind == TableKind.domain and has_amount)
         table = Table(
             id=f"tbl_t{i}",
@@ -234,6 +235,7 @@ def ontologies(draw: st.DrawFn, max_tables: int = 5) -> Ontology:
             source="src",
             context="ctx",
             kind=kind,
+            derived=derived or None,
             grain=draw(texts.filter(str.strip)) if needs_grain or draw(st.booleans()) else None,
             identity=Identity(primary=primary, alternates=[KeyColumns(columns=a) for a in alternates] or None),
             columns=columns,
@@ -252,7 +254,7 @@ def ontologies(draw: st.DrawFn, max_tables: int = 5) -> Ontology:
 @st.composite
 def vocabularies(draw: st.DrawFn) -> Vocabulary:
     names = draw(st.lists(column_names, min_size=1, max_size=6, unique=True))
-    domains: dict[str, ColumnDomain] = {}
+    semantic_types: dict[str, SemanticType] = {}
     for name in names:
         if draw(st.booleans()):
             codes = draw(st.lists(texts, min_size=1, max_size=4, unique=True))
@@ -260,15 +262,15 @@ def vocabularies(draw: st.DrawFn) -> Vocabulary:
                 EnumValue(code=c, label=draw(texts), status=_PLACEHOLDER).model_copy(update=draw(provenance()))
                 for c in codes
             ]
-            domains[name] = ColumnDomain(name=name, type=ValueType.enum, description=draw(st.none() | texts), values=values)
+            semantic_types[name] = SemanticType(name=name, type=ValueType.enum, description=draw(st.none() | texts), values=values)
         else:
-            domains[name] = ColumnDomain(
+            semantic_types[name] = SemanticType(
                 name=name,
                 type=draw(st.sampled_from(tuple(t for t in ValueType if t != ValueType.enum))),
                 additivity=draw(st.none() | st.sampled_from(tuple(Additivity))),
                 requires_unit=draw(st.none() | st.booleans()),
             )
-    return Vocabulary(column_domains=domains)
+    return Vocabulary(semantic_types=semantic_types)
 
 
 # ---------------------------------------------------------------- 主張台帳

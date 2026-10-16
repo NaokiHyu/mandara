@@ -8,7 +8,7 @@ identity:
   - businessentityid
 columns:
   businessentityid:
-    domain: business_entity_id
+    semantic_type: business_entity_id
     status: proposed
     confidence: 0.9
     evidence:
@@ -17,21 +17,21 @@ columns:
     - 列コメントは Customer.BusinessEntityID への FK と書いているが、実際の FK は businessentity（衝突）
     inferred_by: gold-draft
   name:
-    domain: display_name
+    semantic_type: display_name
     status: proposed
     confidence: 0.9
     evidence:
     - 列コメント
     inferred_by: gold-draft
   salespersonid:
-    domain: business_entity_id
+    semantic_type: business_entity_id
     status: proposed
     confidence: 0.85
     evidence:
     - FK → salesperson（範囲外）
     inferred_by: gold-draft
   demographics:
-    domain: xml_document
+    semantic_type: xml_document
     status: proposed
     confidence: 0.8
     evidence:
@@ -39,14 +39,14 @@ columns:
     - 列コメント
     inferred_by: gold-draft
   rowguid:
-    domain: row_uuid
+    semantic_type: row_uuid
     status: proposed
     confidence: 0.95
     evidence:
     - 列名 rowguid
     inferred_by: gold-draft
   modifieddate:
-    domain: modified_at
+    semantic_type: modified_at
     status: proposed
     confidence: 0.95
     evidence:

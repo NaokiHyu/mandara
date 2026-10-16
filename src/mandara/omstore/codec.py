@@ -1,7 +1,7 @@
 """OM・主張台帳の YAML と、①から生成した型との変換。
 
 Adapter 層。ファイルの形をここに閉じ込める。
-- 辞書で書く集まり（columns, column_domains, aliases）は、キーが要素の name になる。
+- 辞書で書く集まり（columns, semantic_types, aliases）は、キーが要素の name になる。
   生成された型では name は要素の中にあるので、読むときに注入し、書くときに外す
 - キー順は固定：型のフィールド順。ただし注釈の共通フィールド（4.4）は末尾に回す
 - YAML のコメントは使わない（人のメモは note に書く）
@@ -17,7 +17,7 @@ from mandara.om.model import Table, Vocabulary
 
 ANNOTATION_FIELDS = ("status", "confidence", "evidence", "inferred_by", "reviewed_by", "reviewed_at", "note")
 _KEYED_COLLECTIONS: dict[type[BaseModel], tuple[str, ...]] = {
-    Vocabulary: ("column_domains", "aliases"),
+    Vocabulary: ("semantic_types", "aliases"),
     Table: ("columns",),
 }
 

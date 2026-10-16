@@ -39,7 +39,7 @@
 .kind-domain { background: var(--accent); }
 .kind-relation { background: var(--ok); }
 .kind-event { background: var(--warn); }
-.kind-derived { background: var(--text-dim); }
+.derived .name { font-style: italic; }
 .kind-undecided { background: transparent; color: var(--text-dim); border: 1px dashed var(--line); }
 
 .views { margin-left: auto; display: flex; gap: var(--gap-small); }

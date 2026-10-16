@@ -11,6 +11,8 @@ export interface GraphNode {
   /** コンテキストの番号（名前の順）。色の割り当てに使う。 */
   contextIndex: number;
   kind: string | undefined;
+  /** 計算で導出された表（ビューなど）。kind とは別の軸 */
+  derived: boolean;
   status: string;
 }
 
@@ -60,7 +62,7 @@ export function toGraph(doc: OntologyDocument): { nodes: GraphNode[]; edges: Gra
   const contexts = [...new Set(doc.tables.map((t) => t.context))].sort();
   const nodes = doc.tables.map((t) => ({
     id: t.id, label: shortName(t.name), name: t.name, context: t.context, contextIndex: contexts.indexOf(t.context),
-    kind: t.kind, status: t.status,
+    kind: t.kind, derived: t.derived === true, status: t.status,
   }));
   const edges: GraphEdge[] = [];
   for (const table of doc.tables) {

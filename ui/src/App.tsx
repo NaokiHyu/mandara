@@ -226,10 +226,10 @@ function TableList({ tables, contexts, selected, onSelect }: {
           <ul>
             {group.map((t) => (
               <li key={t.id}>
-                <button className={`table status-${t.status}${t.id === selected ? " selected" : ""}`}
+                <button className={`table status-${t.status}${t.derived ? " derived" : ""}${t.id === selected ? " selected" : ""}`}
                         aria-pressed={t.id === selected} onClick={() => onSelect(t.id)}>
                   <span className={`kind kind-${t.kind ?? "undecided"}`}
-                        title={t.kind === undefined ? "kind は未決" : KIND[asKind(t.kind)].text}>
+                        title={(t.kind === undefined ? "kind は未決" : KIND[asKind(t.kind)].text) + (t.derived ? "（計算で導出された表）" : "")}>
                     {t.kind === undefined ? "·" : KIND[asKind(t.kind)].mark}
                   </span>
                   <span className="name">{shortName(t.name)}</span>

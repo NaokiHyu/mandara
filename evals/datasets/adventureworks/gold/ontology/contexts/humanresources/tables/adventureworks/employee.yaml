@@ -14,7 +14,7 @@ identity:
     - loginid
 columns:
   businessentityid:
-    domain: business_entity_id
+    semantic_type: business_entity_id
     status: proposed
     confidence: 0.95
     evidence:
@@ -22,7 +22,7 @@ columns:
     - FK → person
     inferred_by: gold-draft
   nationalidnumber:
-    domain: national_id_number
+    semantic_type: national_id_number
     pii: true
     status: proposed
     confidence: 0.9
@@ -31,7 +31,7 @@ columns:
     inferred_by: gold-draft
     note: pii よりも強い「秘密」の区分が要る（バックログ C8）
   loginid:
-    domain: login_id
+    semantic_type: login_id
     pii: true
     status: proposed
     confidence: 0.85
@@ -39,14 +39,14 @@ columns:
     - 列コメント
     inferred_by: gold-draft
   jobtitle:
-    domain: job_title
+    semantic_type: job_title
     status: proposed
     confidence: 0.9
     evidence:
     - 列コメント
     inferred_by: gold-draft
   birthdate:
-    domain: birth_date
+    semantic_type: birth_date
     pii: true
     status: proposed
     confidence: 0.9
@@ -54,7 +54,7 @@ columns:
     - 列コメント
     inferred_by: gold-draft
   maritalstatus:
-    domain: marital_status
+    semantic_type: marital_status
     pii: true
     status: proposed
     confidence: 0.9
@@ -62,7 +62,7 @@ columns:
     - 列コメントに値の一覧
     inferred_by: gold-draft
   gender:
-    domain: gender
+    semantic_type: gender
     pii: true
     status: proposed
     confidence: 0.9
@@ -70,21 +70,21 @@ columns:
     - 列コメントに値の一覧
     inferred_by: gold-draft
   hiredate:
-    domain: hire_date
+    semantic_type: hire_date
     status: proposed
     confidence: 0.9
     evidence:
     - 列コメント
     inferred_by: gold-draft
   salariedflag:
-    domain: salaried_flag
+    semantic_type: salaried_flag
     status: proposed
     confidence: 0.9
     evidence:
     - 列コメント
     inferred_by: gold-draft
   vacationhours:
-    domain: hours_balance
+    semantic_type: hours_balance
     unit:
       fixed: hour
     status: proposed
@@ -93,7 +93,7 @@ columns:
     - '列コメント: available vacation hours'
     inferred_by: gold-draft
   sickleavehours:
-    domain: hours_balance
+    semantic_type: hours_balance
     unit:
       fixed: hour
     status: proposed
@@ -102,28 +102,28 @@ columns:
     - '列コメント: available sick leave hours'
     inferred_by: gold-draft
   currentflag:
-    domain: active_flag
+    semantic_type: active_flag
     status: proposed
     confidence: 0.9
     evidence:
     - 列コメント
     inferred_by: gold-draft
   rowguid:
-    domain: row_uuid
+    semantic_type: row_uuid
     status: proposed
     confidence: 0.95
     evidence:
     - 列名 rowguid
     inferred_by: gold-draft
   modifieddate:
-    domain: modified_at
+    semantic_type: modified_at
     status: proposed
     confidence: 0.95
     evidence:
     - 列名 modifieddate
     inferred_by: gold-draft
   organizationnode:
-    domain: hierarchy_path
+    semantic_type: hierarchy_path
     status: proposed
     confidence: 0.8
     evidence:
