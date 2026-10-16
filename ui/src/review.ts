@@ -68,3 +68,8 @@ export function nextLocation(before: readonly ReviewQuestion[], after: readonly 
 export function tableBatch(questions: readonly ReviewQuestion[], table: string): ReviewQuestion[] {
   return questions.filter((q) => q.table === table && !q.needs_kind);
 }
+
+/** 開発用の全承認の候補：種類を選ばなくてよい問い。正はサーバー（review.decisions.is_approve_all_member）。 */
+export function approveAllBatch(questions: readonly ReviewQuestion[]): ReviewQuestion[] {
+  return questions.filter((q) => !q.needs_kind);
+}

@@ -136,6 +136,8 @@ button.link { border: none; background: none; padding: 0; color: var(--text-stro
 .banner.bulk button { margin-left: auto; }
 .banner.table-batch { border-color: var(--accent); }
 .banner.table-batch strong { color: var(--accent); }
+.banner.dev-all { border-color: var(--bad); }
+.banner.dev-all strong { color: var(--bad); }
 
 .card {
   border: 1px solid var(--line); border-top: 2px solid var(--accent); background: var(--panel);

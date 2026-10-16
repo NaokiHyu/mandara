@@ -3,7 +3,7 @@
 import Ajv2019 from "ajv/dist/2019";
 import addFormats from "ajv-formats";
 import indexSchema from "./om/index.schema.json";
-import type { BulkApproval, OntologyDocument, OntologyIndex, PointSet, ReviewAnswer, ReviewQueue,
+import type { AllApproval, BulkApproval, OntologyDocument, OntologyIndex, PointSet, ReviewAnswer, ReviewQueue,
               TableApproval } from "./om/model";
 import documentSchema from "./om/om.schema.json";
 import pointsSchema from "./om/points.schema.json";
@@ -106,6 +106,11 @@ export async function postAnswer(ontologyId: string, answer: ReviewAnswer): Prom
 /** 一覧で見せた候補を一括で承認する。見せた後に候補が変わっていれば 409 の ApiError（一覧を出し直す）。 */
 export async function postBulk(ontologyId: string, bulk: BulkApproval): Promise<ReviewQueue> {
   return parseReview(await postJson(`${reviewPath(ontologyId)}/bulk`, bulk));
+}
+
+/** 開発用の全承認（serve --dev のときだけ）。見せた一覧が今の候補と違えば 409 の ApiError（一覧を出し直す）。 */
+export async function postAll(ontologyId: string, batch: AllApproval): Promise<ReviewQueue> {
+  return parseReview(await postJson(`${reviewPath(ontologyId)}/all`, batch));
 }
 
 /** 表ごとの一覧で見せた問いを承認する。見せた後に変わっていれば 409 の ApiError（一覧を出し直す）。 */

@@ -59,8 +59,8 @@ def _copy(prepared: Path, to: Path) -> Path:
     return to
 
 
-def _client(work: Path, reviewer: str | None = "alice") -> TestClient:
-    reviewing = Reviewing(reviewer, lambda: TODAY) if reviewer is not None else None
+def _client(work: Path, reviewer: str | None = "alice", dev: bool = False) -> TestClient:
+    reviewing = Reviewing(reviewer, lambda: TODAY, dev) if reviewer is not None else None
     return TestClient(create_app(discover(work, {"adventureworks": GOLD}), reviewing=reviewing))
 
 
@@ -243,3 +243,24 @@ def test_table_approval_approves_what_was_shown_for_that_table(prepared: Path, t
     assert status == 409
     status, _ = _request(client, "POST", f"{QUEUE}/table", {"table": "tbl_nope", "locations": shown})
     assert status == 409
+
+
+def test_approve_all_is_only_for_dev_and_leaves_the_kind_questions(prepared: Path, tmp_path: Path) -> None:
+    work = _copy(prepared, tmp_path / "work")
+    _, queue = _request(_client(work), "GET", QUEUE)
+    assert queue["approve_all"] is False
+    shown = [q["location"] for q in queue["questions"] if not q["needs_kind"]]
+    kind = [q["location"] for q in queue["questions"] if q["needs_kind"]]
+    before = _snapshot(work)
+    status, _ = _request(_client(work), "POST", f"{QUEUE}/all", {"locations": shown})
+    assert status == 403 and _snapshot(work) == before  # --dev でなければ受け付けない
+
+    client = _client(work, dev=True)
+    _, queue = _request(client, "GET", QUEUE)
+    assert queue["approve_all"] is True
+    status, _ = _request(client, "POST", f"{QUEUE}/all", {"locations": shown[1:]})  # 見せた一覧が今と違う
+    assert status == 409 and _snapshot(work) == before
+    status, after = _request(client, "POST", f"{QUEUE}/all", {"locations": shown})
+    assert status == 200 and sorted(q["location"] for q in after["questions"]) == sorted(kind)
+    approved = dict(load_ontology(work / "adventureworks" / "ontology").annotations())
+    assert all(approved[loc].status == "approved" and approved[loc].reviewed_by == "alice" for loc in shown)

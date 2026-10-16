@@ -507,6 +507,8 @@ export interface ReviewQueue {
     reviewer?: string,
     /** 一括承認の閾値の下限 */
     bulk_minimum: number,
+    /** 開発用の全承認が使えるか（mandara serve --dev）。中身を見ずに固定するので、開発中に承認済みの状態を試すためだけに使う */
+    approve_all: boolean,
 }
 
 
@@ -556,6 +558,15 @@ export interface ReviewAnswer {
 export interface BulkApproval {
     threshold: number,
     /** 見せた候補の場所。今も候補のままであることを確かめてから承認する */
+    locations: string[],
+}
+
+
+/**
+ * 開発用の全承認（mandara serve --dev のときだけ）。種類を選ぶ問いを除く、まだ判断されていない問いをすべて承認する。 プロセス境界（UI → HTTP API）で受け渡す形
+ */
+export interface AllApproval {
+    /** 見せた問いの場所。今も種類を選ばなくてよい未判断の問いのままであることを確かめてから承認する */
     locations: string[],
 }
 

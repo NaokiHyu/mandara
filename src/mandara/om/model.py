@@ -694,6 +694,7 @@ class ReviewQueue(ConfiguredBaseModel):
     not_writable_reason: Optional[str] = Field(default=None, description="""書けないときの理由（writable が false のときだけ）""", json_schema_extra = { "linkml_meta": {'domain_of': ['ReviewQueue']} })
     reviewer: Optional[str] = Field(default=None, description="""書くときの reviewed_by（writable のときだけ）""", json_schema_extra = { "linkml_meta": {'domain_of': ['ReviewQueue']} })
     bulk_minimum: float = Field(default=..., description="""一括承認の閾値の下限""", json_schema_extra = { "linkml_meta": {'domain_of': ['ReviewQueue']} })
+    approve_all: bool = Field(default=..., description="""開発用の全承認が使えるか（mandara serve --dev）。中身を見ずに固定するので、開発中に承認済みの状態を試すためだけに使う""", json_schema_extra = { "linkml_meta": {'domain_of': ['ReviewQueue']} })
 
 
 class ReviewQuestion(ConfiguredBaseModel):
@@ -735,7 +736,16 @@ class BulkApproval(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'tree_root': True})
 
     threshold: float = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['BulkApproval']} })
-    locations: list[str] = Field(default=..., description="""見せた候補の場所。今も候補のままであることを確かめてから承認する""", json_schema_extra = { "linkml_meta": {'domain_of': ['BulkApproval', 'TableApproval']} })
+    locations: list[str] = Field(default=..., description="""見せた候補の場所。今も候補のままであることを確かめてから承認する""", json_schema_extra = { "linkml_meta": {'domain_of': ['BulkApproval', 'AllApproval', 'TableApproval']} })
+
+
+class AllApproval(ConfiguredBaseModel):
+    """
+    開発用の全承認（mandara serve --dev のときだけ）。種類を選ぶ問いを除く、まだ判断されていない問いをすべて承認する。 プロセス境界（UI → HTTP API）で受け渡す形
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'tree_root': True})
+
+    locations: list[str] = Field(default=..., description="""見せた問いの場所。今も種類を選ばなくてよい未判断の問いのままであることを確かめてから承認する""", json_schema_extra = { "linkml_meta": {'domain_of': ['BulkApproval', 'AllApproval', 'TableApproval']} })
 
 
 class TableApproval(ConfiguredBaseModel):
@@ -745,7 +755,7 @@ class TableApproval(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'tree_root': True})
 
     table: str = Field(default=..., description="""表の安定 ID""", json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef', 'ReviewQuestion', 'TableApproval', 'PointSet']} })
-    locations: list[str] = Field(default=..., description="""見せた問いの場所。今もその表の、種類を選ばなくてよい問いのままであることを確かめてから承認する""", json_schema_extra = { "linkml_meta": {'domain_of': ['BulkApproval', 'TableApproval']} })
+    locations: list[str] = Field(default=..., description="""見せた問いの場所。今もその表の、種類を選ばなくてよい問いのままであることを確かめてから承認する""", json_schema_extra = { "linkml_meta": {'domain_of': ['BulkApproval', 'AllApproval', 'TableApproval']} })
 
 
 class PointSet(ConfiguredBaseModel):
@@ -806,6 +816,7 @@ ReviewQuestion.model_rebuild()
 EvidenceLine.model_rebuild()
 ReviewAnswer.model_rebuild()
 BulkApproval.model_rebuild()
+AllApproval.model_rebuild()
 TableApproval.model_rebuild()
 PointSet.model_rebuild()
 GeoPointRow.model_rebuild()

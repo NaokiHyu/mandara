@@ -59,6 +59,7 @@ from mandara.review.decisions import (
     Question,
     ReviewError,
     apply,
+    is_approve_all_member,
     is_bulk_candidate,
     is_table_batch_member,
     questions,
@@ -562,6 +563,22 @@ def _table_batch(ontology: Ontology, table_id: str) -> list[Question]:
     if ontology.table(table_id) is None:
         raise ReviewError(f"表が無い: {table_id}")
     return [q for q in questions(ontology) if is_table_batch_member(q, table_id)]
+
+
+def approve_all(workspace: Workspace, locations: Sequence[str], reviewer: str, on: date) -> int:
+    """開発用の全承認：見せた問い（locations）が、今の種類を選ばなくてよい未判断の問いとちょうど同じなら、すべて承認する。
+    中身を見ずに固定するので、開発中に承認済みの状態を試すためだけに使う（API は serve --dev のときだけ受け付ける）。
+    全部を当ててから1回で書く（途中で当てられない問いがあれば、何も書かない）。"""
+    ontology = load_ontology(workspace.ontology)
+    candidates = [q.location for q in questions(ontology) if is_approve_all_member(q)]
+    if not candidates:
+        raise ReviewError("承認する問いが無い")
+    if sorted(locations) != sorted(candidates):
+        raise LedgerMismatchError(f"見せた一覧（{len(locations)} 件）と今の候補（{len(candidates)} 件）が食い違う。一覧を出し直す")
+    for location in candidates:
+        ontology = apply(ontology, location, Approve(), reviewer, on)
+    write_reviewed_ontology(workspace.ontology, ontology)
+    return len(candidates)
 
 
 def approve_table(workspace: Workspace, table_id: str, locations: Sequence[str], reviewer: str, on: date) -> int:

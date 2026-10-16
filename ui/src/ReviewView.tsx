@@ -1,9 +1,9 @@
 // レビュー画面（仕様 9.3）：提案に問いの形で答える。根拠は3行まで、影響の大きい順、一括承認は一覧を見てから。
 // 書き込みは API（CLI と同じユースケース）だけが行う。当てられない答えは API の理由をそのまま見せ、選び直してもらう。
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ApiError, getReview, postAnswer, postBulk, postTable, WrittenButStaleError } from "./api";
+import { ApiError, getReview, postAll, postAnswer, postBulk, postTable, WrittenButStaleError } from "./api";
 import type { OntologyDocument, ReviewAnswer, ReviewQuestion, ReviewQueue } from "./om/model";
-import { KIND_KEYS, SUBJECT_LABEL, SUBJECTS, asSubject, countBySubject, keyAction, nextLocation, tableBatch,
+import { KIND_KEYS, SUBJECT_LABEL, SUBJECTS, approveAllBatch, asSubject, countBySubject, keyAction, nextLocation, tableBatch,
          visible, type Subject } from "./review";
 import { TableDetail } from "./TableDetail";
 import { KIND } from "./vocabulary";
@@ -25,7 +25,7 @@ export function ReviewView({ ontologyId, doc, onChanged, onOpenTable }: {
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
   /** 開いている一括承認の一覧：確信度で選んだ候補（threshold）か、表ごとの候補（table）。 */
-  const [batch, setBatch] = useState<{ type: "threshold" } | { type: "table"; table: string } | null>(null);
+  const [batch, setBatch] = useState<{ type: "threshold" } | { type: "table"; table: string } | { type: "all" } | null>(null);
   const bulkOpen = batch !== null;
 
   useEffect(() => {
@@ -146,6 +146,12 @@ export function ReviewView({ ontologyId, doc, onChanged, onOpenTable }: {
             <button onClick={() => setBatch({ type: "threshold" })}>一覧を見る</button>
           </div>
         )}
+        {q.approve_all && !bulkOpen && approveAllBatch(q.questions).length > 0 && (
+          <div className="banner bulk dev-all">
+            <span><strong>DEV</strong> 未判断の提案をすべて承認する（種類を選ぶ表 {q.questions.filter((x) => x.needs_kind).length} 件を除く）</span>
+            <button onClick={() => setBatch({ type: "all" })}>全部承認…</button>
+          </div>
+        )}
         {q.writable && !bulkOpen && table !== undefined && sameTable.length > 1 && (
           <div className="banner bulk table-batch">
             <span>この表（{table.name}）の提案 <strong>{sameTable.length.toLocaleString()}</strong> 件</span>
@@ -157,6 +163,11 @@ export function ReviewView({ ontologyId, doc, onChanged, onOpenTable }: {
                      candidates={candidates}
                      submit={() => postBulk(ontologyId, { threshold: q.bulk_minimum,
                                                           locations: candidates.map((c) => c.location) })}
+                     onDone={done} onClose={() => setBatch(null)} />
+        ) : batch?.type === "all" ? (
+          <BulkPanel title="全部承認（開発用）" detail="中身を見ずに承認済みにする。やり直すときは作業領域を作り直す"
+                     bulkMinimum={q.bulk_minimum} candidates={approveAllBatch(q.questions)}
+                     submit={() => postAll(ontologyId, { locations: approveAllBatch(q.questions).map((c) => c.location) })}
                      onDone={done} onClose={() => setBatch(null)} />
         ) : batch?.type === "table" ? (
           <TableBatchPanel ontologyId={ontologyId} queue={q} table={batch.table}

@@ -91,6 +91,11 @@ def is_table_batch_member(question: Question, table_id: str) -> bool:
     return question.table == table_id and not question.needs_kind
 
 
+def is_approve_all_member(question: Question) -> bool:
+    """開発用の全承認の候補：承認に種類を選ぶ必要が無い問い（種類は人が選ぶ）。"""
+    return not question.needs_kind
+
+
 def is_bulk_candidate(question: Question, threshold: float) -> bool:
     """一括承認の候補（仕様 9.3）：確信度が閾値以上で、承認に種類を選ぶ必要が無い。"""
     return question.confidence is not None and question.confidence >= threshold and not question.needs_kind

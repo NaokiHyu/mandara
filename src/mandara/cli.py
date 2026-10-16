@@ -140,6 +140,8 @@ def _parser() -> argparse.ArgumentParser:
                    help="ソースの接続（地図の点などの実データを読む）。CONNINFO は libpq の接続文字列。繰り返し指定。"
                         "パスワードは書かない（ps で見える）。~/.pgpass か PGPASSFILE を使う")
     p.add_argument("--reviewer", help="画面からのレビューの答えを、この名前で書く（reviewed_by）。無ければ答えは書けない")
+    p.add_argument("--dev", action="store_true",
+                   help="開発用：画面に全承認を出す（中身を見ずに固定する。承認済みの状態を試すためだけ）。--reviewer が要る")
     p.add_argument("--host", default="127.0.0.1", help="既定はこの機械の中だけ")
     p.add_argument("--port", type=int, default=8765)
     p.set_defaults(handler=_serve)
@@ -318,10 +320,14 @@ def _serve(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
         readers[name] = PostgresColumnReader(conninfo)
     if args.reviewer is not None and not args.reviewer.strip():
         raise UsageError("--reviewer は空にしない")
-    reviewing = Reviewing(args.reviewer, lambda: _now().date()) if args.reviewer is not None else None
+    if args.dev and args.reviewer is None:
+        raise UsageError("--dev には --reviewer が要る（全承認を誰の名前で書くか）")
+    reviewing = Reviewing(args.reviewer, lambda: _now().date(), args.dev) if args.reviewer is not None else None
     print(f"{style.accent('◆ MANDARA')}  serving {len(sources)} ontologies on http://{args.host}:{args.port}", file=out)
     print(style.dim(f"   review as {args.reviewer}" if reviewing else "   review: read only (--reviewer NAME to answer)"),
           file=out)
+    if args.dev:
+        print(f"   {style.bad('dev')}  approve-all is enabled", file=out)
     for s in sources:
         print(style.dim(f"   {s.id:<28} {s.root}"), file=out)
     for name in readers:

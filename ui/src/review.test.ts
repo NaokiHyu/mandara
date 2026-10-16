@@ -2,7 +2,7 @@
 // 答えた後の列に残っていて、飛ばしていない問いだけ。
 import { describe, expect, it } from "vitest";
 import { type ReviewQuestion, ReviewSubject } from "./om/model";
-import { countBySubject, keyAction, nextLocation, tableBatch, visible } from "./review";
+import { approveAllBatch, countBySubject, keyAction, nextLocation, tableBatch, visible } from "./review";
 
 function question(location: string, extra: Partial<ReviewQuestion> = {}): ReviewQuestion {
   return { location, subject: "column", text: location, evidence: [], evidence_total: 0, needs_kind: false,
@@ -76,5 +76,6 @@ describe("表ごと承認", () => {
                 question("b", { table: "t2" }), question("v"), question("c", { table: "t1", subject: "relation" })];
     expect(tableBatch(qs, "t1").map((q) => q.location)).toEqual(["a", "c"]);
     expect(tableBatch(qs, "none")).toEqual([]);
+    expect(approveAllBatch(qs).map((q) => q.location)).toEqual(["a", "b", "v", "c"]);
   });
 });
