@@ -5,6 +5,7 @@
 #   - index.schema.json … OntologyIndex（見られる OM の一覧）の JSON Schema
 #   - points.schema.json … PointSet（地図の点）の JSON Schema
 #   - review.schema.json … ReviewQueue（レビューの問いの列）の JSON Schema
+#   - domains.schema.json / domain_rows.schema.json / instance.schema.json … ドメインビューワ（DomainIndex / DomainRows / Instance）
 # 使い方: scripts/gen_ui_types.sh [出力ディレクトリ]（既定 ui/src/om）
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -21,3 +22,6 @@ mkdir -p "$OUT_DIR"
 (cd "$ROOT" && uv run gen-json-schema --top-class OntologyIndex "$SCHEMA_REL") | sed "s|$ROOT/||g" > "$OUT_DIR/index.schema.json"
 (cd "$ROOT" && uv run gen-json-schema --top-class PointSet "$SCHEMA_REL") | sed "s|$ROOT/||g" > "$OUT_DIR/points.schema.json"
 (cd "$ROOT" && uv run gen-json-schema --top-class ReviewQueue "$SCHEMA_REL") | sed "s|$ROOT/||g" > "$OUT_DIR/review.schema.json"
+(cd "$ROOT" && uv run gen-json-schema --top-class DomainIndex "$SCHEMA_REL") | sed "s|$ROOT/||g" > "$OUT_DIR/domains.schema.json"
+(cd "$ROOT" && uv run gen-json-schema --top-class DomainRows "$SCHEMA_REL") | sed "s|$ROOT/||g" > "$OUT_DIR/domain_rows.schema.json"
+(cd "$ROOT" && uv run gen-json-schema --top-class Instance "$SCHEMA_REL") | sed "s|$ROOT/||g" > "$OUT_DIR/instance.schema.json"

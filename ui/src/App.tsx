@@ -4,6 +4,7 @@ import type { OntologyDocument, OntologyListing, Table } from "./om/model";
 import { geoColumns, type GeoColumn } from "./geo";
 import { contextColor, GraphView } from "./GraphView";
 import { shortName, toGraph } from "./graph";
+import { DomainView } from "./DomainView";
 import { ReviewView } from "./ReviewView";
 import { TableDetail } from "./TableDetail";
 import { asKind, KIND } from "./vocabulary";
@@ -14,12 +15,13 @@ type Load<T> = { state: "loading" } | { state: "ok"; value: T } | { state: "erro
 // 地図（MapLibre）は大きいので、地図を開いたときに読む
 const MapView = lazy(() => import("./MapView").then((m) => ({ default: m.MapView })));
 
-type View = "graph" | "list" | "map" | "review";
-const VIEWS: readonly View[] = ["graph", "list", "map", "review"];
+type View = "graph" | "list" | "map" | "review" | "domain";
+const VIEWS: readonly View[] = ["graph", "list", "map", "review", "domain"];
 
-/** URL（?ontology=…&table=…&view=…）で、どの OM のどの表をどう見ているかを表す。開き直しても、共有しても同じものが見える。
- *  view が無ければ graph。知らない view は、黙って置き換えずに伝える（unknownView）。 */
-function readUrl(): { ontology: string | null; table: string | null; view: View; unknownView: string | null } {
+/** URL（?ontology=…&table=…&view=…&key=…）で、どの OM のどの表をどう見ているかを表す。開き直しても、共有しても同じものが見える。
+ *  view が無ければ graph。知らない view は、黙って置き換えずに伝える（unknownView）。key はドメインビューワのインスタンス（主キーの値）。 */
+function readUrl(): { ontology: string | null; table: string | null; view: View; unknownView: string | null;
+                      key: string[] | null } {
   const params = new URLSearchParams(location.search);
   const raw = params.get("view");
   const view = raw === null ? "graph" : VIEWS.find((v) => v === raw);
@@ -28,14 +30,16 @@ function readUrl(): { ontology: string | null; table: string | null; view: View;
     table: params.get("table"),
     view: view ?? "graph",
     unknownView: view === undefined ? raw : null,
+    key: params.has("key") ? params.getAll("key") : null,
   };
 }
 
-function writeUrl(ontology: string | null, table: string | null, view: View): void {
+function writeUrl(ontology: string | null, table: string | null, view: View, key: readonly string[] | null): void {
   const params = new URLSearchParams();
   if (ontology !== null) params.set("ontology", ontology);
   if (table !== null) params.set("table", table);
   if (view !== "graph") params.set("view", view);
+  if (view === "domain" && key !== null) for (const k of key) params.append("key", k);
   const search = params.toString();
   history.replaceState(null, "", search === "" ? location.pathname : `?${search}`);
 }
@@ -47,10 +51,15 @@ export function App() {
   const [view, setView] = useState<View>(() => readUrl().view);
   const [unknownView] = useState(() => readUrl().unknownView);
   const [table, setTable] = useState<string | null>(() => readUrl().table);
+  const [instanceKey, setInstanceKey] = useState<string[] | null>(() => readUrl().key);
   const select = useCallback((id: string | null) => setTable(id), []);
   const openTable = useCallback((id: string) => { setTable(id); setView("graph"); }, []);
 
-  useEffect(() => writeUrl(selected, table, view), [selected, table, view]);
+  useEffect(() => writeUrl(selected, table, view, instanceKey), [selected, table, view, instanceKey]);
+  const place = useCallback((p: { table: string; key: readonly string[] | null } | null) => {
+    setTable(p?.table ?? null);
+    setInstanceKey(p?.key === null || p === null ? null : [...p.key]);
+  }, []);
 
   useEffect(() => {
     listOntologies().then(
@@ -86,7 +95,7 @@ export function App() {
       <header className="bar">
         <span className="brand">◆ MANDARA</span>
         {listing.state === "ok" && (
-          <select value={selected ?? ""} onChange={(e) => { setSelected(e.target.value); setTable(null); }}>
+          <select value={selected ?? ""} onChange={(e) => { setSelected(e.target.value); setTable(null); setInstanceKey(null); }}>
             {listing.value.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
           </select>
         )}
@@ -112,8 +121,13 @@ export function App() {
         {doc?.state === "error" && <Failure error={doc.error} />}
         {doc?.state === "loading" && <p className="dim">loading…</p>}
         {doc?.state === "ok" && (
-          <Workspace ontologyId={requireSelected(selected)} doc={doc.value} view={view} table={table} onSelect={select}
-                     onChanged={refresh} onOpenTable={openTable} />
+          view === "domain" ? (
+            <DomainView ontologyId={requireSelected(selected)}
+                        place={table === null ? null : { table, key: instanceKey }} onPlace={place} />
+          ) : (
+            <Workspace ontologyId={requireSelected(selected)} doc={doc.value} view={view} table={table} onSelect={select}
+                       onChanged={refresh} onOpenTable={openTable} />
+          )
         )}
       </main>
     </div>

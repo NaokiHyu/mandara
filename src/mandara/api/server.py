@@ -19,15 +19,15 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 from urllib.parse import urlsplit
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from mandara.app import pipeline
+from mandara.app import browse, pipeline
 from mandara.om.model import (
     AllApproval,
     BulkApproval,
@@ -51,6 +51,7 @@ from mandara.omstore.codec import OmLoadError
 from mandara.omstore.yaml_store import InvalidOntologyError, OntologyWriteRefusedError
 from mandara.review.decisions import Approve, Decision, Reject, ReviewError, is_bulk_candidate
 from mandara.source.catalog import SourceError
+from mandara.source.records import RecordReader
 from mandara.source.rows import ColumnReader
 
 POINT_LIMIT = 50_000
@@ -162,10 +163,12 @@ def _write_refused(request: Request) -> JSONResponse | None:
 
 
 def create_app(sources: list[OntologySource], readers: dict[str, ColumnReader] | None = None,
-               reviewing: Reviewing | None = None) -> FastAPI:
+               reviewing: Reviewing | None = None, records: dict[str, RecordReader] | None = None) -> FastAPI:
     """readers はソースの名前（表の source）→ 列を読むもの。無いソースの点は読めない。
+    records はソースの名前 → 行を読むもの（ドメインビューワ）。無いソースのインスタンスは読めない。
     reviewing が無ければ、レビューの問いは読めるが答えは書けない。"""
     readers = readers or {}
+    records = records or {}
     by_id = {s.id: s for s in sources}
     write_lock = threading.Lock()
     app = FastAPI(title="Mandara", docs_url=None, redoc_url=None)
@@ -205,6 +208,68 @@ def create_app(sources: list[OntologySource], readers: dict[str, ColumnReader] |
         except (OmLoadError, SourceError) as e:
             return JSONResponse({"error": f"読めなかった: {e}"}, status_code=502)
         return JSONResponse(to_point_set(points))
+
+    def browsing(ontology_id: str, table_id: str) -> tuple[Ontology, RecordReader] | JSONResponse:
+        source = by_id.get(ontology_id)
+        if source is None:
+            return JSONResponse({"error": f"OM が無い: {ontology_id}"}, status_code=404)
+        ontology = pipeline.read_ontology(source.root)
+        table = ontology.table(table_id)
+        if table is None:
+            return JSONResponse({"error": f"表が無い: {table_id}"}, status_code=404)
+        reader = records.get(table.source)
+        if reader is None:
+            return JSONResponse({"error": f"ソース {table.source} の接続が無い（mandara serve --connect "
+                                          f"{table.source} CONNINFO）"}, status_code=409)
+        return ontology, reader
+
+    def get_domains(ontology_id: str) -> JSONResponse:
+        source = by_id.get(ontology_id)
+        if source is None:
+            return JSONResponse({"error": f"OM が無い: {ontology_id}", "known": sorted(by_id)}, status_code=404)
+        try:
+            ontology = pipeline.read_ontology(source.root)
+        except OmLoadError as e:
+            return JSONResponse({"error": f"OM を読めなかった: {e}"}, status_code=500)
+        index = browse.domain_index(ontology, ontology_id, set(records))
+        return JSONResponse(index.model_dump(mode="json", exclude_none=True))
+
+    def get_rows(ontology_id: str, table_id: str, q: str | None = None,
+                 limit: int = browse.SEARCH_LIMIT) -> JSONResponse:
+        if not 1 <= limit <= browse.SEARCH_LIMIT:
+            return JSONResponse({"error": f"limit は 1 以上 {browse.SEARCH_LIMIT} 以下"}, status_code=422)
+        try:
+            found = browsing(ontology_id, table_id)
+            if isinstance(found, JSONResponse):
+                return found
+            ontology, reader = found
+            rows = browse.search(ontology, table_id, reader, q, limit)
+        except browse.NotFoundError as e:
+            return JSONResponse({"error": str(e)}, status_code=404)
+        except browse.BrowseError as e:
+            return JSONResponse({"error": str(e)}, status_code=422)
+        except OmLoadError as e:
+            return JSONResponse({"error": f"OM を読めなかった: {e}"}, status_code=500)
+        except SourceError as e:
+            return JSONResponse({"error": f"読めなかった: {e}"}, status_code=502)
+        return JSONResponse(rows.model_dump(mode="json", exclude_none=True))
+
+    def get_instance(ontology_id: str, table_id: str, key: Annotated[list[str], Query()]) -> JSONResponse:
+        try:
+            found = browsing(ontology_id, table_id)
+            if isinstance(found, JSONResponse):
+                return found
+            ontology, reader = found
+            shown = browse.instance(ontology, table_id, key, reader)
+        except browse.NotFoundError as e:
+            return JSONResponse({"error": str(e)}, status_code=404)
+        except browse.BrowseError as e:
+            return JSONResponse({"error": str(e)}, status_code=422)
+        except OmLoadError as e:
+            return JSONResponse({"error": f"OM を読めなかった: {e}"}, status_code=500)
+        except SourceError as e:
+            return JSONResponse({"error": f"読めなかった: {e}"}, status_code=502)
+        return JSONResponse(shown.model_dump(mode="json", exclude_none=True))
 
     def reviewable(ontology_id: str) -> tuple[OntologySource, pipeline.Workspace] | JSONResponse:
         source = by_id.get(ontology_id)
@@ -306,5 +371,8 @@ def create_app(sources: list[OntologySource], readers: dict[str, ColumnReader] |
     app.add_api_route("/api/ontologies/{ontology_id}/review/all", post_all, methods=["POST"])
     app.add_api_route("/api/ontologies", list_ontologies, methods=["GET"])
     app.add_api_route("/api/ontologies/{ontology_id}/tables/{table_id}/points", get_points, methods=["GET"])
+    app.add_api_route("/api/ontologies/{ontology_id}/domains", get_domains, methods=["GET"])
+    app.add_api_route("/api/ontologies/{ontology_id}/domains/{table_id}/rows", get_rows, methods=["GET"])
+    app.add_api_route("/api/ontologies/{ontology_id}/domains/{table_id}/instance", get_instance, methods=["GET"])
     app.add_api_route("/api/ontologies/{ontology_id}", get_ontology, methods=["GET"])
     return app

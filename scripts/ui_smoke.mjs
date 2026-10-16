@@ -47,6 +47,10 @@ const CASES = [
              "document.querySelector('.bulk-panel footer .approve').click()",
     after: "document.querySelector('.bulk-panel') === null && window.__batch > 1 && " +
            "Number(document.querySelector('.review-queue .count')?.textContent.replace(/,/g, '')) === window.__pending - window.__batch" },
+  // ドメインビューワ：ドメインの一覧を契約どおりに読み、ドメインにしない表を理由つきで出す
+  //（スモークの作業領域は規則だけの提案で、種類の決まった承認済みの表がまだ無いので、ドメインの中身は単体テストで見る）
+  { name: "domain", query: "?ontology=work:adventureworks&view=domain",
+    expect: "document.querySelector('.domain-list .count') !== null && document.querySelector('.hidden-tables summary') !== null && !document.querySelector('.failure')" },
   // 承認した結果が、オントロジーの画面（表の詳細）に出る
   { name: "approved in ontology", query: "?ontology=work:adventureworks&view=list",
     expect: "document.querySelectorAll('.contexts .table').length > 0",

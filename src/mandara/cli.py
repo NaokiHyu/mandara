@@ -20,6 +20,7 @@ from mandara.app.pipeline import BulkThresholdError, LedgerMismatchError
 from mandara.app.pipeline import Workspace
 from mandara.connectors.postgres.catalog_reader import PostgresCatalogReader
 from mandara.connectors.postgres.column_reader import PostgresColumnReader
+from mandara.connectors.postgres.record_reader import PostgresRecordReader
 from mandara.evaluation.score import InvalidForScoringError, Report
 from mandara.llm.claude.model import ClaudeModel
 from mandara.llm.decision import BudgetedDecisionModel, Choice, DecisionRequest
@@ -35,6 +36,7 @@ from mandara.omstore.tree import UnstorableNameError
 from mandara.omstore.yaml_store import InvalidOntologyError, OntologyWriteRefusedError
 from mandara.review.decisions import Approve, Decision, Question, Reject, ReviewError
 from mandara.source.catalog import Scope, SourceError
+from mandara.source.records import RecordReader
 from mandara.source.rows import ColumnReader
 
 class UsageError(Exception):
@@ -312,12 +314,14 @@ def _serve(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
     sources = discover(args.work or Path("work"), gold)
     known = {t.source for s in sources for t in pipeline.read_ontology(s.root).tables}
     readers: dict[str, ColumnReader] = {}
+    records: dict[str, RecordReader] = {}
     for name, conninfo in args.connect:
         if name in readers:
             raise UsageError(f"--connect の SOURCE が重複している: {name}")
         if name not in known:
             raise UsageError(f"--connect の SOURCE {name} は、どの OM の表のソースでもない（ある: {sorted(known)}）")
         readers[name] = PostgresColumnReader(conninfo)
+        records[name] = PostgresRecordReader(conninfo)
     if args.reviewer is not None and not args.reviewer.strip():
         raise UsageError("--reviewer は空にしない")
     if args.dev and args.reviewer is None:
@@ -332,7 +336,7 @@ def _serve(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
         print(style.dim(f"   {s.id:<28} {s.root}"), file=out)
     for name in readers:
         print(style.dim(f"   connect {name}"), file=out)
-    uvicorn.run(create_app(sources, readers, reviewing), host=args.host, port=args.port, log_level="warning")
+    uvicorn.run(create_app(sources, readers, reviewing, records), host=args.host, port=args.port, log_level="warning")
     return 0
 
 

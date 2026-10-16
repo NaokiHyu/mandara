@@ -2,9 +2,12 @@
 // 型として扱う。検証器は厳格（strict）にし、日付などの format も検証する。
 import Ajv2019 from "ajv/dist/2019";
 import addFormats from "ajv-formats";
+import domainRowsSchema from "./om/domain_rows.schema.json";
+import domainsSchema from "./om/domains.schema.json";
 import indexSchema from "./om/index.schema.json";
-import type { AllApproval, BulkApproval, OntologyDocument, OntologyIndex, PointSet, ReviewAnswer, ReviewQueue,
-              TableApproval } from "./om/model";
+import instanceSchema from "./om/instance.schema.json";
+import type { AllApproval, BulkApproval, DomainIndex, DomainRows, Instance, OntologyDocument, OntologyIndex, PointSet,
+              ReviewAnswer, ReviewQueue, TableApproval } from "./om/model";
 import documentSchema from "./om/om.schema.json";
 import pointsSchema from "./om/points.schema.json";
 import reviewSchema from "./om/review.schema.json";
@@ -45,6 +48,10 @@ export const parseDocument = validator<OntologyDocument>(documentSchema, "OM の
 export const parseIndex = validator<OntologyIndex>(indexSchema, "OM の一覧");
 /** 地図の点を検証する。 */
 export const parsePoints = validator<PointSet>(pointsSchema, "地図の点");
+/** ドメインビューワの応答を検証する。 */
+export const parseDomains = validator<DomainIndex>(domainsSchema, "ドメインの一覧");
+export const parseDomainRows = validator<DomainRows>(domainRowsSchema, "ドメインの検索結果");
+export const parseInstance = validator<Instance>(instanceSchema, "インスタンス");
 /** レビューの問いの列を検証する。 */
 export const parseReview = validator<ReviewQueue>(reviewSchema, "レビューの問いの列");
 
@@ -116,4 +123,24 @@ export async function postAll(ontologyId: string, batch: AllApproval): Promise<R
 /** 表ごとの一覧で見せた問いを承認する。見せた後に変わっていれば 409 の ApiError（一覧を出し直す）。 */
 export async function postTable(ontologyId: string, batch: TableApproval): Promise<ReviewQueue> {
   return parseReview(await postJson(`${reviewPath(ontologyId)}/table`, batch));
+}
+
+function domainsPath(ontologyId: string): string {
+  return `/api/ontologies/${encodeURIComponent(ontologyId)}/domains`;
+}
+
+export async function getDomains(ontologyId: string): Promise<DomainIndex> {
+  return parseDomains(await getJson(domainsPath(ontologyId)));
+}
+
+/** ドメインの集合：query があれば部分一致の検索、無ければ先頭から。 */
+export async function getDomainRows(ontologyId: string, tableId: string, query: string): Promise<DomainRows> {
+  const q = query.trim() === "" ? "" : `?q=${encodeURIComponent(query.trim())}`;
+  return parseDomainRows(await getJson(`${domainsPath(ontologyId)}/${encodeURIComponent(tableId)}/rows${q}`));
+}
+
+/** インスタンス（1行）と、その近隣。key は主キーの値（主キーの列の順）。 */
+export async function getInstance(ontologyId: string, tableId: string, key: readonly string[]): Promise<Instance> {
+  const params = new URLSearchParams(key.map((k) => ["key", k]));
+  return parseInstance(await getJson(`${domainsPath(ontologyId)}/${encodeURIComponent(tableId)}/instance?${params}`));
 }

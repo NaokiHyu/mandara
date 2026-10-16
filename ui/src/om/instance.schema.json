@@ -1,0 +1,2322 @@
+{
+    "$defs": {
+        "Additivity": {
+            "description": "\u5c3a\u5ea6\u306e\u52a0\u6cd5\u6027\uff0810.4\uff09",
+            "enum": [
+                "additive",
+                "semi-additive",
+                "non-additive"
+            ],
+            "title": "Additivity",
+            "type": "string"
+        },
+        "AliasEntry": {
+            "additionalProperties": false,
+            "description": "",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "terms": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "name",
+                "terms"
+            ],
+            "title": "AliasEntry",
+            "type": "object"
+        },
+        "AliasEntry__identifier_optional": {
+            "additionalProperties": false,
+            "description": "",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "terms": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "terms"
+            ],
+            "title": "AliasEntry",
+            "type": "object"
+        },
+        "AllApproval": {
+            "additionalProperties": false,
+            "description": "\u958b\u767a\u7528\u306e\u5168\u627f\u8a8d\uff08mandara serve --dev \u306e\u3068\u304d\u3060\u3051\uff09\u3002\u7a2e\u985e\u3092\u9078\u3076\u554f\u3044\u3092\u9664\u304f\u3001\u307e\u3060\u5224\u65ad\u3055\u308c\u3066\u3044\u306a\u3044\u554f\u3044\u3092\u3059\u3079\u3066\u627f\u8a8d\u3059\u308b\u3002 \u30d7\u30ed\u30bb\u30b9\u5883\u754c\uff08UI \u2192 HTTP API\uff09\u3067\u53d7\u3051\u6e21\u3059\u5f62",
+            "properties": {
+                "locations": {
+                    "description": "\u898b\u305b\u305f\u554f\u3044\u306e\u5834\u6240\u3002\u4eca\u3082\u7a2e\u985e\u3092\u9078\u3070\u306a\u304f\u3066\u3088\u3044\u672a\u5224\u65ad\u306e\u554f\u3044\u306e\u307e\u307e\u3067\u3042\u308b\u3053\u3068\u3092\u78ba\u304b\u3081\u3066\u304b\u3089\u627f\u8a8d\u3059\u308b",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "locations"
+            ],
+            "title": "AllApproval",
+            "type": "object"
+        },
+        "Annotation": {
+            "additionalProperties": false,
+            "description": "\u3059\u3079\u3066\u306e\u6ce8\u91c8\u304c\u6301\u3064\u5171\u901a\u30d5\u30a3\u30fc\u30eb\u30c9\uff084.4\uff09",
+            "properties": {
+                "confidence": {
+                    "maximum": 1.0,
+                    "minimum": 0.0,
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                },
+                "evidence": {
+                    "description": "\u4e3b\u5f35\u53f0\u5e33\uff086.6\uff09\u306e\u4e3b\u5f35ID",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
+                "inferred_by": {
+                    "description": "\u63d0\u6848\u8005\u306e\u30e2\u30c7\u30eb\u540d\u3068\u7248\u3001\u5b9f\u884cID",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "note": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "reviewed_at": {
+                    "format": "date",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "reviewed_by": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "status": {
+                    "$ref": "#/$defs/ReviewStatus"
+                }
+            },
+            "required": [
+                "status"
+            ],
+            "title": "Annotation",
+            "type": "object"
+        },
+        "BulkApproval": {
+            "additionalProperties": false,
+            "description": "\u4e00\u89a7\u3067\u898b\u305b\u305f\u5019\u88dc\u306e\u4e00\u62ec\u627f\u8a8d\uff08\u4ed5\u69d8 9.3\uff09\u3002\u30d7\u30ed\u30bb\u30b9\u5883\u754c\uff08UI \u2192 HTTP API\uff09\u3067\u53d7\u3051\u6e21\u3059\u5f62",
+            "properties": {
+                "locations": {
+                    "description": "\u898b\u305b\u305f\u5019\u88dc\u306e\u5834\u6240\u3002\u4eca\u3082\u5019\u88dc\u306e\u307e\u307e\u3067\u3042\u308b\u3053\u3068\u3092\u78ba\u304b\u3081\u3066\u304b\u3089\u627f\u8a8d\u3059\u308b",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "threshold": {
+                    "type": "number"
+                }
+            },
+            "required": [
+                "threshold",
+                "locations"
+            ],
+            "title": "BulkApproval",
+            "type": "object"
+        },
+        "Cardinality": {
+            "description": "",
+            "enum": [
+                "1:1",
+                "1:n",
+                "n:1",
+                "n:m"
+            ],
+            "title": "Cardinality",
+            "type": "string"
+        },
+        "Cell": {
+            "additionalProperties": false,
+            "description": "",
+            "properties": {
+                "column": {
+                    "type": "string"
+                },
+                "semantic_type": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "value": {
+                    "description": "\u8868\u793a\u306e\u6587\u5b57\u5217\u3002NULL \u306f\u7121\u3057",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                }
+            },
+            "required": [
+                "column"
+            ],
+            "title": "Cell",
+            "type": "object"
+        },
+        "Claim": {
+            "additionalProperties": false,
+            "description": "\u30bd\u30fc\u30b9\u306b\u3064\u3044\u3066\u306e\u4e3b\u5f35\u3002id \u306f\u5185\u5bb9\uff08subject\u3001predicate\u3001\u5024\u306e\u30d5\u30a3\u30fc\u30eb\u30c9\u3001source\uff09\u304b\u3089\u6c7a\u307e\u308a\u3001 \u62bd\u51fa\u5668\u306e\u7248\u30fb\u78ba\u4fe1\u5ea6\u30fb\u5b9f\u884c\u6642\u523b\u306b\u306f\u4f9d\u5b58\u3057\u306a\u3044\u3002\u518d\u751f\u6210\u3057\u3066\u3082\u540c\u3058 id \u306b\u306a\u308b",
+            "properties": {
+                "columns": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
+                "confidence": {
+                    "maximum": 1.0,
+                    "minimum": 0.0,
+                    "type": "number"
+                },
+                "extracted_by": {
+                    "description": "\u62bd\u51fa\u5668\u306e\u540d\u524d\u3068\u7248",
+                    "type": "string"
+                },
+                "family": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/TypeFamily"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "id": {
+                    "pattern": "^clm_[0-9a-f]{16}$",
+                    "type": "string"
+                },
+                "object_kind": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/ObjectKind"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "on_delete": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/ReferentialAction"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "on_update": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/ReferentialAction"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "position": {
+                    "description": "\u5217\u306e\u3001\u8868\u306e\u4e2d\u306e\u4f4d\u7f6e\uff081 \u304b\u3089\uff09",
+                    "minimum": 1,
+                    "type": [
+                        "integer",
+                        "null"
+                    ]
+                },
+                "predicate": {
+                    "$ref": "#/$defs/ClaimPredicate"
+                },
+                "source": {
+                    "$ref": "#/$defs/ClaimSource"
+                },
+                "subject": {
+                    "$ref": "#/$defs/SourceRef"
+                },
+                "target": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/SourceRef"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "target_columns": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
+                "text": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "type_name": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "valid_at": {
+                    "description": "\u51fa\u6240\u306e\u65e5\u4ed8\uff08\u6587\u66f8\u306e\u65e5\u4ed8\u306a\u3069\uff09\u3002\u9bae\u5ea6\u306e\u6839\u62e0",
+                    "format": "date",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                }
+            },
+            "required": [
+                "id",
+                "subject",
+                "predicate",
+                "source",
+                "extracted_by",
+                "confidence"
+            ],
+            "title": "Claim",
+            "type": "object"
+        },
+        "ClaimFile": {
+            "additionalProperties": false,
+            "description": "work/<source>/claims/<schema>/<table>.yaml\u3002\u305d\u306e\u8868\u3092\u4e3b\u8a9e\u3068\u3059\u308b\u4e3b\u5f35\uff08\u5217\u3092\u4e3b\u8a9e\u3068\u3059\u308b\u3082\u306e\u3092\u542b\u3080\uff09\u306e\u4e00\u89a7\u3002 \u6c7a\u5b9a\u7684\u306a\u62bd\u51fa\u5668\u306e\u4e3b\u5f35\u306f\u518d\u751f\u6210\u3067\u304d\u308b\u30ad\u30e3\u30c3\u30b7\u30e5\u3067\u3001git \u306b\u4e57\u305b\u306a\u3044",
+            "properties": {
+                "claims": {
+                    "items": {
+                        "$ref": "#/$defs/Claim"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                }
+            },
+            "title": "ClaimFile",
+            "type": "object"
+        },
+        "ClaimPredicate": {
+            "description": "\u4e3b\u5f35\u306e\u8ff0\u8a9e\uff086.6.2\uff09\u3002\u8ff0\u8a9e\u3054\u3068\u306b\u3001\u4e3b\u8a9e\u306e\u7c92\u5ea6\uff08\u8868 / \u5217\uff09\u3068\u3001\u5024\u3068\u3057\u3066\u6301\u3064\u30d5\u30a3\u30fc\u30eb\u30c9\u304c\u6c7a\u307e\u3063\u3066\u3044\u308b\u3002 \u4eca\u3042\u308b\u306e\u306f\u30ab\u30bf\u30ed\u30b0\u306e\u62bd\u51fa\u5668\uff08T1.3\uff09\u304c\u51fa\u3059\u3082\u306e\u3060\u3051\u3002\u8db3\u3059\u3068\u304d\u306f\u2460\u3092\u5909\u3048\u3001\u691c\u8a3c\u306e\u5f62\u306e\u8868\u3082\u8db3\u3059",
+            "enum": [
+                "identified_by",
+                "unique",
+                "references",
+                "declared_as",
+                "not_null",
+                "nullable",
+                "defaults_to",
+                "described_as",
+                "checks",
+                "typed_as",
+                "aliased_as"
+            ],
+            "title": "ClaimPredicate",
+            "type": "string"
+        },
+        "ClaimSource": {
+            "additionalProperties": false,
+            "description": "",
+            "properties": {
+                "kind": {
+                    "$ref": "#/$defs/ClaimSourceKind"
+                },
+                "locator": {
+                    "description": "\u51fa\u6240\u306e\u4e2d\u306e\u5834\u6240\uff08\u5236\u7d04\u540d\u3001\u30d5\u30a1\u30a4\u30eb\u3068\u884c\u306a\u3069\uff09",
+                    "type": "string"
+                }
+            },
+            "required": [
+                "kind",
+                "locator"
+            ],
+            "title": "ClaimSource",
+            "type": "object"
+        },
+        "ClaimSourceKind": {
+            "description": "\u4e3b\u5f35\u306e\u51fa\u6240\u306e\u7a2e\u985e\uff086.6.2\uff09",
+            "enum": [
+                "schema",
+                "sql",
+                "codelist",
+                "design-doc",
+                "memo",
+                "package",
+                "world",
+                "review"
+            ],
+            "title": "ClaimSourceKind",
+            "type": "string"
+        },
+        "Column": {
+            "additionalProperties": false,
+            "description": "",
+            "properties": {
+                "confidence": {
+                    "maximum": 1.0,
+                    "minimum": 0.0,
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                },
+                "encoding": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/SourceEncoding"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "\u30bd\u30fc\u30b9\u4e0a\u306e\u5024\u306e\u7269\u7406\u7684\u306a\u8868\u73fe\u3002\u610f\u5473\u306e\u578b\u306e\u6a19\u6e96\u7684\u306a\u8868\u73fe\u3068\u540c\u3058\u306a\u3089\u66f8\u304b\u306a\u3044"
+                },
+                "evidence": {
+                    "description": "\u4e3b\u5f35\u53f0\u5e33\uff086.6\uff09\u306e\u4e3b\u5f35ID",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
+                "inferred_by": {
+                    "description": "\u63d0\u6848\u8005\u306e\u30e2\u30c7\u30eb\u540d\u3068\u7248\u3001\u5b9f\u884cID",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "name": {
+                    "type": "string"
+                },
+                "note": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "pii": {
+                    "type": [
+                        "boolean",
+                        "null"
+                    ]
+                },
+                "reviewed_at": {
+                    "format": "date",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "reviewed_by": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "semantic_type": {
+                    "description": "vocabulary \u306e semantic_types \u306e\u30ad\u30fc",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "status": {
+                    "$ref": "#/$defs/ReviewStatus"
+                },
+                "unit": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/UnitSource"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "\u91cf\u306e\u5358\u4f4d\u306e\u51fa\u6240\uff08C5\uff09\u3002fixed / column \u306e\u3061\u3087\u3046\u30691\u3064"
+                }
+            },
+            "required": [
+                "name",
+                "status"
+            ],
+            "title": "Column",
+            "type": "object"
+        },
+        "ColumnPair": {
+            "additionalProperties": false,
+            "description": "",
+            "properties": {
+                "from": {
+                    "type": "string"
+                },
+                "to": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "from",
+                "to"
+            ],
+            "title": "ColumnPair",
+            "type": "object"
+        },
+        "Column__identifier_optional": {
+            "additionalProperties": false,
+            "description": "",
+            "properties": {
+                "confidence": {
+                    "maximum": 1.0,
+                    "minimum": 0.0,
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                },
+                "encoding": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/SourceEncoding"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "\u30bd\u30fc\u30b9\u4e0a\u306e\u5024\u306e\u7269\u7406\u7684\u306a\u8868\u73fe\u3002\u610f\u5473\u306e\u578b\u306e\u6a19\u6e96\u7684\u306a\u8868\u73fe\u3068\u540c\u3058\u306a\u3089\u66f8\u304b\u306a\u3044"
+                },
+                "evidence": {
+                    "description": "\u4e3b\u5f35\u53f0\u5e33\uff086.6\uff09\u306e\u4e3b\u5f35ID",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
+                "inferred_by": {
+                    "description": "\u63d0\u6848\u8005\u306e\u30e2\u30c7\u30eb\u540d\u3068\u7248\u3001\u5b9f\u884cID",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "name": {
+                    "type": "string"
+                },
+                "note": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "pii": {
+                    "type": [
+                        "boolean",
+                        "null"
+                    ]
+                },
+                "reviewed_at": {
+                    "format": "date",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "reviewed_by": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "semantic_type": {
+                    "description": "vocabulary \u306e semantic_types \u306e\u30ad\u30fc",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "status": {
+                    "$ref": "#/$defs/ReviewStatus"
+                },
+                "unit": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/UnitSource"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "\u91cf\u306e\u5358\u4f4d\u306e\u51fa\u6240\uff08C5\uff09\u3002fixed / column \u306e\u3061\u3087\u3046\u30691\u3064"
+                }
+            },
+            "required": [
+                "status"
+            ],
+            "title": "Column",
+            "type": "object"
+        },
+        "DomainIndex": {
+            "additionalProperties": false,
+            "description": "\u30c9\u30e1\u30a4\u30f3\u30d3\u30e5\u30fc\u30ef\u306e\u30c9\u30e1\u30a4\u30f3\u306e\u4e00\u89a7\uff08\u4ed5\u69d8 7.6\uff1a\u627f\u8a8d\u6e08\u307f\u306e OM \u304b\u3089\u4f5c\u308b\uff09\u3002domain / event \u306e\u627f\u8a8d\u6e08\u307f\u306e\u8868\u304c\u30c9\u30e1\u30a4\u30f3\u306b\u306a\u308b\u3002 relation \u306e\u8868\u306f\u30ea\u30f3\u30af\u3068\u3057\u3066\u305f\u3069\u308b\u3060\u3051\u3067\u3001\u30c9\u30e1\u30a4\u30f3\u306b\u3057\u306a\u3044\u3002\u51fa\u3055\u306a\u304b\u3063\u305f\u8868\u306f\u7406\u7531\u3068\u3068\u3082\u306b hidden \u306b\u6301\u3064\uff08\u9ed9\u3063\u3066\u6d88\u3055\u306a\u3044\uff09\u3002 \u30d7\u30ed\u30bb\u30b9\u5883\u754c\uff08HTTP API \u2192 UI\uff09\u3067\u53d7\u3051\u6e21\u3059\u5f62",
+            "properties": {
+                "domains": {
+                    "items": {
+                        "$ref": "#/$defs/DomainSummary"
+                    },
+                    "type": "array"
+                },
+                "hidden": {
+                    "items": {
+                        "$ref": "#/$defs/HiddenTable"
+                    },
+                    "type": "array"
+                },
+                "ontology": {
+                    "type": "string"
+                },
+                "readable": {
+                    "description": "\u884c\u3092\u8aad\u3081\u308b\u304b\uff08\u30bd\u30fc\u30b9\u3078\u306e\u63a5\u7d9a\u304c\u3042\u308b\uff09",
+                    "type": "boolean"
+                }
+            },
+            "required": [
+                "ontology",
+                "domains",
+                "hidden",
+                "readable"
+            ],
+            "title": "DomainIndex",
+            "type": "object"
+        },
+        "DomainRows": {
+            "additionalProperties": false,
+            "description": "\u30c9\u30e1\u30a4\u30f3\u306e\u691c\u7d22\u7d50\u679c\uff08\u96c6\u5408\u306e\u30d3\u30e5\u30fc\u3002\u8868\u306e\u30a4\u30e1\u30fc\u30b8\uff09\u3002query \u304c\u7121\u3051\u308c\u3070\u5148\u982d\u304b\u3089\u3002\u30d7\u30ed\u30bb\u30b9\u5883\u754c\uff08HTTP API \u2192 UI\uff09\u3067\u53d7\u3051\u6e21\u3059\u5f62",
+            "properties": {
+                "columns": {
+                    "description": "\u4e00\u89a7\u306b\u51fa\u3059\u5217\uff08\u6280\u8853\u5217\u3092\u9664\u304f\u3002cells \u306e\u5217\u306f\u3053\u306e\u4e2d\u304b\u3089\uff09",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "query": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "rows": {
+                    "items": {
+                        "$ref": "#/$defs/InstanceSummary"
+                    },
+                    "type": "array"
+                },
+                "table": {
+                    "type": "string"
+                },
+                "truncated": {
+                    "type": "boolean"
+                }
+            },
+            "required": [
+                "table",
+                "name",
+                "columns",
+                "rows",
+                "limit",
+                "truncated"
+            ],
+            "title": "DomainRows",
+            "type": "object"
+        },
+        "DomainSummary": {
+            "additionalProperties": false,
+            "description": "",
+            "properties": {
+                "context": {
+                    "type": "string"
+                },
+                "grain": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "kind": {
+                    "$ref": "#/$defs/TableKind"
+                },
+                "label_columns": {
+                    "description": "\u898b\u51fa\u3057\u306b\u4f7f\u3046\u5217\uff08\u63a8\u5b9a\uff1aname \u3068\u3044\u3046\u5217\u3001\u7121\u3051\u308c\u3070\u540d\u524d\u304c name \u3067\u7d42\u308f\u308b\u6587\u5b57\u306e\u5217\u30923\u3064\u307e\u3067\uff09\u3002\u7a7a\u306a\u3089\u30ad\u30fc\u304c\u898b\u51fa\u3057",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "searchable": {
+                    "description": "\u691c\u7d22\u306b\u4f7f\u3046\u5217\uff08\u6587\u5b57\u306e\u90e8\u5206\u4e00\u81f4\uff09",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "table": {
+                    "description": "\u8868\u306e\u5b89\u5b9a ID",
+                    "type": "string"
+                }
+            },
+            "required": [
+                "table",
+                "name",
+                "context",
+                "kind",
+                "label_columns",
+                "searchable"
+            ],
+            "title": "DomainSummary",
+            "type": "object"
+        },
+        "Edge": {
+            "additionalProperties": false,
+            "description": "\u4e2d\u9593\u8868\u306e1\u884c\u3092\u3001\u3082\u306e\u540c\u58eb\u3092\u7d50\u30761\u672c\u306e\u8fba\u3068\u307f\u306a\u3059\uff08\u30d7\u30ed\u30d1\u30c6\u30a3\u30b0\u30e9\u30d5\u306e\u8fba\uff09\u3002 from \u3068 to \u306f\u3001\u3053\u306e\u8868\u304c\u6301\u3064 n:1 \u306e\u53c2\u7167\uff08has / reference\uff09\u306e ID\u3002 \u8fba\u306e\u95a2\u4fc2\u578b\u306e\u610f\u5473\u8ad6\uff08\u63a8\u79fb\u6027\u3001\u5faa\u74b0\u306e\u7981\u6b62\u3001\u30c9\u30ea\u30eb\u30c0\u30a6\u30f3\uff09\u306f\u3001\u8868\u306e\u9593\u306e\u95a2\u4fc2\u3068\u540c\u3058\u306b\u52b9\u304f\u3002 from / to \u306e\u5217\u304c NULL \u306e\u884c\u306f\u8fba\u306b\u306a\u3089\u306a\u3044\u3002type \u304c has \u306e\u8fba\u306f\u53c2\u7167\uff08reference\uff09\u3092\u8868\u3059",
+            "properties": {
+                "confidence": {
+                    "maximum": 1.0,
+                    "minimum": 0.0,
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                },
+                "evidence": {
+                    "description": "\u4e3b\u5f35\u53f0\u5e33\uff086.6\uff09\u306e\u4e3b\u5f35ID",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
+                "from": {
+                    "description": "\u8fba\u306e\u59cb\u70b9\u5074\u306e\u53c2\u7167\u306e ID\uff08part-of \u306a\u3089\u90e8\u5206\u3001classified-as \u306a\u3089\u5206\u985e\u3055\u308c\u308b\u3082\u306e\uff09",
+                    "type": "string"
+                },
+                "inferred_by": {
+                    "description": "\u63d0\u6848\u8005\u306e\u30e2\u30c7\u30eb\u540d\u3068\u7248\u3001\u5b9f\u884cID",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "note": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "reviewed_at": {
+                    "format": "date",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "reviewed_by": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "status": {
+                    "$ref": "#/$defs/ReviewStatus"
+                },
+                "to": {
+                    "description": "\u8fba\u306e\u7d42\u70b9\u5074\u306e\u53c2\u7167\u306e ID\uff08part-of \u306a\u3089\u5168\u4f53\u3001classified-as \u306a\u3089\u5206\u985e\uff09",
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/$defs/RelationType",
+                    "description": "has / part-of / classified-as \u306e\u3069\u308c\u304b\u3002is-a \u306f\u578b\u306e\u9593\u306e\u95a2\u4fc2\u3001derived-from \u306f\u95a2\u6570\u306b\u3088\u308b\u5c0e\u51fa\u306a\u306e\u3067\u3001\u8fba\u306b\u306f\u306a\u3089\u306a\u3044"
+                }
+            },
+            "required": [
+                "type",
+                "from",
+                "to",
+                "status"
+            ],
+            "title": "Edge",
+            "type": "object"
+        },
+        "EnumValue": {
+            "additionalProperties": false,
+            "description": "",
+            "properties": {
+                "code": {
+                    "description": "\u30bd\u30fc\u30b9\u4e0a\u306e\u5024\u306e\u6587\u5b57\u5217\u8868\u73fe\u3002\u30d5\u30a1\u30a4\u30eb\u306b\u306f\u6587\u5b57\u5217\u3067\u66f8\u304f\uff08\u6570\u5024\u306e 1 \u306f\u62d2\u5426\u3057\u3001\"1\" \u3068\u66f8\u304f\uff09\u3002 \u89b3\u6e2c\u5024\u3068\u306e\u7167\u5408\u6642\u306e\u6b63\u898f\u5316\uff08\u771f\u507d\u5024\u306e\u8868\u8a18\u306a\u3069\uff09\u306f\u30bd\u30fc\u30b9\u306e Adapter \u306e\u8cac\u52d9",
+                    "type": "string"
+                },
+                "confidence": {
+                    "maximum": 1.0,
+                    "minimum": 0.0,
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                },
+                "evidence": {
+                    "description": "\u4e3b\u5f35\u53f0\u5e33\uff086.6\uff09\u306e\u4e3b\u5f35ID",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
+                "inferred_by": {
+                    "description": "\u63d0\u6848\u8005\u306e\u30e2\u30c7\u30eb\u540d\u3068\u7248\u3001\u5b9f\u884cID",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "label": {
+                    "type": "string"
+                },
+                "meaning": {
+                    "description": "\u8a9e\u5f59\u3084\u516c\u958b\u30aa\u30f3\u30c8\u30ed\u30b8\u30fc\u306e\u6982\u5ff5\u3078\u306e\u53c2\u7167\uff08CURIE\uff09",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "note": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "observed": {
+                    "description": "\u30c7\u30fc\u30bf\u3067\u89b3\u6e2c\u3055\u308c\u305f\u304b\u3002\u5024\u306e\u96c6\u5408\u306e\u6839\u62e0\u306b\u306f\u3057\u306a\u3044",
+                    "type": [
+                        "boolean",
+                        "null"
+                    ]
+                },
+                "reviewed_at": {
+                    "format": "date",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "reviewed_by": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "status": {
+                    "$ref": "#/$defs/ReviewStatus"
+                }
+            },
+            "required": [
+                "code",
+                "label",
+                "status"
+            ],
+            "title": "EnumValue",
+            "type": "object"
+        },
+        "EvidenceLine": {
+            "additionalProperties": false,
+            "description": "",
+            "properties": {
+                "id": {
+                    "description": "\u4e3b\u5f35 ID",
+                    "type": "string"
+                },
+                "text": {
+                    "description": "\u4eba\u304c\u8aad\u3081\u308b1\u884c",
+                    "type": "string"
+                }
+            },
+            "required": [
+                "id",
+                "text"
+            ],
+            "title": "EvidenceLine",
+            "type": "object"
+        },
+        "GeoPointRow": {
+            "additionalProperties": false,
+            "description": "",
+            "properties": {
+                "key": {
+                    "description": "\u884c\u306e\u4e3b\u30ad\u30fc\u306e\u5024\uff08\u4e3b\u30ad\u30fc\u306e\u5217\u306e\u9806\uff09\u3002\u5404\u5024\u3092\u30bd\u30fc\u30b9\u306e\u5024\u306e\u6587\u5b57\u5217\u8868\u73fe\uff08Python \u306e str\uff09\u306b\u3057\u305f\u3082\u306e\u3002 \u4e3b\u30ad\u30fc\u306f NULL \u3092\u6301\u305f\u306a\u3044\uff08\u4ed5\u69d8 4.2\uff09",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "lat": {
+                    "maximum": 90,
+                    "minimum": -90,
+                    "type": "number"
+                },
+                "lon": {
+                    "maximum": 180,
+                    "minimum": -180,
+                    "type": "number"
+                }
+            },
+            "required": [
+                "key",
+                "lat",
+                "lon"
+            ],
+            "title": "GeoPointRow",
+            "type": "object"
+        },
+        "HasKind": {
+            "description": "",
+            "enum": [
+                "attribute",
+                "reference"
+            ],
+            "title": "HasKind",
+            "type": "string"
+        },
+        "HiddenTable": {
+            "additionalProperties": false,
+            "description": "",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "table": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "table",
+                "name",
+                "reason"
+            ],
+            "title": "HiddenTable",
+            "type": "object"
+        },
+        "Identity": {
+            "additionalProperties": false,
+            "description": "\u540c\u4e00\u6027\uff08C1\uff09\u3002\u8907\u5408\u30ad\u30fc\u306f\u5217\u306e\u914d\u5217\u3068\u3057\u3066\u305d\u306e\u307e\u307e\u66f8\u304f\u30021\u3064\u306e\u5024\u3068\u3057\u3066\u6271\u3046\u306e\u306f\u751f\u6210\u3055\u308c\u308b\u578b\u306e\u5074\u306e\u8cac\u52d9",
+            "properties": {
+                "alternates": {
+                    "items": {
+                        "$ref": "#/$defs/KeyColumns"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
+                "primary": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                }
+            },
+            "required": [
+                "primary"
+            ],
+            "title": "Identity",
+            "type": "object"
+        },
+        "Instance": {
+            "additionalProperties": false,
+            "description": "\u30a4\u30f3\u30b9\u30bf\u30f3\u30b9\u306e\u30d3\u30e5\u30fc\uff08\u884c\u306e\u30a4\u30e1\u30fc\u30b8\uff09\u3002\u81ea\u5206\u306e\u5024\u3001\u53c2\u7167\u5148\u3078\u306e\u30ea\u30f3\u30af\uff08n:1\uff09\u3001\u8fd1\u96a3\u306e\u30a4\u30f3\u30b9\u30bf\u30f3\u30b9\u306e\u96c6\u307e\u308a \uff08\u53c2\u7167\u3057\u3066\u304f\u308b\u884c 1:n\u3001relation \u306e\u8868\u3092\u631f\u3093\u3060\u5148 n:m\uff09\u3002\u30d7\u30ed\u30bb\u30b9\u5883\u754c\uff08HTTP API \u2192 UI\uff09\u3067\u53d7\u3051\u6e21\u3059\u5f62",
+            "properties": {
+                "fields": {
+                    "items": {
+                        "$ref": "#/$defs/Cell"
+                    },
+                    "type": "array"
+                },
+                "key": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "links": {
+                    "items": {
+                        "$ref": "#/$defs/InstanceLink"
+                    },
+                    "type": "array"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "omitted": {
+                    "description": "\u305f\u3069\u3089\u306a\u304b\u3063\u305f\u95a2\u4fc2\u3068\u7406\u7531\uff08\u53c2\u7167\u5148\u30fb\u53c2\u7167\u5143\u304c\u30c9\u30e1\u30a4\u30f3\u3067\u306a\u3044\u3001\u5217\u306e\u7b49\u5024\u3067\u7d50\u3079\u306a\u3044\u3001\u306a\u3069\uff09\u3002\u9ed9\u3063\u3066\u7701\u304b\u306a\u3044",
+                    "items": {
+                        "$ref": "#/$defs/OmittedRelation"
+                    },
+                    "type": "array"
+                },
+                "related": {
+                    "items": {
+                        "$ref": "#/$defs/RelatedGroup"
+                    },
+                    "type": "array"
+                },
+                "table": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "table",
+                "name",
+                "key",
+                "label",
+                "fields",
+                "links",
+                "related",
+                "omitted"
+            ],
+            "title": "Instance",
+            "type": "object"
+        },
+        "InstanceLink": {
+            "additionalProperties": false,
+            "description": "\u53c2\u7167\u5148\uff08n:1\uff09\u306e\u30a4\u30f3\u30b9\u30bf\u30f3\u30b9\u3078\u306e\u30ea\u30f3\u30af\u3002target \u306f state \u304c found \u306e\u3068\u304d\u3060\u3051",
+            "properties": {
+                "columns": {
+                    "description": "\u53c2\u7167\u306b\u4f7f\u3046\u81ea\u5206\u306e\u5217",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "relation": {
+                    "description": "\u95a2\u4fc2\u306e\u5b89\u5b9a ID",
+                    "type": "string"
+                },
+                "relation_type": {
+                    "$ref": "#/$defs/RelationType"
+                },
+                "role": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "state": {
+                    "$ref": "#/$defs/LinkState"
+                },
+                "target": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/InstanceSummary"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "target_name": {
+                    "type": "string"
+                },
+                "target_table": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "relation",
+                "relation_type",
+                "columns",
+                "target_table",
+                "target_name",
+                "state"
+            ],
+            "title": "InstanceLink",
+            "type": "object"
+        },
+        "InstanceSummary": {
+            "additionalProperties": false,
+            "description": "\u30a4\u30f3\u30b9\u30bf\u30f3\u30b9\uff08\u884c\uff09\u306e\u898b\u51fa\u3057\u3002key \u3067\u305f\u3069\u308c\u308b",
+            "properties": {
+                "cells": {
+                    "items": {
+                        "$ref": "#/$defs/Cell"
+                    },
+                    "type": "array"
+                },
+                "key": {
+                    "description": "\u4e3b\u30ad\u30fc\u306e\u5024\uff08\u6587\u5b57\u5217\u306e\u8868\u73fe\u3001\u4e3b\u30ad\u30fc\u306e\u5217\u306e\u9806\uff09",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "label": {
+                    "description": "\u898b\u51fa\u3057\uff08\u540d\u524d\u3089\u3057\u3044\u5217\u3002\u7121\u3051\u308c\u3070\u30ad\u30fc\uff09",
+                    "type": "string"
+                },
+                "table": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "table",
+                "key",
+                "label",
+                "cells"
+            ],
+            "title": "InstanceSummary",
+            "type": "object"
+        },
+        "IsARealization": {
+            "description": "\u8ad6\u7406\u7684\u306a is-a \u304c\u3001\u30bd\u30fc\u30b9\u3067\u3069\u3046\u5b9f\u88c5\u3055\u308c\u3066\u3044\u308b\u304b\uff08C3\uff09\u3002 \u5177\u4f53\u4f8b\u306e\u3042\u308b\u3082\u306e\u3060\u3051\u3092\u7f6e\u304f\u3002\u6392\u4ed6\u7684\u306a\u53c2\u7167\u30fb\u533a\u5206\u5217\u306f AW \u3067\u88cf\u4ed8\u3051\u304c\u53d6\u308c\u3066\u3044\u306a\u3044\u306e\u3067\u672a\u5b9a\u7fa9",
+            "enum": [
+                "shared_key"
+            ],
+            "title": "IsARealization",
+            "type": "string"
+        },
+        "KeyColumns": {
+            "additionalProperties": false,
+            "description": "",
+            "properties": {
+                "columns": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                }
+            },
+            "required": [
+                "columns"
+            ],
+            "title": "KeyColumns",
+            "type": "object"
+        },
+        "LinkState": {
+            "description": "\u53c2\u7167\u5148\uff08n:1\uff09\u3078\u306e\u30ea\u30f3\u30af\u306e\u72b6\u614b\uff08\u30c9\u30e1\u30a4\u30f3\u30d3\u30e5\u30fc\u30ef\uff09",
+            "enum": [
+                "found",
+                "null",
+                "missing"
+            ],
+            "title": "LinkState",
+            "type": "string"
+        },
+        "ObjectKind": {
+            "description": "\u30bd\u30fc\u30b9\u4e0a\u306e\u30aa\u30d6\u30b8\u30a7\u30af\u30c8\u306e\u7a2e\u985e\uff08\u30ab\u30bf\u30ed\u30b0\u3001\u4e3b\u5f35\uff09",
+            "enum": [
+                "table",
+                "view",
+                "materialized_view"
+            ],
+            "title": "ObjectKind",
+            "type": "string"
+        },
+        "OmittedRelation": {
+            "additionalProperties": false,
+            "description": "",
+            "properties": {
+                "reason": {
+                    "type": "string"
+                },
+                "relation": {
+                    "description": "\u95a2\u4fc2\u306e\u5b89\u5b9a ID",
+                    "type": "string"
+                },
+                "table": {
+                    "description": "\u305d\u306e\u95a2\u4fc2\u3092\u6301\u3064\u8868\u306e\u540d\u524d",
+                    "type": "string"
+                }
+            },
+            "required": [
+                "relation",
+                "table",
+                "reason"
+            ],
+            "title": "OmittedRelation",
+            "type": "object"
+        },
+        "OntologyDocument": {
+            "additionalProperties": false,
+            "description": "OM \u5168\u4f53\u30921\u3064\u306e\u6587\u66f8\u306b\u3057\u305f\u3082\u306e\u3002\u30d7\u30ed\u30bb\u30b9\u5883\u754c\uff08HTTP API \u2192 UI\uff09\u3067\u53d7\u3051\u6e21\u3059\u5f62\u3002 \u30d5\u30a1\u30a4\u30eb\u306e\u914d\u7f6e\uff08\u4ed5\u69d8 5\u7ae0\uff09\u3068\u306f\u5225\u3002\u53d7\u3051\u53d6\u308b\u5074\u306f\u3001\u2460\u304b\u3089\u751f\u6210\u3057\u305f JSON Schema \u3067\u691c\u8a3c\u3059\u308b",
+            "properties": {
+                "tables": {
+                    "items": {
+                        "$ref": "#/$defs/Table"
+                    },
+                    "type": "array"
+                },
+                "vocabulary": {
+                    "$ref": "#/$defs/Vocabulary"
+                }
+            },
+            "required": [
+                "vocabulary",
+                "tables"
+            ],
+            "title": "OntologyDocument",
+            "type": "object"
+        },
+        "OntologyIndex": {
+            "additionalProperties": false,
+            "description": "\u898b\u3089\u308c\u308b OM \u306e\u4e00\u89a7\u3002\u30d7\u30ed\u30bb\u30b9\u5883\u754c\uff08HTTP API \u2192 UI\uff09\u3067\u53d7\u3051\u6e21\u3059\u5f62",
+            "properties": {
+                "ontologies": {
+                    "items": {
+                        "$ref": "#/$defs/OntologyListing"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "ontologies"
+            ],
+            "title": "OntologyIndex",
+            "type": "object"
+        },
+        "OntologyListing": {
+            "additionalProperties": false,
+            "description": "",
+            "properties": {
+                "id": {
+                    "description": "URL \u306b\u4f7f\u3046 ID\uff08\u4f8b work:adventureworks\u3001gold:adventureworks\uff09",
+                    "type": "string"
+                },
+                "kind": {
+                    "$ref": "#/$defs/OntologySourceKind"
+                },
+                "label": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "id",
+                "label",
+                "kind"
+            ],
+            "title": "OntologyListing",
+            "type": "object"
+        },
+        "OntologySourceKind": {
+            "description": "\u898b\u3089\u308c\u308b OM \u306e\u51fa\u3069\u3053\u308d",
+            "enum": [
+                "work",
+                "gold"
+            ],
+            "title": "OntologySourceKind",
+            "type": "string"
+        },
+        "PointFailure": {
+            "additionalProperties": false,
+            "description": "",
+            "properties": {
+                "key": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "reason": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "key",
+                "reason"
+            ],
+            "title": "PointFailure",
+            "type": "object"
+        },
+        "PointSet": {
+            "additionalProperties": false,
+            "description": "\u8868\u306e geo.point \u306e\u5217\u306e\u5024\u3092\u70b9\u306b\u3057\u305f\u3082\u306e\uff08\u5730\u56f3\u306e\u305f\u3081\uff09\u3002\u30d7\u30ed\u30bb\u30b9\u5883\u754c\uff08HTTP API \u2192 UI\uff09\u3067\u53d7\u3051\u6e21\u3059\u5f62\u3002 \u5909\u63db\u3067\u304d\u306a\u304b\u3063\u305f\u884c\u306f\u9ed9\u3063\u3066\u6368\u3066\u305a failed \u306b\u3001NULL \u306f\u6570\u3092 nulls \u306b\u6301\u3064\u3002 rows_read = points \u306e\u6570 + nulls + failed \u306e\u6570\u3002truncated \u306a\u3089\u3001\u8868\u306b\u306f limit \u3092\u8d85\u3048\u308b\u884c\u304c\u3042\u308b",
+            "properties": {
+                "column": {
+                    "type": "string"
+                },
+                "failed": {
+                    "items": {
+                        "$ref": "#/$defs/PointFailure"
+                    },
+                    "type": "array"
+                },
+                "limit": {
+                    "description": "\u8aad\u3080\u884c\u306e\u4e0a\u9650",
+                    "minimum": 1,
+                    "type": "integer"
+                },
+                "nulls": {
+                    "minimum": 0,
+                    "type": "integer"
+                },
+                "points": {
+                    "items": {
+                        "$ref": "#/$defs/GeoPointRow"
+                    },
+                    "type": "array"
+                },
+                "rows_read": {
+                    "description": "\u8aad\u3093\u3060\u884c\u306e\u6570\uff08limit \u4ee5\u4e0b\uff09",
+                    "minimum": 0,
+                    "type": "integer"
+                },
+                "table": {
+                    "description": "\u8868\u306e\u5b89\u5b9a ID",
+                    "type": "string"
+                },
+                "truncated": {
+                    "description": "\u4e0a\u9650\u3067\u6253\u3061\u5207\u3063\u305f\uff08\u8868\u306b\u306f\u307e\u3060\u884c\u304c\u3042\u308b\uff09",
+                    "type": "boolean"
+                }
+            },
+            "required": [
+                "table",
+                "column",
+                "points",
+                "nulls",
+                "failed",
+                "rows_read",
+                "limit",
+                "truncated"
+            ],
+            "title": "PointSet",
+            "type": "object"
+        },
+        "ReferentialAction": {
+            "description": "\u5916\u90e8\u30ad\u30fc\u306e\u53c2\u7167\u5148\u306e\u884c\u304c\u6d88\u3048\u308b\u30fb\u5909\u308f\u308b\u3068\u304d\u306e\u52d5\u4f5c\uff08SQL \u6a19\u6e96\uff09\u3002cascade \u306f\u5408\u6210\u95a2\u4fc2\u306e\u8a3c\u62e0\u306b\u306a\u308b",
+            "enum": [
+                "no_action",
+                "restrict",
+                "cascade",
+                "set_null",
+                "set_default"
+            ],
+            "title": "ReferentialAction",
+            "type": "string"
+        },
+        "RelatedGroup": {
+            "additionalProperties": false,
+            "description": "",
+            "properties": {
+                "columns": {
+                    "description": "\u53c2\u7167\u306b\u4f7f\u3046\u5217\u3002children \u306a\u3089\u96c6\u307e\u308a\u306e\u8868\u306e\u5217\uff08\u3053\u306e\u30a4\u30f3\u30b9\u30bf\u30f3\u30b9\u3092\u6307\u3059\u5217\uff09\u3001via \u306a\u3089 relation \u306e\u8868\u306e\u5217\uff08\u5148\u3092\u6307\u3059\u5217\uff09",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "$ref": "#/$defs/RelatedKind"
+                },
+                "missing": {
+                    "description": "relation \u306e\u8868\u306e\u884c\u304c\u6307\u3059\u5148\u306e\u884c\u304c\u7121\u304b\u3063\u305f\u6570\uff08via \u306e\u3068\u304d\u3002\u58ca\u308c\u305f\u53c2\u7167\uff09",
+                    "minimum": 0,
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "relation": {
+                    "description": "\u305f\u3069\u3063\u305f\u95a2\u4fc2\u306e\u5b89\u5b9a ID\uff08via \u306a\u3089\u3001relation \u306e\u8868\u304b\u3089\u5148\u3078\u306e\u95a2\u4fc2\uff09",
+                    "type": "string"
+                },
+                "relation_type": {
+                    "$ref": "#/$defs/RelationType"
+                },
+                "rows": {
+                    "items": {
+                        "$ref": "#/$defs/InstanceSummary"
+                    },
+                    "type": "array"
+                },
+                "table": {
+                    "description": "\u96c6\u307e\u308a\u306e\u884c\u306e\u30c9\u30e1\u30a4\u30f3",
+                    "type": "string"
+                },
+                "truncated": {
+                    "type": "boolean"
+                },
+                "via_name": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "via_table": {
+                    "description": "\u631f\u3093\u3060 relation \u306e\u8868\uff08via \u306e\u3068\u304d\uff09",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                }
+            },
+            "required": [
+                "kind",
+                "relation",
+                "relation_type",
+                "table",
+                "name",
+                "columns",
+                "rows",
+                "truncated",
+                "missing"
+            ],
+            "title": "RelatedGroup",
+            "type": "object"
+        },
+        "RelatedKind": {
+            "description": "\u30a4\u30f3\u30b9\u30bf\u30f3\u30b9\u306e\u8fd1\u96a3\u306e\u96c6\u307e\u308a\u306e\u7a2e\u985e\uff08\u30c9\u30e1\u30a4\u30f3\u30d3\u30e5\u30fc\u30ef\uff09",
+            "enum": [
+                "children",
+                "via"
+            ],
+            "title": "RelatedKind",
+            "type": "string"
+        },
+        "Relation": {
+            "additionalProperties": false,
+            "description": "",
+            "properties": {
+                "cardinality": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/Cardinality"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "columns": {
+                    "description": "derived-from \u3067\u5c0e\u51fa\u3055\u308c\u308b\u5217",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
+                "confidence": {
+                    "maximum": 1.0,
+                    "minimum": 0.0,
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                },
+                "evidence": {
+                    "description": "\u4e3b\u5f35\u53f0\u5e33\uff086.6\uff09\u306e\u4e3b\u5f35ID",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
+                "function": {
+                    "description": "derived-from \u306e\u5909\u63db\u95a2\u6570\u306e\u5b89\u5b9aID",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "has_kind": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/HasKind"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "id": {
+                    "description": "\u95a2\u4fc2\u306e\u5b89\u5b9aID\u3002\u540c\u3058\u8868\u3078\u306e\u8907\u6570\u306e\u53c2\u7167\uff08C2\uff09\u3092\u533a\u5225\u3059\u308b",
+                    "pattern": "^rel_[0-9A-Za-z_]+$",
+                    "type": "string"
+                },
+                "inferred_by": {
+                    "description": "\u63d0\u6848\u8005\u306e\u30e2\u30c7\u30eb\u540d\u3068\u7248\u3001\u5b9f\u884cID",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "note": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "realized_by": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/IsARealization"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "is-a \u306e\u7269\u7406\u7684\u306a\u5b9f\u88c5\u30d1\u30bf\u30fc\u30f3\uff08C3\uff09"
+                },
+                "reviewed_at": {
+                    "format": "date",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "reviewed_by": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "role": {
+                    "description": "\u53c2\u7167\u306e\u5f79\u5272\uff08C2\u3002\u4f8b bill_to / ship_to\uff09",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "status": {
+                    "$ref": "#/$defs/ReviewStatus"
+                },
+                "target": {
+                    "description": "\u53c2\u7167\u5148\u306e\u8868\u306e\u5b89\u5b9aID\u3002\u81ea\u5df1\u53c2\u7167\u306f self \u3068\u66f8\u304d\u3001\u81ea\u5206\u306e\u5b89\u5b9aID \u306f\u66f8\u304b\u306a\u3044",
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/$defs/RelationType"
+                },
+                "via": {
+                    "description": "\u7d50\u5408\u306b\u4f7f\u3046\u5217\u306e\u5bfe\u5fdc\u3002\u8907\u5408\u30ad\u30fc\u306a\u3089\u8907\u6570",
+                    "items": {
+                        "$ref": "#/$defs/ColumnPair"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
+                "via_function": {
+                    "description": "\u5217\u306e\u7b49\u5024\u3067\u7d50\u3079\u306a\u3044\u95a2\u4fc2\uff08C4\u3002\u30d1\u30b9\u6587\u5b57\u5217\u306e\u6728\u306a\u3069\uff09\u3092\u7d50\u3076\u6c7a\u5b9a\u7684\u95a2\u6570\u306e\u5b89\u5b9aID",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                }
+            },
+            "required": [
+                "id",
+                "type",
+                "target",
+                "status"
+            ],
+            "title": "Relation",
+            "type": "object"
+        },
+        "RelationType": {
+            "description": "\u95a2\u4fc2\u578b\uff084.1\uff09\u3002\u63a8\u79fb\u6027\u3068\u9006\u95a2\u4fc2\u306f\u5404\u5024\u306e annotations \u306b\u6301\u3064",
+            "enum": [
+                "is-a",
+                "part-of",
+                "classified-as",
+                "has",
+                "derived-from"
+            ],
+            "title": "RelationType",
+            "type": "string"
+        },
+        "ReviewAnswer": {
+            "additionalProperties": false,
+            "description": "1\u3064\u306e\u554f\u3044\u3078\u306e\u7b54\u3048\u3002\u30d7\u30ed\u30bb\u30b9\u5883\u754c\uff08UI \u2192 HTTP API\uff09\u3067\u53d7\u3051\u6e21\u3059\u5f62",
+            "properties": {
+                "decision": {
+                    "$ref": "#/$defs/ReviewDecision"
+                },
+                "kind": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/TableKind"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "\u7a2e\u985e\u304c\u672a\u6c7a\u306e\u8868\u3092\u627f\u8a8d\u3059\u308b\u3068\u304d\u306b\u9078\u3093\u3060\u7a2e\u985e"
+                },
+                "location": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "location",
+                "decision"
+            ],
+            "title": "ReviewAnswer",
+            "type": "object"
+        },
+        "ReviewDecision": {
+            "description": "\u30ec\u30d3\u30e5\u30fc\u306e\u7b54\u3048\uff08\u4ed5\u69d8 9.3\uff09\u3002\u300c\u5225\u306e\u610f\u5473\u300d\u306f T3.6",
+            "enum": [
+                "approve",
+                "reject"
+            ],
+            "title": "ReviewDecision",
+            "type": "string"
+        },
+        "ReviewQuestion": {
+            "additionalProperties": false,
+            "description": "",
+            "properties": {
+                "bulk_candidate": {
+                    "description": "\u4e00\u62ec\u627f\u8a8d\u306e\u5019\u88dc\uff08\u78ba\u4fe1\u5ea6\u304c bulk_minimum \u4ee5\u4e0a\u3067\u3001\u7a2e\u985e\u3092\u9078\u3070\u306a\u304f\u3066\u3088\u3044\uff09",
+                    "type": "boolean"
+                },
+                "confidence": {
+                    "maximum": 1.0,
+                    "minimum": 0.0,
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                },
+                "evidence": {
+                    "description": "\u6839\u62e0\uff08\u4ed5\u69d8 9.3\uff1a3\u884c\u307e\u3067\uff09",
+                    "items": {
+                        "$ref": "#/$defs/EvidenceLine"
+                    },
+                    "type": "array"
+                },
+                "evidence_total": {
+                    "description": "\u6839\u62e0\u306e\u4e3b\u5f35\u306e\u6570\uff08evidence \u306b\u51fa\u3055\u306a\u304b\u3063\u305f\u3082\u306e\u3092\u542b\u3080\uff09",
+                    "minimum": 0,
+                    "type": "integer"
+                },
+                "location": {
+                    "description": "\u7b54\u3048\u3092\u5f53\u3066\u308b\u6ce8\u91c8\u306e\u5834\u6240\uff08Ontology.annotations() \u306e\u5834\u6240\uff09",
+                    "type": "string"
+                },
+                "needs_kind": {
+                    "description": "\u627f\u8a8d\u3059\u308b\u306b\u306f\u8868\u306e\u7a2e\u985e\u3092\u9078\u3076",
+                    "type": "boolean"
+                },
+                "subject": {
+                    "$ref": "#/$defs/ReviewSubject"
+                },
+                "table": {
+                    "description": "\u554f\u3044\u306e\u5c5e\u3059\u308b\u8868\u306e\u5b89\u5b9a ID\uff08\u8a9e\u5f59\u306e enum \u306e\u5024\u306e\u554f\u3044\u306b\u306f\u7121\u3044\uff09",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "text": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "location",
+                "subject",
+                "text",
+                "evidence",
+                "evidence_total",
+                "needs_kind",
+                "bulk_candidate"
+            ],
+            "title": "ReviewQuestion",
+            "type": "object"
+        },
+        "ReviewQueue": {
+            "additionalProperties": false,
+            "description": "\u30ec\u30d3\u30e5\u30fc\u306e\u554f\u3044\u306e\u5217\uff08\u4ed5\u69d8 9.3\uff09\u3002\u4e26\u3073\u306f\u5f71\u97ff\u306e\u5927\u304d\u3044\u9806\u3002\u30d7\u30ed\u30bb\u30b9\u5883\u754c\uff08HTTP API \u2192 UI\uff09\u3067\u53d7\u3051\u6e21\u3059\u5f62",
+            "properties": {
+                "approve_all": {
+                    "description": "\u958b\u767a\u7528\u306e\u5168\u627f\u8a8d\u304c\u4f7f\u3048\u308b\u304b\uff08mandara serve --dev\uff09\u3002\u4e2d\u8eab\u3092\u898b\u305a\u306b\u56fa\u5b9a\u3059\u308b\u306e\u3067\u3001\u958b\u767a\u4e2d\u306b\u627f\u8a8d\u6e08\u307f\u306e\u72b6\u614b\u3092\u8a66\u3059\u305f\u3081\u3060\u3051\u306b\u4f7f\u3046",
+                    "type": "boolean"
+                },
+                "bulk_minimum": {
+                    "description": "\u4e00\u62ec\u627f\u8a8d\u306e\u95be\u5024\u306e\u4e0b\u9650",
+                    "type": "number"
+                },
+                "not_writable_reason": {
+                    "description": "\u66f8\u3051\u306a\u3044\u3068\u304d\u306e\u7406\u7531\uff08writable \u304c false \u306e\u3068\u304d\u3060\u3051\uff09",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "ontology": {
+                    "description": "\u898b\u3089\u308c\u308b OM \u306e ID",
+                    "type": "string"
+                },
+                "pending": {
+                    "description": "\u307e\u3060\u5224\u65ad\u3055\u308c\u3066\u3044\u306a\u3044\u63d0\u6848\u306e\u6570\uff08= questions \u306e\u6570\uff09",
+                    "minimum": 0,
+                    "type": "integer"
+                },
+                "questions": {
+                    "items": {
+                        "$ref": "#/$defs/ReviewQuestion"
+                    },
+                    "type": "array"
+                },
+                "reviewer": {
+                    "description": "\u66f8\u304f\u3068\u304d\u306e reviewed_by\uff08writable \u306e\u3068\u304d\u3060\u3051\uff09",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "writable": {
+                    "description": "\u3053\u306e API \u3067\u7b54\u3048\u3092\u66f8\u3051\u308b\u304b",
+                    "type": "boolean"
+                }
+            },
+            "required": [
+                "ontology",
+                "pending",
+                "questions",
+                "writable",
+                "bulk_minimum",
+                "approve_all"
+            ],
+            "title": "ReviewQueue",
+            "type": "object"
+        },
+        "ReviewStatus": {
+            "description": "\u6ce8\u91c8\u306e\u30ec\u30d3\u30e5\u30fc\u72b6\u614b\uff084.4\uff09",
+            "enum": [
+                "proposed",
+                "approved",
+                "rejected"
+            ],
+            "title": "ReviewStatus",
+            "type": "string"
+        },
+        "ReviewSubject": {
+            "description": "\u30ec\u30d3\u30e5\u30fc\u306e\u554f\u3044\u304c\u5224\u65ad\u3059\u308b\u3082\u306e\uff08\u6ce8\u91c8\u3092\u6301\u3064\u30af\u30e9\u30b9\uff09",
+            "enum": [
+                "table",
+                "relation",
+                "edge",
+                "column",
+                "enum_value"
+            ],
+            "title": "ReviewSubject",
+            "type": "string"
+        },
+        "SemanticRole": {
+            "description": "\u610f\u5473\u578b\u306e\u5f79\u5272",
+            "enum": [
+                "event_time",
+                "valid_from",
+                "valid_to",
+                "technical"
+            ],
+            "title": "SemanticRole",
+            "type": "string"
+        },
+        "SemanticType": {
+            "additionalProperties": false,
+            "description": "\u610f\u5473\u578b\u3002\u5217\u306e\u5024\u304c\u4f55\u3092\u610f\u5473\u3059\u308b\u304b\uff08\u4f4f\u6240\u306e ID\u3001\u53d7\u6ce8\u65e5\u3001\u91d1\u984d\uff09\u3002\u5225\u306e\u8868\u306e\u5217\u3067\u3082\u3001\u610f\u5473\u304c\u540c\u3058\u306a\u3089\u540c\u3058\u610f\u5473\u578b\u306b\u3059\u308b\u3002 \u540c\u3058\u5024\u306e\u578b\u3067\u3082\u610f\u5473\u304c\u9055\u3048\u3070\u5225\u306e\u610f\u5473\u578b\u306b\u3059\u308b\uff08\u53d7\u6ce8\u65e5\u3068\u51fa\u8377\u65e5\uff09",
+            "properties": {
+                "additivity": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/Additivity"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "description": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "name": {
+                    "type": "string"
+                },
+                "requires_unit": {
+                    "description": "true \u306a\u3089\u3001\u3053\u306e\u610f\u5473\u578b\u3092\u4f7f\u3046\u5217\u306f unit\uff08\u91cf\u3068\u5358\u4f4d\u306e\u7d44\u3001C5\uff09\u3092\u5ba3\u8a00\u3057\u306a\u3051\u308c\u3070\u306a\u3089\u306a\u3044",
+                    "type": [
+                        "boolean",
+                        "null"
+                    ]
+                },
+                "role": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/SemanticRole"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "type": {
+                    "$ref": "#/$defs/ValueType"
+                },
+                "values": {
+                    "description": "type \u304c enum \u306e\u3068\u304d\u306e\u5024\u306e\u4e00\u89a7\uff08C6\uff09\u3002\u5024\u306e\u96c6\u5408\u306f\u30c7\u30fc\u30bf\u304b\u3089\u3067\u306f\u306a\u304f\u3001\u5ba3\u8a00\u30fb\u8a3c\u62e0\u304b\u3089\u6c7a\u3081\u308b",
+                    "items": {
+                        "$ref": "#/$defs/EnumValue"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                }
+            },
+            "required": [
+                "name",
+                "type"
+            ],
+            "title": "SemanticType",
+            "type": "object"
+        },
+        "SemanticType__identifier_optional": {
+            "additionalProperties": false,
+            "description": "\u610f\u5473\u578b\u3002\u5217\u306e\u5024\u304c\u4f55\u3092\u610f\u5473\u3059\u308b\u304b\uff08\u4f4f\u6240\u306e ID\u3001\u53d7\u6ce8\u65e5\u3001\u91d1\u984d\uff09\u3002\u5225\u306e\u8868\u306e\u5217\u3067\u3082\u3001\u610f\u5473\u304c\u540c\u3058\u306a\u3089\u540c\u3058\u610f\u5473\u578b\u306b\u3059\u308b\u3002 \u540c\u3058\u5024\u306e\u578b\u3067\u3082\u610f\u5473\u304c\u9055\u3048\u3070\u5225\u306e\u610f\u5473\u578b\u306b\u3059\u308b\uff08\u53d7\u6ce8\u65e5\u3068\u51fa\u8377\u65e5\uff09",
+            "properties": {
+                "additivity": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/Additivity"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "description": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "name": {
+                    "type": "string"
+                },
+                "requires_unit": {
+                    "description": "true \u306a\u3089\u3001\u3053\u306e\u610f\u5473\u578b\u3092\u4f7f\u3046\u5217\u306f unit\uff08\u91cf\u3068\u5358\u4f4d\u306e\u7d44\u3001C5\uff09\u3092\u5ba3\u8a00\u3057\u306a\u3051\u308c\u3070\u306a\u3089\u306a\u3044",
+                    "type": [
+                        "boolean",
+                        "null"
+                    ]
+                },
+                "role": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/SemanticRole"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "type": {
+                    "$ref": "#/$defs/ValueType"
+                },
+                "values": {
+                    "description": "type \u304c enum \u306e\u3068\u304d\u306e\u5024\u306e\u4e00\u89a7\uff08C6\uff09\u3002\u5024\u306e\u96c6\u5408\u306f\u30c7\u30fc\u30bf\u304b\u3089\u3067\u306f\u306a\u304f\u3001\u5ba3\u8a00\u30fb\u8a3c\u62e0\u304b\u3089\u6c7a\u3081\u308b",
+                    "items": {
+                        "$ref": "#/$defs/EnumValue"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                }
+            },
+            "required": [
+                "type"
+            ],
+            "title": "SemanticType",
+            "type": "object"
+        },
+        "SourceEncoding": {
+            "description": "\u30bd\u30fc\u30b9\u4e0a\u306e\u5024\u306e\u7269\u7406\u7684\u306a\u8868\u73fe\u304c\u3001\u610f\u5473\u306e\u578b\uff08ValueType\uff09\u306e\u6a19\u6e96\u7684\u306a\u8868\u73fe\u3068\u9055\u3046\u3068\u304d\u306b\u66f8\u304f\u3002 \u5177\u4f53\u4f8b\u306e\u3042\u308b\u3082\u306e\u3060\u3051\u3092\u7f6e\u304f\u3002\u5404\u5024\u306e annotations \u306e decodes_to \u306f\u3001\u5909\u63db\u5148\u306e ValueType",
+            "enum": [
+                "sqlserver_geography"
+            ],
+            "title": "SourceEncoding",
+            "type": "string"
+        },
+        "SourceRef": {
+            "additionalProperties": false,
+            "description": "\u30c7\u30fc\u30bf\u30bd\u30fc\u30b9\u4e0a\u306e\u8868\u307e\u305f\u306f\u5217\u3002OM \u306e\u5b89\u5b9a ID \u304c\u3067\u304d\u308b\u524d\u306e\u6bb5\u968e\u306a\u306e\u3067\u3001\u30bd\u30fc\u30b9\u4e0a\u306e\u540d\u524d\u3067\u6307\u3059",
+            "properties": {
+                "column": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "schema_name": {
+                    "description": "\u30b9\u30ad\u30fc\u30de\u540d\uff08schema \u306f pydantic \u306e BaseModel \u3068\u885d\u7a81\u3059\u308b\u306e\u3067\u907f\u3051\u308b\uff09",
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "table": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "source",
+                "schema_name",
+                "table"
+            ],
+            "title": "SourceRef",
+            "type": "object"
+        },
+        "Table": {
+            "additionalProperties": false,
+            "description": "contexts/<context>/tables/<source>/<table>.yaml\uff084.2\uff09",
+            "properties": {
+                "columns": {
+                    "additionalProperties": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/$defs/Column__identifier_optional"
+                            },
+                            {
+                                "$ref": "#/$defs/ReviewStatus"
+                            }
+                        ]
+                    },
+                    "type": [
+                        "object",
+                        "null"
+                    ]
+                },
+                "confidence": {
+                    "maximum": 1.0,
+                    "minimum": 0.0,
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                },
+                "context": {
+                    "type": "string"
+                },
+                "derived": {
+                    "description": "\u8a08\u7b97\u30fb\u96c6\u8a08\u3067\u5c0e\u51fa\u3055\u308c\u305f\u8868\uff08\u30d3\u30e5\u30fc\u306a\u3069\uff09\u3002kind\uff08\u4f55\u3092\u8868\u3059\u304b\uff09\u3068\u306f\u5225\u306e\u8ef8\u3067\u3001\u3069\u306e kind \u3068\u3082\u7d44\u307f\u5408\u308f\u3055\u308b\u3002 \u30b3\u30de\u30f3\u30c9\u4e0d\u53ef\u3002part-of \u306e\u5168\u4f53\u5074\u306b\u306a\u3089\u306a\u3044\u3002\u30bd\u30fc\u30b9\u304c\u5b9f\u4f53\u306e\u8868\u306a\u3089\u66f8\u304b\u306a\u3044",
+                    "type": [
+                        "boolean",
+                        "null"
+                    ]
+                },
+                "edge": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/Edge"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "relation \u306e\u8868\u3060\u3051\u304c\u6301\u3066\u308b\u3002\u3053\u306e\u8868\u306e\u884c\u304c\u5b9f\u73fe\u3059\u308b\u3001\u3082\u306e\u540c\u58eb\u306e\u95a2\u4fc2"
+                },
+                "evidence": {
+                    "description": "\u4e3b\u5f35\u53f0\u5e33\uff086.6\uff09\u306e\u4e3b\u5f35ID",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
+                "grain": {
+                    "description": "1\u884c\u304c\u4f55\u3092\u8868\u3059\u304b\uff0810.4\uff09",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "id": {
+                    "description": "\u5b89\u5b9aID\u3002\u6539\u540d\u3057\u3066\u3082\u5909\u308f\u3089\u306a\u3044",
+                    "pattern": "^tbl_[0-9A-Za-z_]+$",
+                    "type": "string"
+                },
+                "identity": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/Identity"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "inferred_by": {
+                    "description": "\u63d0\u6848\u8005\u306e\u30e2\u30c7\u30eb\u540d\u3068\u7248\u3001\u5b9f\u884cID",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "kind": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/TableKind"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "\u8868\u7a2e\u5225\u3002\u63d0\u6848\u306e\u6bb5\u968e\u3067\u306f\u672a\u6c7a\uff08\u7121\u3044\uff09\u3067\u3082\u3088\u3044\uff08\u898f\u5247\u3084\u8a3c\u62e0\u3067\u6c7a\u307e\u3089\u306a\u3044\u3082\u306e\u3092\u65e2\u5b9a\u5024\u3067\u57cb\u3081\u306a\u3044\uff09\u3002 approved \u306e\u8868\u306b\u306f\u5fc5\u9808"
+                },
+                "name": {
+                    "description": "\u30bd\u30fc\u30b9\u4e0a\u306e\u540d\u524d\uff08schema.table\uff09",
+                    "type": "string"
+                },
+                "note": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "relations": {
+                    "items": {
+                        "$ref": "#/$defs/Relation"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
+                "reviewed_at": {
+                    "format": "date",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "reviewed_by": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "source": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/$defs/ReviewStatus"
+                }
+            },
+            "required": [
+                "id",
+                "name",
+                "source",
+                "context",
+                "status"
+            ],
+            "title": "Table",
+            "type": "object"
+        },
+        "TableApproval": {
+            "additionalProperties": false,
+            "description": "\u8868\u3054\u3068\u306e\u4e00\u62ec\u627f\u8a8d\uff08\u4ed5\u69d8 9.3\uff09\u3002\u8868\u306e\u63d0\u6848\u3092\u4e00\u89a7\u3067\u898b\u305b\u3001\u307e\u3068\u3081\u3066\u627f\u8a8d\u3059\u308b\uff08\u7a2e\u985e\u3092\u9078\u3076\u554f\u3044\u306f\u9664\u304f\uff09\u3002 \u30d7\u30ed\u30bb\u30b9\u5883\u754c\uff08UI \u2192 HTTP API\uff09\u3067\u53d7\u3051\u6e21\u3059\u5f62",
+            "properties": {
+                "locations": {
+                    "description": "\u898b\u305b\u305f\u554f\u3044\u306e\u5834\u6240\u3002\u4eca\u3082\u305d\u306e\u8868\u306e\u3001\u7a2e\u985e\u3092\u9078\u3070\u306a\u304f\u3066\u3088\u3044\u554f\u3044\u306e\u307e\u307e\u3067\u3042\u308b\u3053\u3068\u3092\u78ba\u304b\u3081\u3066\u304b\u3089\u627f\u8a8d\u3059\u308b",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "table": {
+                    "description": "\u8868\u306e\u5b89\u5b9a ID",
+                    "type": "string"
+                }
+            },
+            "required": [
+                "table",
+                "locations"
+            ],
+            "title": "TableApproval",
+            "type": "object"
+        },
+        "TableKind": {
+            "description": "\u8868\u7a2e\u5225\uff084.1\uff09",
+            "enum": [
+                "domain",
+                "relation",
+                "event"
+            ],
+            "title": "TableKind",
+            "type": "string"
+        },
+        "TypeFamily": {
+            "description": "\u30bd\u30fc\u30b9\u306e\u5217\u306e\u5024\u306e\u3001DB \u306b\u4f9d\u5b58\u3057\u306a\u3044\u578b\u65cf\uff08\u30ab\u30bf\u30ed\u30b0\u3001\u4e3b\u5f35\uff09\u3002 \u3069\u308c\u306b\u3082\u5f53\u3066\u306f\u307e\u3089\u306a\u3044\u7d44\u307f\u8fbc\u307f\u306e\u578b\u306f other \u3068\u3057\u3001\u30bd\u30fc\u30b9\u4e0a\u306e\u578b\u540d\u3067\u533a\u5225\u3059\u308b",
+            "enum": [
+                "integer",
+                "decimal",
+                "float",
+                "text",
+                "boolean",
+                "date",
+                "time",
+                "timestamp",
+                "binary",
+                "uuid",
+                "xml",
+                "json",
+                "other"
+            ],
+            "title": "TypeFamily",
+            "type": "string"
+        },
+        "Unit": {
+            "description": "\u56fa\u5b9a\u306e\u5358\u4f4d\uff08UnitSource.fixed\uff09\u3002\u8db3\u3059\u3068\u304d\u306f\u2460\u3092\u5909\u3048\u308b",
+            "enum": [
+                "USD",
+                "JPY",
+                "each",
+                "day",
+                "hour"
+            ],
+            "title": "Unit",
+            "type": "string"
+        },
+        "UnitSource": {
+            "additionalProperties": false,
+            "description": "",
+            "properties": {
+                "column": {
+                    "description": "\u540c\u3058\u8868\u3067\u5358\u4f4d\u3092\u6301\u3064\u5217",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "fixed": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/Unit"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "\u56fa\u5b9a\u306e\u5358\u4f4d"
+                }
+            },
+            "title": "UnitSource",
+            "type": "object"
+        },
+        "ValueType": {
+            "description": "\u610f\u5473\u578b\u306e\u5024\u306e\u578b\u3002\u7269\u7406\u7684\u306a\u8868\u73fe\uff08\u30d0\u30a4\u30ca\u30ea\u5f62\u5f0f\u3001\u6587\u5b57\u30b3\u30fc\u30c9\u306a\u3069\uff09\u306f\u542b\u3081\u306a\u3044\u3002 \u7269\u7406\u7684\u306a\u8868\u73fe\u306f\u5217\u306e encoding \u306b\u66f8\u304f\u3002\u610f\u5473\u306e\u578b\u3078\u306e\u5909\u63db\u306f encoding \u3054\u3068\u306e\u30b3\u30fc\u30c7\u30c3\u30af\uff08I/O \u306e\u7121\u3044\u7d14\u7c8b\u306a\u5909\u63db\u3002DB \u30b3\u30cd\u30af\u30bf\u304b\u3089\u72ec\u7acb\u3057\u305f\u3082\u306e\uff09\u306e\u8cac\u52d9\u3068\u3059\u308b",
+            "enum": [
+                "identifier",
+                "code",
+                "enum",
+                "text",
+                "integer",
+                "ratio",
+                "quantity",
+                "money",
+                "date",
+                "datetime",
+                "geo.point",
+                "geo.latitude",
+                "geo.longitude",
+                "media.image",
+                "media.audio",
+                "media.document",
+                "document.xml"
+            ],
+            "title": "ValueType",
+            "type": "string"
+        },
+        "Vocabulary": {
+            "additionalProperties": false,
+            "description": "vocabulary.yaml\u3002\u62e1\u5f35\u3067\u304d\u308b\u8a9e\u5f59\u306e\u9589\u3058\u305f\u96c6\u5408",
+            "properties": {
+                "aliases": {
+                    "additionalProperties": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/$defs/AliasEntry__identifier_optional"
+                            },
+                            {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            }
+                        ]
+                    },
+                    "type": [
+                        "object",
+                        "null"
+                    ]
+                },
+                "semantic_types": {
+                    "additionalProperties": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/$defs/SemanticType__identifier_optional"
+                            },
+                            {
+                                "$ref": "#/$defs/ValueType"
+                            }
+                        ]
+                    },
+                    "type": [
+                        "object",
+                        "null"
+                    ]
+                }
+            },
+            "title": "Vocabulary",
+            "type": "object"
+        }
+    },
+    "$id": "https://w3id.org/mandara/om",
+    "$schema": "https://json-schema.org/draft/2019-09/schema",
+    "additionalProperties": false,
+    "description": "\u30a4\u30f3\u30b9\u30bf\u30f3\u30b9\u306e\u30d3\u30e5\u30fc\uff08\u884c\u306e\u30a4\u30e1\u30fc\u30b8\uff09\u3002\u81ea\u5206\u306e\u5024\u3001\u53c2\u7167\u5148\u3078\u306e\u30ea\u30f3\u30af\uff08n:1\uff09\u3001\u8fd1\u96a3\u306e\u30a4\u30f3\u30b9\u30bf\u30f3\u30b9\u306e\u96c6\u307e\u308a \uff08\u53c2\u7167\u3057\u3066\u304f\u308b\u884c 1:n\u3001relation \u306e\u8868\u3092\u631f\u3093\u3060\u5148 n:m\uff09\u3002\u30d7\u30ed\u30bb\u30b9\u5883\u754c\uff08HTTP API \u2192 UI\uff09\u3067\u53d7\u3051\u6e21\u3059\u5f62",
+    "metamodel_version": "1.12.0",
+    "properties": {
+        "fields": {
+            "items": {
+                "$ref": "#/$defs/Cell"
+            },
+            "type": "array"
+        },
+        "key": {
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "label": {
+            "type": "string"
+        },
+        "links": {
+            "items": {
+                "$ref": "#/$defs/InstanceLink"
+            },
+            "type": "array"
+        },
+        "name": {
+            "type": "string"
+        },
+        "omitted": {
+            "description": "\u305f\u3069\u3089\u306a\u304b\u3063\u305f\u95a2\u4fc2\u3068\u7406\u7531\uff08\u53c2\u7167\u5148\u30fb\u53c2\u7167\u5143\u304c\u30c9\u30e1\u30a4\u30f3\u3067\u306a\u3044\u3001\u5217\u306e\u7b49\u5024\u3067\u7d50\u3079\u306a\u3044\u3001\u306a\u3069\uff09\u3002\u9ed9\u3063\u3066\u7701\u304b\u306a\u3044",
+            "items": {
+                "$ref": "#/$defs/OmittedRelation"
+            },
+            "type": "array"
+        },
+        "related": {
+            "items": {
+                "$ref": "#/$defs/RelatedGroup"
+            },
+            "type": "array"
+        },
+        "table": {
+            "type": "string"
+        }
+    },
+    "required": [
+        "table",
+        "name",
+        "key",
+        "label",
+        "fields",
+        "links",
+        "related",
+        "omitted"
+    ],
+    "title": "mandara_om",
+    "type": "object",
+    "version": "0.1.0"
+}
+

@@ -71,6 +71,7 @@
 | [T5.1](tasks/T5.1-display-annotations.md) | 表示アノテーションの提案とレビュー | 未着手 | T3.5 |
 | [T5.2](tasks/T5.2-default-views.md) | OM → UI の既定対応（ツリー、タイムライン、かんばん、辺のグラフ） | 未着手 | T2.5 |
 | [T5.3](tasks/T5.3-graph-query.md) | 汎用のグラフ問い合わせ | 未着手 | T2.5 |
+| [T5.5](tasks/T5.5-domain-viewer.md) | ドメインビューワ（承認済みの OM から。集合＝表、個＝行、近隣の集まり） | 第一弾 | T3.5 |
 | [T5.4](tasks/T5.4-custom-view-functions.md) | カスタム表示関数（集合と個の2種。→ React コンポーネント。LLM に書かせる） | 未着手 | T5.1, T2.5 |
 
 ## 段 6：再実行と履歴

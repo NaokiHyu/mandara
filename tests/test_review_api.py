@@ -264,3 +264,46 @@ def test_approve_all_is_only_for_dev_and_leaves_the_kind_questions(prepared: Pat
     assert status == 200 and sorted(q["location"] for q in after["questions"]) == sorted(kind)
     approved = dict(load_ontology(work / "adventureworks" / "ontology").annotations())
     assert all(approved[loc].status == "approved" and approved[loc].reviewed_by == "alice" for loc in shown)
+
+
+DOMAINS_VALIDATOR = _validator("domains.schema.json")
+ROWS_VALIDATOR = _validator("domain_rows.schema.json")
+INSTANCE_VALIDATOR = _validator("instance.schema.json")
+
+
+def test_domain_viewer_follows_the_contracts(prepared: Path, tmp_path: Path) -> None:
+    """承認した作業領域を、ドメインビューワの API で読む。応答は契約に従い、接続の無いソースは読めないと答える。"""
+    from mandara.connectors.postgres.record_reader import PostgresRecordReader
+
+    work = _copy(prepared, tmp_path / "work")
+    workspace = Workspace(work / "adventureworks", "adventureworks")
+    for q in pipeline.review_queue(workspace).questions:
+        if q.needs_kind:  # 種類を選ぶ表は domain と答える（規則だけの提案は種類が未定の表が多い）
+            pipeline.answer(workspace, q.location, Approve(TableKind.domain), "alice", TODAY)
+    shown = [q.location for q in pipeline.review_queue(workspace).questions if not q.needs_kind]
+    pipeline.approve_all(workspace, shown, "alice", TODAY)
+    reviewing = Reviewing("alice", lambda: TODAY)
+    client = TestClient(create_app(discover(work, {}), reviewing=reviewing,
+                                   records={"adventureworks": PostgresRecordReader("dbname=adventureworks")}))
+    path = "/api/ontologies/work:adventureworks/domains"
+    status, index = _request(client, "GET", path)
+    assert status == 200 and index["readable"] and index["domains"]
+    DOMAINS_VALIDATOR.validate(index)
+    person = next(d for d in index["domains"] if d["name"] == "person.person")
+    # 規則だけの提案には意味型が無いので、検索の列はキーだけ
+    assert person["searchable"] == []
+    status, rows = _request(client, "GET", f"{path}/{person['table']}/rows?q=1")
+    assert status == 200 and rows["rows"]
+    ROWS_VALIDATOR.validate(rows)
+    key = rows["rows"][0]["key"]
+    status, it = _request(client, "GET", f"{path}/{person['table']}/instance?" + "&".join(f"key={k}" for k in key))
+    assert status == 200 and it["key"] == key
+    INSTANCE_VALIDATOR.validate(it)
+    status, body = _request(client, "GET", f"{path}/{person['table']}/instance?key=999999999")
+    assert status == 404 and "行が無い" in body["error"]
+
+    unconnected = TestClient(create_app(discover(work, {}), reviewing=reviewing))
+    status, index = _request(unconnected, "GET", path)
+    assert status == 200 and not index["readable"]
+    status, body = _request(unconnected, "GET", f"{path}/{person['table']}/rows")
+    assert status == 409 and "--connect" in body["error"]

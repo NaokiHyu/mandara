@@ -216,6 +216,28 @@ export enum OntologySourceKind {
     gold = "gold",
 };
 /**
+* 参照先（n:1）へのリンクの状態（ドメインビューワ）
+*/
+export enum LinkState {
+    
+    /** 参照先の行がある */
+    found = "found",
+    /** 参照の列が NULL（参照していない） */
+    null = "null",
+    /** 参照の列に値があるのに、参照先の行が無い（壊れた参照） */
+    missing = "missing",
+};
+/**
+* インスタンスの近隣の集まりの種類（ドメインビューワ）
+*/
+export enum RelatedKind {
+    
+    /** 他のドメインの行がこのインスタンスを参照している（1:n。受注 → 明細） */
+    children = "children",
+    /** relation の表を挟んだ先のインスタンス（n:m。製品 ⇄ 仕入先）。relation の表そのものは出さない */
+    via = "via",
+};
+/**
 * レビューの問いが判断するもの（注釈を持つクラス）
 */
 export enum ReviewSubject {
@@ -579,6 +601,142 @@ export interface TableApproval {
     table: string,
     /** 見せた問いの場所。今もその表の、種類を選ばなくてよい問いのままであることを確かめてから承認する */
     locations: string[],
+}
+
+
+/**
+ * ドメインビューワのドメインの一覧（仕様 7.6：承認済みの OM から作る）。domain / event の承認済みの表がドメインになる。 relation の表はリンクとしてたどるだけで、ドメインにしない。出さなかった表は理由とともに hidden に持つ（黙って消さない）。 プロセス境界（HTTP API → UI）で受け渡す形
+ */
+export interface DomainIndex {
+    ontology: string,
+    domains: DomainSummary[],
+    hidden: HiddenTable[],
+    /** 行を読めるか（ソースへの接続がある） */
+    readable: boolean,
+}
+
+
+
+export interface DomainSummary {
+    /** 表の安定 ID */
+    table: string,
+    name: string,
+    context: string,
+    kind: string,
+    grain?: string,
+    /** 見出しに使う列（推定：name という列、無ければ名前が name で終わる文字の列を3つまで）。空ならキーが見出し */
+    label_columns: string[],
+    /** 検索に使う列（文字の部分一致） */
+    searchable: string[],
+}
+
+
+
+export interface HiddenTable {
+    table: string,
+    name: string,
+    reason: string,
+}
+
+
+/**
+ * ドメインの検索結果（集合のビュー。表のイメージ）。query が無ければ先頭から。プロセス境界（HTTP API → UI）で受け渡す形
+ */
+export interface DomainRows {
+    table: string,
+    name: string,
+    query?: string,
+    /** 一覧に出す列（技術列を除く。cells の列はこの中から） */
+    columns: string[],
+    rows: InstanceSummary[],
+    limit: number,
+    truncated: boolean,
+}
+
+
+/**
+ * インスタンス（行）の見出し。key でたどれる
+ */
+export interface InstanceSummary {
+    table: string,
+    /** 主キーの値（文字列の表現、主キーの列の順） */
+    key: string[],
+    /** 見出し（名前らしい列。無ければキー） */
+    label: string,
+    cells: Cell[],
+}
+
+
+
+export interface Cell {
+    column: string,
+    /** 表示の文字列。NULL は無し */
+    value?: string,
+    semantic_type?: string,
+}
+
+
+/**
+ * インスタンスのビュー（行のイメージ）。自分の値、参照先へのリンク（n:1）、近隣のインスタンスの集まり （参照してくる行 1:n、relation の表を挟んだ先 n:m）。プロセス境界（HTTP API → UI）で受け渡す形
+ */
+export interface Instance {
+    table: string,
+    name: string,
+    key: string[],
+    label: string,
+    fields: Cell[],
+    links: InstanceLink[],
+    related: RelatedGroup[],
+    /** たどらなかった関係と理由（参照先・参照元がドメインでない、列の等値で結べない、など）。黙って省かない */
+    omitted: OmittedRelation[],
+}
+
+
+
+export interface OmittedRelation {
+    /** 関係の安定 ID */
+    relation: string,
+    /** その関係を持つ表の名前 */
+    table: string,
+    reason: string,
+}
+
+
+/**
+ * 参照先（n:1）のインスタンスへのリンク。target は state が found のときだけ
+ */
+export interface InstanceLink {
+    /** 関係の安定 ID */
+    relation: string,
+    relation_type: string,
+    role?: string,
+    /** 参照に使う自分の列 */
+    columns: string[],
+    target_table: string,
+    target_name: string,
+    state: string,
+    target?: InstanceSummary,
+}
+
+
+
+export interface RelatedGroup {
+    kind: string,
+    /** たどった関係の安定 ID（via なら、relation の表から先への関係） */
+    relation: string,
+    relation_type: string,
+    /** 集まりの行のドメイン */
+    table: string,
+    name: string,
+    /** 参照に使う列。children なら集まりの表の列（このインスタンスを指す列）、via なら relation の表の列（先を指す列） */
+    columns: string[],
+    /** 挟んだ relation の表（via のとき） */
+    via_table?: string,
+    via_name?: string,
+    rows: InstanceSummary[],
+    truncated: boolean,
+    /** relation の表の行が指す先の行が無かった数（via のとき。壊れた参照） */
+    missing: number,
 }
 
 

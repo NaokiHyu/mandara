@@ -353,6 +353,38 @@ class OntologySourceKind(str, Enum):
     """
 
 
+class LinkState(str, Enum):
+    """
+    参照先（n:1）へのリンクの状態（ドメインビューワ）
+    """
+    found = "found"
+    """
+    参照先の行がある
+    """
+    null = "null"
+    """
+    参照の列が NULL（参照していない）
+    """
+    missing = "missing"
+    """
+    参照の列に値があるのに、参照先の行が無い（壊れた参照）
+    """
+
+
+class RelatedKind(str, Enum):
+    """
+    インスタンスの近隣の集まりの種類（ドメインビューワ）
+    """
+    children = "children"
+    """
+    他のドメインの行がこのインスタンスを参照している（1:n。受注 → 明細）
+    """
+    via = "via"
+    """
+    relation の表を挟んだ先のインスタンス（n:m。製品 ⇄ 仕入先）。relation の表そのものは出さない
+    """
+
+
 class ReviewSubject(str, Enum):
     """
     レビューの問いが判断するもの（注釈を持つクラス）
@@ -414,10 +446,18 @@ class SemanticType(ConfiguredBaseModel):
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
 
-    name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'AliasEntry', 'Table', 'Column']} })
+    name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType',
+                       'AliasEntry',
+                       'Table',
+                       'Column',
+                       'DomainSummary',
+                       'HiddenTable',
+                       'DomainRows',
+                       'Instance',
+                       'RelatedGroup']} })
     description: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType']} })
     type: ValueType = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'Edge', 'Relation']} })
-    role: Optional[SemanticRole] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'Relation']} })
+    role: Optional[SemanticRole] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'Relation', 'InstanceLink']} })
     additivity: Optional[Additivity] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType']} })
     requires_unit: Optional[bool] = Field(default=None, description="""true なら、この意味型を使う列は unit（量と単位の組、C5）を宣言しなければならない""", json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType']} })
     values: Optional[list[EnumValue]] = Field(default=None, description="""type が enum のときの値の一覧（C6）。値の集合はデータからではなく、宣言・証拠から決める""", json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType']} })
@@ -427,7 +467,7 @@ class EnumValue(Annotation):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'mixins': ['Annotation']})
 
     code: str = Field(default=..., description="""ソース上の値の文字列表現。ファイルには文字列で書く（数値の 1 は拒否し、\"1\" と書く）。 観測値との照合時の正規化（真偽値の表記など）はソースの Adapter の責務""", json_schema_extra = { "linkml_meta": {'domain_of': ['EnumValue']} })
-    label: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['EnumValue', 'OntologyListing']} })
+    label: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['EnumValue', 'OntologyListing', 'InstanceSummary', 'Instance']} })
     meaning: Optional[str] = Field(default=None, description="""語彙や公開オントロジーの概念への参照（CURIE）""", json_schema_extra = { "linkml_meta": {'domain_of': ['EnumValue']} })
     observed: Optional[bool] = Field(default=None, description="""データで観測されたか。値の集合の根拠にはしない""", json_schema_extra = { "linkml_meta": {'domain_of': ['EnumValue']} })
     status: ReviewStatus = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation']} })
@@ -442,7 +482,15 @@ class EnumValue(Annotation):
 class AliasEntry(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
 
-    name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'AliasEntry', 'Table', 'Column']} })
+    name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType',
+                       'AliasEntry',
+                       'Table',
+                       'Column',
+                       'DomainSummary',
+                       'HiddenTable',
+                       'DomainRows',
+                       'Instance',
+                       'RelatedGroup']} })
     terms: list[str] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['AliasEntry']} })
 
 
@@ -455,14 +503,33 @@ class Table(Annotation):
          'tree_root': True})
 
     id: str = Field(default=..., description="""安定ID。改名しても変わらない""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Relation', 'Claim', 'OntologyListing', 'EvidenceLine']} })
-    name: str = Field(default=..., description="""ソース上の名前（schema.table）""", json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'AliasEntry', 'Table', 'Column']} })
+    name: str = Field(default=..., description="""ソース上の名前（schema.table）""", json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType',
+                       'AliasEntry',
+                       'Table',
+                       'Column',
+                       'DomainSummary',
+                       'HiddenTable',
+                       'DomainRows',
+                       'Instance',
+                       'RelatedGroup']} })
     source: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Claim', 'SourceRef']} })
-    context: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table']} })
-    kind: Optional[TableKind] = Field(default=None, description="""表種別。提案の段階では未決（無い）でもよい（規則や証拠で決まらないものを既定値で埋めない）。 approved の表には必須""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'ClaimSource', 'OntologyListing', 'ReviewAnswer']} })
+    context: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'DomainSummary']} })
+    kind: Optional[TableKind] = Field(default=None, description="""表種別。提案の段階では未決（無い）でもよい（規則や証拠で決まらないものを既定値で埋めない）。 approved の表には必須""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table',
+                       'ClaimSource',
+                       'OntologyListing',
+                       'ReviewAnswer',
+                       'DomainSummary',
+                       'RelatedGroup']} })
     derived: Optional[bool] = Field(default=None, description="""計算・集計で導出された表（ビューなど）。kind（何を表すか）とは別の軸で、どの kind とも組み合わさる。 コマンド不可。part-of の全体側にならない。ソースが実体の表なら書かない""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table']} })
-    grain: Optional[str] = Field(default=None, description="""1行が何を表すか（10.4）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table']} })
+    grain: Optional[str] = Field(default=None, description="""1行が何を表すか（10.4）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'DomainSummary']} })
     identity: Optional[Identity] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Table']} })
-    columns: Optional[dict[str, Column]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'KeyColumns', 'Relation', 'Claim']} })
+    columns: Optional[dict[str, Column]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Table',
+                       'KeyColumns',
+                       'Relation',
+                       'Claim',
+                       'DomainRows',
+                       'InstanceLink',
+                       'RelatedGroup']} })
     relations: Optional[list[Relation]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Table']} })
     edge: Optional[Edge] = Field(default=None, description="""relation の表だけが持てる。この表の行が実現する、もの同士の関係""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table']} })
     status: ReviewStatus = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation']} })
@@ -518,14 +585,28 @@ class Identity(ConfiguredBaseModel):
 class KeyColumns(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
 
-    columns: list[str] = Field(default=..., min_length=1, json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'KeyColumns', 'Relation', 'Claim']} })
+    columns: list[str] = Field(default=..., min_length=1, json_schema_extra = { "linkml_meta": {'domain_of': ['Table',
+                       'KeyColumns',
+                       'Relation',
+                       'Claim',
+                       'DomainRows',
+                       'InstanceLink',
+                       'RelatedGroup']} })
 
 
 class Column(Annotation):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'mixins': ['Annotation']})
 
-    name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'AliasEntry', 'Table', 'Column']} })
-    semantic_type: Optional[str] = Field(default=None, description="""vocabulary の semantic_types のキー""", json_schema_extra = { "linkml_meta": {'domain_of': ['Column']} })
+    name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType',
+                       'AliasEntry',
+                       'Table',
+                       'Column',
+                       'DomainSummary',
+                       'HiddenTable',
+                       'DomainRows',
+                       'Instance',
+                       'RelatedGroup']} })
+    semantic_type: Optional[str] = Field(default=None, description="""vocabulary の semantic_types のキー""", json_schema_extra = { "linkml_meta": {'domain_of': ['Column', 'Cell']} })
     pii: Optional[bool] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Column']} })
     unit: Optional[UnitSource] = Field(default=None, description="""量の単位の出所（C5）。fixed / column のちょうど1つ""", json_schema_extra = { "linkml_meta": {'domain_of': ['Column']} })
     encoding: Optional[SourceEncoding] = Field(default=None, description="""ソース上の値の物理的な表現。意味の型の標準的な表現と同じなら書かない""", json_schema_extra = { "linkml_meta": {'domain_of': ['Column']} })
@@ -542,7 +623,7 @@ class UnitSource(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
 
     fixed: Optional[Unit] = Field(default=None, description="""固定の単位""", json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource']} })
-    column: Optional[str] = Field(default=None, description="""同じ表で単位を持つ列""", json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource', 'SourceRef', 'PointSet']} })
+    column: Optional[str] = Field(default=None, description="""同じ表で単位を持つ列""", json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource', 'SourceRef', 'Cell', 'PointSet']} })
 
 
 class Relation(Annotation):
@@ -551,13 +632,19 @@ class Relation(Annotation):
     id: str = Field(default=..., description="""関係の安定ID。同じ表への複数の参照（C2）を区別する""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Relation', 'Claim', 'OntologyListing', 'EvidenceLine']} })
     type: RelationType = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'Edge', 'Relation']} })
     has_kind: Optional[HasKind] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Relation']} })
-    role: Optional[str] = Field(default=None, description="""参照の役割（C2。例 bill_to / ship_to）""", json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'Relation']} })
-    target: str = Field(default=..., description="""参照先の表の安定ID。自己参照は self と書き、自分の安定ID は書かない""", json_schema_extra = { "linkml_meta": {'domain_of': ['Relation', 'Claim']} })
+    role: Optional[str] = Field(default=None, description="""参照の役割（C2。例 bill_to / ship_to）""", json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'Relation', 'InstanceLink']} })
+    target: str = Field(default=..., description="""参照先の表の安定ID。自己参照は self と書き、自分の安定ID は書かない""", json_schema_extra = { "linkml_meta": {'domain_of': ['Relation', 'Claim', 'InstanceLink']} })
     via: Optional[list[ColumnPair]] = Field(default=None, description="""結合に使う列の対応。複合キーなら複数""", json_schema_extra = { "linkml_meta": {'domain_of': ['Relation']} })
     via_function: Optional[str] = Field(default=None, description="""列の等値で結べない関係（C4。パス文字列の木など）を結ぶ決定的関数の安定ID""", json_schema_extra = { "linkml_meta": {'domain_of': ['Relation']} })
     cardinality: Optional[Cardinality] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Relation']} })
     realized_by: Optional[IsARealization] = Field(default=None, description="""is-a の物理的な実装パターン（C3）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Relation']} })
-    columns: Optional[list[str]] = Field(default=None, description="""derived-from で導出される列""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'KeyColumns', 'Relation', 'Claim']} })
+    columns: Optional[list[str]] = Field(default=None, description="""derived-from で導出される列""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table',
+                       'KeyColumns',
+                       'Relation',
+                       'Claim',
+                       'DomainRows',
+                       'InstanceLink',
+                       'RelatedGroup']} })
     function: Optional[str] = Field(default=None, description="""derived-from の変換関数の安定ID""", json_schema_extra = { "linkml_meta": {'domain_of': ['Relation']} })
     status: ReviewStatus = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation']} })
     confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0, json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation', 'Claim', 'ReviewQuestion']} })
@@ -606,8 +693,14 @@ class Claim(ConfiguredBaseModel):
     id: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Relation', 'Claim', 'OntologyListing', 'EvidenceLine']} })
     subject: SourceRef = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Claim', 'ReviewQuestion']} })
     predicate: ClaimPredicate = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
-    columns: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'KeyColumns', 'Relation', 'Claim']} })
-    target: Optional[SourceRef] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Relation', 'Claim']} })
+    columns: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Table',
+                       'KeyColumns',
+                       'Relation',
+                       'Claim',
+                       'DomainRows',
+                       'InstanceLink',
+                       'RelatedGroup']} })
+    target: Optional[SourceRef] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Relation', 'Claim', 'InstanceLink']} })
     target_columns: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     on_delete: Optional[ReferentialAction] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     on_update: Optional[ReferentialAction] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
@@ -643,14 +736,29 @@ class SourceRef(ConfiguredBaseModel):
 
     source: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Claim', 'SourceRef']} })
     schema_name: str = Field(default=..., description="""スキーマ名（schema は pydantic の BaseModel と衝突するので避ける）""", json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef']} })
-    table: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef', 'ReviewQuestion', 'TableApproval', 'PointSet']} })
-    column: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource', 'SourceRef', 'PointSet']} })
+    table: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef',
+                       'ReviewQuestion',
+                       'TableApproval',
+                       'DomainSummary',
+                       'HiddenTable',
+                       'DomainRows',
+                       'InstanceSummary',
+                       'Instance',
+                       'OmittedRelation',
+                       'RelatedGroup',
+                       'PointSet']} })
+    column: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource', 'SourceRef', 'Cell', 'PointSet']} })
 
 
 class ClaimSource(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
 
-    kind: ClaimSourceKind = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'ClaimSource', 'OntologyListing', 'ReviewAnswer']} })
+    kind: ClaimSourceKind = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table',
+                       'ClaimSource',
+                       'OntologyListing',
+                       'ReviewAnswer',
+                       'DomainSummary',
+                       'RelatedGroup']} })
     locator: str = Field(default=..., description="""出所の中の場所（制約名、ファイルと行など）""", json_schema_extra = { "linkml_meta": {'domain_of': ['ClaimSource']} })
 
 
@@ -667,8 +775,13 @@ class OntologyListing(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
 
     id: str = Field(default=..., description="""URL に使う ID（例 work:adventureworks、gold:adventureworks）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Relation', 'Claim', 'OntologyListing', 'EvidenceLine']} })
-    label: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['EnumValue', 'OntologyListing']} })
-    kind: OntologySourceKind = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'ClaimSource', 'OntologyListing', 'ReviewAnswer']} })
+    label: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['EnumValue', 'OntologyListing', 'InstanceSummary', 'Instance']} })
+    kind: OntologySourceKind = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table',
+                       'ClaimSource',
+                       'OntologyListing',
+                       'ReviewAnswer',
+                       'DomainSummary',
+                       'RelatedGroup']} })
 
 
 class OntologyDocument(ConfiguredBaseModel):
@@ -687,7 +800,7 @@ class ReviewQueue(ConfiguredBaseModel):
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'tree_root': True})
 
-    ontology: str = Field(default=..., description="""見られる OM の ID""", json_schema_extra = { "linkml_meta": {'domain_of': ['ReviewQueue']} })
+    ontology: str = Field(default=..., description="""見られる OM の ID""", json_schema_extra = { "linkml_meta": {'domain_of': ['ReviewQueue', 'DomainIndex']} })
     pending: int = Field(default=..., description="""まだ判断されていない提案の数（= questions の数）""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['ReviewQueue']} })
     questions: list[ReviewQuestion] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ReviewQueue']} })
     writable: bool = Field(default=..., description="""この API で答えを書けるか""", json_schema_extra = { "linkml_meta": {'domain_of': ['ReviewQueue']} })
@@ -701,7 +814,17 @@ class ReviewQuestion(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
 
     location: str = Field(default=..., description="""答えを当てる注釈の場所（Ontology.annotations() の場所）""", json_schema_extra = { "linkml_meta": {'domain_of': ['ReviewQuestion', 'ReviewAnswer']} })
-    table: Optional[str] = Field(default=None, description="""問いの属する表の安定 ID（語彙の enum の値の問いには無い）""", json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef', 'ReviewQuestion', 'TableApproval', 'PointSet']} })
+    table: Optional[str] = Field(default=None, description="""問いの属する表の安定 ID（語彙の enum の値の問いには無い）""", json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef',
+                       'ReviewQuestion',
+                       'TableApproval',
+                       'DomainSummary',
+                       'HiddenTable',
+                       'DomainRows',
+                       'InstanceSummary',
+                       'Instance',
+                       'OmittedRelation',
+                       'RelatedGroup',
+                       'PointSet']} })
     subject: ReviewSubject = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Claim', 'ReviewQuestion']} })
     text: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Claim', 'ReviewQuestion', 'EvidenceLine']} })
     confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0, json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation', 'Claim', 'ReviewQuestion']} })
@@ -726,7 +849,12 @@ class ReviewAnswer(ConfiguredBaseModel):
 
     location: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ReviewQuestion', 'ReviewAnswer']} })
     decision: ReviewDecision = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ReviewAnswer']} })
-    kind: Optional[TableKind] = Field(default=None, description="""種類が未決の表を承認するときに選んだ種類""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'ClaimSource', 'OntologyListing', 'ReviewAnswer']} })
+    kind: Optional[TableKind] = Field(default=None, description="""種類が未決の表を承認するときに選んだ種類""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table',
+                       'ClaimSource',
+                       'OntologyListing',
+                       'ReviewAnswer',
+                       'DomainSummary',
+                       'RelatedGroup']} })
 
 
 class BulkApproval(ConfiguredBaseModel):
@@ -754,8 +882,279 @@ class TableApproval(ConfiguredBaseModel):
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'tree_root': True})
 
-    table: str = Field(default=..., description="""表の安定 ID""", json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef', 'ReviewQuestion', 'TableApproval', 'PointSet']} })
+    table: str = Field(default=..., description="""表の安定 ID""", json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef',
+                       'ReviewQuestion',
+                       'TableApproval',
+                       'DomainSummary',
+                       'HiddenTable',
+                       'DomainRows',
+                       'InstanceSummary',
+                       'Instance',
+                       'OmittedRelation',
+                       'RelatedGroup',
+                       'PointSet']} })
     locations: list[str] = Field(default=..., description="""見せた問いの場所。今もその表の、種類を選ばなくてよい問いのままであることを確かめてから承認する""", json_schema_extra = { "linkml_meta": {'domain_of': ['BulkApproval', 'AllApproval', 'TableApproval']} })
+
+
+class DomainIndex(ConfiguredBaseModel):
+    """
+    ドメインビューワのドメインの一覧（仕様 7.6：承認済みの OM から作る）。domain / event の承認済みの表がドメインになる。 relation の表はリンクとしてたどるだけで、ドメインにしない。出さなかった表は理由とともに hidden に持つ（黙って消さない）。 プロセス境界（HTTP API → UI）で受け渡す形
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'tree_root': True})
+
+    ontology: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ReviewQueue', 'DomainIndex']} })
+    domains: list[DomainSummary] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['DomainIndex']} })
+    hidden: list[HiddenTable] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['DomainIndex']} })
+    readable: bool = Field(default=..., description="""行を読めるか（ソースへの接続がある）""", json_schema_extra = { "linkml_meta": {'domain_of': ['DomainIndex']} })
+
+
+class DomainSummary(ConfiguredBaseModel):
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
+
+    table: str = Field(default=..., description="""表の安定 ID""", json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef',
+                       'ReviewQuestion',
+                       'TableApproval',
+                       'DomainSummary',
+                       'HiddenTable',
+                       'DomainRows',
+                       'InstanceSummary',
+                       'Instance',
+                       'OmittedRelation',
+                       'RelatedGroup',
+                       'PointSet']} })
+    name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType',
+                       'AliasEntry',
+                       'Table',
+                       'Column',
+                       'DomainSummary',
+                       'HiddenTable',
+                       'DomainRows',
+                       'Instance',
+                       'RelatedGroup']} })
+    context: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'DomainSummary']} })
+    kind: TableKind = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table',
+                       'ClaimSource',
+                       'OntologyListing',
+                       'ReviewAnswer',
+                       'DomainSummary',
+                       'RelatedGroup']} })
+    grain: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'DomainSummary']} })
+    label_columns: list[str] = Field(default=..., description="""見出しに使う列（推定：name という列、無ければ名前が name で終わる文字の列を3つまで）。空ならキーが見出し""", json_schema_extra = { "linkml_meta": {'domain_of': ['DomainSummary']} })
+    searchable: list[str] = Field(default=..., description="""検索に使う列（文字の部分一致）""", json_schema_extra = { "linkml_meta": {'domain_of': ['DomainSummary']} })
+
+
+class HiddenTable(ConfiguredBaseModel):
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
+
+    table: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef',
+                       'ReviewQuestion',
+                       'TableApproval',
+                       'DomainSummary',
+                       'HiddenTable',
+                       'DomainRows',
+                       'InstanceSummary',
+                       'Instance',
+                       'OmittedRelation',
+                       'RelatedGroup',
+                       'PointSet']} })
+    name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType',
+                       'AliasEntry',
+                       'Table',
+                       'Column',
+                       'DomainSummary',
+                       'HiddenTable',
+                       'DomainRows',
+                       'Instance',
+                       'RelatedGroup']} })
+    reason: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['HiddenTable', 'OmittedRelation', 'PointFailure']} })
+
+
+class DomainRows(ConfiguredBaseModel):
+    """
+    ドメインの検索結果（集合のビュー。表のイメージ）。query が無ければ先頭から。プロセス境界（HTTP API → UI）で受け渡す形
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'tree_root': True})
+
+    table: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef',
+                       'ReviewQuestion',
+                       'TableApproval',
+                       'DomainSummary',
+                       'HiddenTable',
+                       'DomainRows',
+                       'InstanceSummary',
+                       'Instance',
+                       'OmittedRelation',
+                       'RelatedGroup',
+                       'PointSet']} })
+    name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType',
+                       'AliasEntry',
+                       'Table',
+                       'Column',
+                       'DomainSummary',
+                       'HiddenTable',
+                       'DomainRows',
+                       'Instance',
+                       'RelatedGroup']} })
+    query: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['DomainRows']} })
+    columns: list[str] = Field(default=..., description="""一覧に出す列（技術列を除く。cells の列はこの中から）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table',
+                       'KeyColumns',
+                       'Relation',
+                       'Claim',
+                       'DomainRows',
+                       'InstanceLink',
+                       'RelatedGroup']} })
+    rows: list[InstanceSummary] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['DomainRows', 'RelatedGroup']} })
+    limit: int = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['DomainRows', 'PointSet']} })
+    truncated: bool = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['DomainRows', 'RelatedGroup', 'PointSet']} })
+
+
+class InstanceSummary(ConfiguredBaseModel):
+    """
+    インスタンス（行）の見出し。key でたどれる
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
+
+    table: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef',
+                       'ReviewQuestion',
+                       'TableApproval',
+                       'DomainSummary',
+                       'HiddenTable',
+                       'DomainRows',
+                       'InstanceSummary',
+                       'Instance',
+                       'OmittedRelation',
+                       'RelatedGroup',
+                       'PointSet']} })
+    key: list[str] = Field(default=..., description="""主キーの値（文字列の表現、主キーの列の順）""", json_schema_extra = { "linkml_meta": {'domain_of': ['InstanceSummary', 'Instance', 'GeoPointRow', 'PointFailure']} })
+    label: str = Field(default=..., description="""見出し（名前らしい列。無ければキー）""", json_schema_extra = { "linkml_meta": {'domain_of': ['EnumValue', 'OntologyListing', 'InstanceSummary', 'Instance']} })
+    cells: list[Cell] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['InstanceSummary']} })
+
+
+class Cell(ConfiguredBaseModel):
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
+
+    column: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource', 'SourceRef', 'Cell', 'PointSet']} })
+    value: Optional[str] = Field(default=None, description="""表示の文字列。NULL は無し""", json_schema_extra = { "linkml_meta": {'domain_of': ['Cell']} })
+    semantic_type: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Column', 'Cell']} })
+
+
+class Instance(ConfiguredBaseModel):
+    """
+    インスタンスのビュー（行のイメージ）。自分の値、参照先へのリンク（n:1）、近隣のインスタンスの集まり （参照してくる行 1:n、relation の表を挟んだ先 n:m）。プロセス境界（HTTP API → UI）で受け渡す形
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'tree_root': True})
+
+    table: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef',
+                       'ReviewQuestion',
+                       'TableApproval',
+                       'DomainSummary',
+                       'HiddenTable',
+                       'DomainRows',
+                       'InstanceSummary',
+                       'Instance',
+                       'OmittedRelation',
+                       'RelatedGroup',
+                       'PointSet']} })
+    name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType',
+                       'AliasEntry',
+                       'Table',
+                       'Column',
+                       'DomainSummary',
+                       'HiddenTable',
+                       'DomainRows',
+                       'Instance',
+                       'RelatedGroup']} })
+    key: list[str] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['InstanceSummary', 'Instance', 'GeoPointRow', 'PointFailure']} })
+    label: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['EnumValue', 'OntologyListing', 'InstanceSummary', 'Instance']} })
+    fields: list[Cell] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Instance']} })
+    links: list[InstanceLink] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Instance']} })
+    related: list[RelatedGroup] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Instance']} })
+    omitted: list[OmittedRelation] = Field(default=..., description="""たどらなかった関係と理由（参照先・参照元がドメインでない、列の等値で結べない、など）。黙って省かない""", json_schema_extra = { "linkml_meta": {'domain_of': ['Instance']} })
+
+
+class OmittedRelation(ConfiguredBaseModel):
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
+
+    relation: str = Field(default=..., description="""関係の安定 ID""", json_schema_extra = { "linkml_meta": {'domain_of': ['OmittedRelation', 'InstanceLink', 'RelatedGroup']} })
+    table: str = Field(default=..., description="""その関係を持つ表の名前""", json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef',
+                       'ReviewQuestion',
+                       'TableApproval',
+                       'DomainSummary',
+                       'HiddenTable',
+                       'DomainRows',
+                       'InstanceSummary',
+                       'Instance',
+                       'OmittedRelation',
+                       'RelatedGroup',
+                       'PointSet']} })
+    reason: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['HiddenTable', 'OmittedRelation', 'PointFailure']} })
+
+
+class InstanceLink(ConfiguredBaseModel):
+    """
+    参照先（n:1）のインスタンスへのリンク。target は state が found のときだけ
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
+
+    relation: str = Field(default=..., description="""関係の安定 ID""", json_schema_extra = { "linkml_meta": {'domain_of': ['OmittedRelation', 'InstanceLink', 'RelatedGroup']} })
+    relation_type: RelationType = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['InstanceLink', 'RelatedGroup']} })
+    role: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'Relation', 'InstanceLink']} })
+    columns: list[str] = Field(default=..., description="""参照に使う自分の列""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table',
+                       'KeyColumns',
+                       'Relation',
+                       'Claim',
+                       'DomainRows',
+                       'InstanceLink',
+                       'RelatedGroup']} })
+    target_table: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['InstanceLink']} })
+    target_name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['InstanceLink']} })
+    state: LinkState = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['InstanceLink']} })
+    target: Optional[InstanceSummary] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Relation', 'Claim', 'InstanceLink']} })
+
+
+class RelatedGroup(ConfiguredBaseModel):
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
+
+    kind: RelatedKind = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table',
+                       'ClaimSource',
+                       'OntologyListing',
+                       'ReviewAnswer',
+                       'DomainSummary',
+                       'RelatedGroup']} })
+    relation: str = Field(default=..., description="""たどった関係の安定 ID（via なら、relation の表から先への関係）""", json_schema_extra = { "linkml_meta": {'domain_of': ['OmittedRelation', 'InstanceLink', 'RelatedGroup']} })
+    relation_type: RelationType = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['InstanceLink', 'RelatedGroup']} })
+    table: str = Field(default=..., description="""集まりの行のドメイン""", json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef',
+                       'ReviewQuestion',
+                       'TableApproval',
+                       'DomainSummary',
+                       'HiddenTable',
+                       'DomainRows',
+                       'InstanceSummary',
+                       'Instance',
+                       'OmittedRelation',
+                       'RelatedGroup',
+                       'PointSet']} })
+    name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType',
+                       'AliasEntry',
+                       'Table',
+                       'Column',
+                       'DomainSummary',
+                       'HiddenTable',
+                       'DomainRows',
+                       'Instance',
+                       'RelatedGroup']} })
+    columns: list[str] = Field(default=..., description="""参照に使う列。children なら集まりの表の列（このインスタンスを指す列）、via なら relation の表の列（先を指す列）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table',
+                       'KeyColumns',
+                       'Relation',
+                       'Claim',
+                       'DomainRows',
+                       'InstanceLink',
+                       'RelatedGroup']} })
+    via_table: Optional[str] = Field(default=None, description="""挟んだ relation の表（via のとき）""", json_schema_extra = { "linkml_meta": {'domain_of': ['RelatedGroup']} })
+    via_name: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['RelatedGroup']} })
+    rows: list[InstanceSummary] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['DomainRows', 'RelatedGroup']} })
+    truncated: bool = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['DomainRows', 'RelatedGroup', 'PointSet']} })
+    missing: int = Field(default=..., description="""relation の表の行が指す先の行が無かった数（via のとき。壊れた参照）""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['RelatedGroup']} })
 
 
 class PointSet(ConfiguredBaseModel):
@@ -764,20 +1163,30 @@ class PointSet(ConfiguredBaseModel):
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'tree_root': True})
 
-    table: str = Field(default=..., description="""表の安定 ID""", json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef', 'ReviewQuestion', 'TableApproval', 'PointSet']} })
-    column: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource', 'SourceRef', 'PointSet']} })
+    table: str = Field(default=..., description="""表の安定 ID""", json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef',
+                       'ReviewQuestion',
+                       'TableApproval',
+                       'DomainSummary',
+                       'HiddenTable',
+                       'DomainRows',
+                       'InstanceSummary',
+                       'Instance',
+                       'OmittedRelation',
+                       'RelatedGroup',
+                       'PointSet']} })
+    column: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource', 'SourceRef', 'Cell', 'PointSet']} })
     points: list[GeoPointRow] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['PointSet']} })
     nulls: int = Field(default=..., ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['PointSet']} })
     failed: list[PointFailure] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['PointSet']} })
     rows_read: int = Field(default=..., description="""読んだ行の数（limit 以下）""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['PointSet']} })
-    limit: int = Field(default=..., description="""読む行の上限""", ge=1, json_schema_extra = { "linkml_meta": {'domain_of': ['PointSet']} })
-    truncated: bool = Field(default=..., description="""上限で打ち切った（表にはまだ行がある）""", json_schema_extra = { "linkml_meta": {'domain_of': ['PointSet']} })
+    limit: int = Field(default=..., description="""読む行の上限""", ge=1, json_schema_extra = { "linkml_meta": {'domain_of': ['DomainRows', 'PointSet']} })
+    truncated: bool = Field(default=..., description="""上限で打ち切った（表にはまだ行がある）""", json_schema_extra = { "linkml_meta": {'domain_of': ['DomainRows', 'RelatedGroup', 'PointSet']} })
 
 
 class GeoPointRow(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
 
-    key: list[str] = Field(default=..., description="""行の主キーの値（主キーの列の順）。各値をソースの値の文字列表現（Python の str）にしたもの。 主キーは NULL を持たない（仕様 4.2）""", json_schema_extra = { "linkml_meta": {'domain_of': ['GeoPointRow', 'PointFailure']} })
+    key: list[str] = Field(default=..., description="""行の主キーの値（主キーの列の順）。各値をソースの値の文字列表現（Python の str）にしたもの。 主キーは NULL を持たない（仕様 4.2）""", json_schema_extra = { "linkml_meta": {'domain_of': ['InstanceSummary', 'Instance', 'GeoPointRow', 'PointFailure']} })
     lat: float = Field(default=..., ge=-90, le=90, json_schema_extra = { "linkml_meta": {'domain_of': ['GeoPointRow']} })
     lon: float = Field(default=..., ge=-180, le=180, json_schema_extra = { "linkml_meta": {'domain_of': ['GeoPointRow']} })
 
@@ -785,8 +1194,8 @@ class GeoPointRow(ConfiguredBaseModel):
 class PointFailure(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
 
-    key: list[str] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['GeoPointRow', 'PointFailure']} })
-    reason: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['PointFailure']} })
+    key: list[str] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['InstanceSummary', 'Instance', 'GeoPointRow', 'PointFailure']} })
+    reason: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['HiddenTable', 'OmittedRelation', 'PointFailure']} })
 
 
 # Model rebuild
@@ -818,6 +1227,16 @@ ReviewAnswer.model_rebuild()
 BulkApproval.model_rebuild()
 AllApproval.model_rebuild()
 TableApproval.model_rebuild()
+DomainIndex.model_rebuild()
+DomainSummary.model_rebuild()
+HiddenTable.model_rebuild()
+DomainRows.model_rebuild()
+InstanceSummary.model_rebuild()
+Cell.model_rebuild()
+Instance.model_rebuild()
+OmittedRelation.model_rebuild()
+InstanceLink.model_rebuild()
+RelatedGroup.model_rebuild()
 PointSet.model_rebuild()
 GeoPointRow.model_rebuild()
 PointFailure.model_rebuild()
