@@ -217,10 +217,10 @@ uv run mandara run --source adventureworks --conninfo dbname=adventureworks \
 ◆ MANDARA  adventureworks  humanresources person production purchasing sales
   extract   89 objects → 2,241 claims
   propose   89 tables (relation 12 · undecided 77; derived 21) · 90 relations
-  refine    failed 5 · refined 43  claude-haiku-5-5  ¥9.62 / ¥10
+  refine    failed 4 · nothing_applied 4 · refined 38  claude-haiku-5-5  ¥9.60 / ¥10
   evaluate  vs evals/datasets/adventureworks/gold/ontology
             primary_key          ████████████████████   14/14   err 0%
-            semantic_type_pairs  ██████████··········  122/234  err 0%
+            semantic_type_pairs  █████████████·······  147/234  err 0%
             ...
   record    work/adventureworks/runs/20261015T102607963288Z.json
 ```
@@ -325,12 +325,12 @@ OM はふつうの YAML なので、エディタで読めて、git で差分を�
 |---|---|---|
 | 主キー | 14/14 | 14/14 |
 | 関係の端点（どの列でつながるか） | 15/17 | 15/17 |
-| 関係の型 | 8/15 | 9/15 |
-| 表の種類 | 0/14 | 8/14（誤り 0%） |
-| 列の値の型 | 0/141 | 72/141 |
-| 同じ意味の列の組 | 0/234 | 122/234（誤り 0%） |
+| 関係の型 | 8/15 | 11/15 |
+| 表の種類 | 0/14 | 8/14（誤り 11%） |
+| 列の値の型 | 0/141 | 86/141 |
+| 同じ意味の列の組（意味型） | 0/234 | 147/234（誤り 0%） |
 
-AI の段は予算 10 円で 89 表中 48 表まで問うて止まり、正解の表のうち 3 つは AI の答えの形が崩れて受け取れませんでした（改善中）。点数の履歴は [docs/backlog.md](backlog.md) にあります。
+AI の段は予算 10 円で 89 表中 46 表まで問うて止まり、正解の表のうち product と salesorderheader は AI の答えが出力の上限で切れて受け取れませんでした（改善中）。点数の履歴は [docs/backlog.md](backlog.md) にあります。
 
 ---
 
