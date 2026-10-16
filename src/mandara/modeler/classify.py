@@ -50,6 +50,9 @@ from mandara.om.value_types import COMPATIBLE, UNIT_BEARING
 
 THRESHOLD = 0.6
 """これ未満の確信度の提案は出さない（仕様 6.3 の既定）。"""
+NAMED_CONFIDENCE = 0.7
+"""LLM が名付けた意味型（と、それを当てた列）の確信度の上限。名前そのものは確率を測っていないので、判断モデルの確率が
+高くても、これより上にしない（人がレビューで見る）。"""
 NEW = "new"
 UNCLEAR = "unclear"
 NONE = "none"
@@ -198,6 +201,11 @@ def _fk_label(claim: Claim) -> str:
     return f"({', '.join(claim.columns or [])}) -> {_target(claim)}"
 
 
+def _type_brief(d: SemanticType) -> str:
+    """選択肢に添える短い説明（値の型と役割だけ。説明の文は材料に1回だけ置く）。"""
+    return f"value type {d.type}" + (f", role {d.role}" if d.role else "")
+
+
 def _type_option(d: SemanticType) -> str:
     detail = f"value type {d.type}" + (f", role {d.role}" if d.role else "")
     return f"{d.description} ({detail})" if d.description else detail
@@ -273,6 +281,8 @@ def classify(table: Table, table_claims: Sequence[Claim], vocabulary: Mapping[st
             evidence["edge"] = sorted({*table_evidence})
     families = _families(table_claims)
     new_only: list[str] = []
+    described: dict[str, str] = {}
+    """選択肢に出した意味型の説明（材料に1回だけ置き、選択肢には名前だけを並べる。列ごとに繰り返すと材料が何十倍にもなる）。"""
     for name, column in (table.columns or {}).items():
         hint = hints.get(name)
         if column.status != "proposed" or (hint is not None and hint.semantic_type is not None):
@@ -281,18 +291,21 @@ def classify(table: Table, table_claims: Sequence[Claim], vocabulary: Mapping[st
         if family is None:
             not_asked.append(Dropped(f"column {name}", "型の主張が無い"))
             continue
-        options = {d.name: _type_option(d) for d in vocabulary.values() if d.type in COMPATIBLE[family]}
+        compatible = [d for d in vocabulary.values() if d.type in COMPATIBLE[family]]
+        options: dict[str, str | None] = {d.name: _type_brief(d) for d in compatible}
         if not options:
             new_only.append(name)  # 当てうる既存の意味型が無い：問うまでもなく新しい意味型
             continue
         if len(options) + 2 > max_options:
             not_asked.append(Dropped(f"column {name}", f"当てうる意味型 {len(options)} が選択肢の上限 {max_options} を超える"))
             continue
-        options[NEW] = "None of the listed meanings fits; the values mean something not in this list."
+        described |= {d.name: _type_option(d) for d in compatible}
+        options[NEW] = "None of the semantic types fits; the values mean something not in `semantic_types`."
         options[UNCLEAR] = _UNCLEAR
         key = f"column {name}"
         instructions: dict[str, object] = {
-            "column": name, "question": "What do the values of `column` in the `table` mean?"}
+            "column": name, "question": "What do the values of `column` in the `table` mean? Each option except "
+                                        "new and unclear is a semantic type described in `semantic_types`."}
         if hint is not None:
             instructions["note"] = (f"`column` holds the same values as {hint.others} other columns joined to it by "
                                     "foreign keys, so its meaning is what those values identify.")
@@ -300,7 +313,8 @@ def classify(table: Table, table_claims: Sequence[Claim], vocabulary: Mapping[st
         evidence[key] = _column_evidence(table_claims, name)
     for name in new_only:
         evidence[f"column {name}"] = _column_evidence(table_claims, name)
-    request = DecisionRequest(purpose, state(table_claims), questions) if questions else None
+    material = state(table_claims) | ({"semantic_types": dict(sorted(described.items()))} if described else {})
+    request = DecisionRequest(purpose, material, questions) if questions else None
     return Classify(request, {k: e for k, e in edges.items() if e is not None}, evidence, tuple(not_asked),
                     tuple(new_only))
 
@@ -367,13 +381,18 @@ Each fact has a claim id like clm_0123abcd. Answer ONLY through the answer tool.
   Columns of the list with the same meaning share one semantic type; list them together in its columns.
   The same value type with a different meaning gets a different name (order_date vs ship_date).
 - Do not reuse a name from the existing vocabulary: those meanings were already judged not to fit.
+- Name the meaning, not the table: the name must fit every table that has a column with this meaning. Generic
+  meanings shared by many tables (row guid, last modified time) get generic names (row_guid, modified_date), never
+  a table prefix like employee_row_guid.
 - Names are lower_snake_case. Never name it after a bare value type (identifier, code, enum, text, date, ...);
   such names are rejected. money and quantity are the exception.
 - A column marked "same meaning as N other columns" is joined to them by foreign keys: name it for what the values
   identify (e.g. product_id, address_id).
 - description: one Japanese sentence.
 - values: only when a comment or CHECK constraint states the fixed list of values: each code and a Japanese label,
-  and cite that comment or CHECK claim id in values_evidence. Otherwise null and an empty values_evidence."""
+  and cite that comment or CHECK claim id in values_evidence. Otherwise null and an empty values_evidence.
+- A boolean column (family boolean) always has the two values: give codes "true" and "false" with Japanese labels
+  saying what each means, and cite the column's comment claim id in values_evidence. If it has no comment, null."""
 
 
 class _Strict(BaseModel):
@@ -394,7 +413,11 @@ class NamingAnswer(_Strict):
 
 def naming_prompt(table_claims: Sequence[Claim], vocabulary: Mapping[str, SemanticType], kind: str | None,
                   hints: Mapping[str, MeaningHint], columns: Sequence[str]) -> str:
-    return (brief(table_claims, vocabulary, kind, hints)
+    """語彙は名前だけを渡す（使ってはいけない名前として。説明まで渡すと問いの大半が語彙になる）。
+    名前は NAME の形（小文字・数字・_）に検証済みなので、データの区画の外に置いてよい。"""
+    taken = ", ".join(sorted(vocabulary)) or "(none)"
+    return (brief(table_claims, {}, kind, hints)
+            + f"\nexisting semantic type names (taken, do not reuse): {taken}"
             + "\ncolumns to name: " + ", ".join(f'"{c}"' for c in columns))
 
 
@@ -518,7 +541,8 @@ def read_properties(table_claims: Sequence[Claim], named: Named, asked: Properti
         out.append(SemanticTypeAnswer(
             name=t.name, type=ValueType(value_type), description=t.description,
             role=SemanticRole(role) if role else None, additivity=Additivity(additivity) if additivity else None,
-            requires_unit=True if value_type in UNIT_BEARING else None, values=t.values, confidence=p,
+            requires_unit=True if value_type in UNIT_BEARING else None, values=t.values,
+            confidence=min(p, NAMED_CONFIDENCE),
             evidence=evidence))
     return out, dropped
 
@@ -586,9 +610,8 @@ class GrainAnswer(_Strict):
     grain: str = Field(min_length=1)
 
 
-def grain_prompt(table_claims: Sequence[Claim], vocabulary: Mapping[str, SemanticType], kind: str | None,
-                 hints: Mapping[str, MeaningHint]) -> str:
-    return brief(table_claims, vocabulary, kind, hints)
+def grain_prompt(table_claims: Sequence[Claim], kind: str | None, hints: Mapping[str, MeaningHint]) -> str:
+    return brief(table_claims, {}, kind, hints)
 
 
 def parse_grain(data: object) -> GrainAnswer:

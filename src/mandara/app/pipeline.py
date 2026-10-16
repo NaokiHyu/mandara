@@ -449,7 +449,7 @@ def _ask_table(table: Table, table_claims: Sequence[Claim], ontology: Ontology,
             kind, final_types):
         request = StructuredRequest(
             purpose=f"grain {table.name}", system=classify.GRAIN_SYSTEM,
-            prompt=classify.grain_prompt(table_claims, vocabulary, kind, hints),
+            prompt=classify.grain_prompt(table_claims, kind, hints),
             schema=classify.GrainAnswer.model_json_schema(), max_output_tokens=GRAIN_MAX_OUTPUT_TOKENS)
         grain_data: object = None
         try:

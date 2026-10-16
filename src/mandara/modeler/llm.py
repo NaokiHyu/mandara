@@ -198,9 +198,10 @@ def brief(table_claims: Sequence[Claim], vocabulary: Mapping[str, SemanticType],
                      f" on delete {c.on_delete}")
     for c in by[ClaimPredicate.checks.value]:
         lines.append(f"check {c.id}: {_q(c.text)}")
-    lines.append("existing vocabulary:")
-    lines += [f"- {d.name}: {d.type}" + (f" {_q(d.description)}" if d.description else "")
-              for d in vocabulary.values()] or ["(empty)"]
+    if vocabulary:
+        lines.append("existing vocabulary:")
+        lines += [f"- {d.name}: {d.type}" + (f" {_q(d.description)}" if d.description else "")
+                  for d in vocabulary.values()]
     lines.append("</data>")
     return "\n".join(lines)
 

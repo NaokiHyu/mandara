@@ -167,3 +167,34 @@ def test_unit_column_evidence_is_included() -> None:
                            {"unitprice": (None, "carriertrackingnumber", 0.8)}, units.evidence, None)
     unit_column = {x.id for x in _claims(name) if x.subject.column == "carriertrackingnumber"}
     assert unit_column <= set(answer.columns[0].evidence)
+
+
+def test_vocabulary_is_described_once_in_the_state() -> None:
+    """選択肢には意味型の名前と値の型だけを並べ、説明の文は材料に1回だけ置く（列ごとに繰り返さない）。"""
+    asked = _asked("sales.salesorderdetail")
+    assert asked.request is not None
+    described = asked.request.state["semantic_types"]
+    assert isinstance(described, dict)
+    for key, question in asked.request.questions.items():
+        if key.startswith("column "):
+            names = [o for o in question.options if o not in (c.NEW, c.UNCLEAR)]
+            assert all(o in described and "value type" in (question.options[o] or "") for o in names)
+            assert all((VOCABULARY[o].description or "-") not in (question.options[o] or "") for o in names)
+
+
+def test_naming_prompt_lists_vocabulary_names_without_descriptions() -> None:
+    name = "sales.salesorderdetail"
+    text = c.naming_prompt(_claims(name), VOCABULARY, None, {}, ["unitprice"])
+    assert "product_id" in text and "製品" not in text
+
+
+def test_named_types_are_capped_below_measured_confidence() -> None:
+    name = "humanresources.employee"
+    t = c.NamedType(name="job_title", description="職名", columns=["jobtitle"], values_evidence=[])
+    named = c.Named((t,), ())
+    asked = c.properties(_claims(name), named, "properties")
+    assert asked.request is not None
+    answers = {k: ChoiceAnswer(list(q.options)[0], {o: 1.0 if i == 0 else 0.0 for i, o in enumerate(q.options)})
+               for k, q in asked.request.questions.items()}
+    types, _ = c.read_properties(_claims(name), named, asked, DecisionResponse(answers, Usage(1, 0), "m", None))
+    assert types and all(x.confidence <= c.NAMED_CONFIDENCE for x in types)
