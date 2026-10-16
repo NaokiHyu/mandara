@@ -22,7 +22,9 @@ from mandara.connectors.postgres.catalog_reader import PostgresCatalogReader
 from mandara.connectors.postgres.column_reader import PostgresColumnReader
 from mandara.evaluation.score import InvalidForScoringError, Report
 from mandara.llm.claude.model import ClaudeModel
-from mandara.llm.model import BudgetedModel, LlmError, StructuredRequest, summarize
+from mandara.llm.decision import BudgetedDecisionModel, Choice, DecisionRequest
+from mandara.llm.model import Budget, BudgetedModel, LlmError, StructuredRequest, summarize
+from mandara.llm.typesafe.model import JevModel
 from mandara.settings.llm import LlmSettings, SettingsError, parse_settings
 from mandara.settings.llm_prices import UnknownPricingError, load_pricing
 from mandara.om.model import TableKind
@@ -142,7 +144,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--port", type=int, default=8765)
     p.set_defaults(handler=_serve)
 
-    p = commands.add_parser("llm-check", help="LLM の設定と接続を確かめる（本物の API を1回呼ぶ。費用は予算の範囲）")
+    p = commands.add_parser("llm-check", help="LLM と判断モデルの設定と接続を確かめる（本物の API をそれぞれ1回呼ぶ。費用は予算の範囲）")
     p.add_argument("--env", type=Path, default=Path(".env"), help="設定のファイル（既定 .env）。環境変数が優先")
     p.set_defaults(handler=_llm_check)
 
@@ -329,23 +331,25 @@ def _serve(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
 
 
 def _refine(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
-    model, settings = _llm(args.env)
-    refined = pipeline.refine(_workspace(args), model, args.first)
-    _refine_line(out, style, refined, model, settings)
+    inference, settings = _llm(args.env)
+    refined = pipeline.refine(_workspace(args), inference.model, inference.decider, args.first)
+    _refine_line(out, style, refined, inference, settings)
     return 0
 
 
-def _refine_line(out: TextIO, style: _Style, refined: pipeline.Refined, model: BudgetedModel,
+def _refine_line(out: TextIO, style: _Style, refined: pipeline.Refined, inference: pipeline.Inference,
                  settings: LlmSettings) -> None:
     counts: dict[str, int] = {}
     for o in refined.outcomes:
         counts[o.status] = counts.get(o.status, 0) + 1
-    spent = model.spent_usd
+    spent = inference.budget.spent_usd
     breakdown = " · ".join(f"{k} {n}" for k, n in sorted(counts.items()))
-    print(f"  {style.dim('refine')}    {breakdown}  {style.dim(f'{model.model}')}  "
+    print(f"  {style.dim('refine')}    {breakdown}  {style.dim(f'{inference.decider.model} + {inference.model.model}')}  "
           f"¥{spent * settings.jpy_per_usd:.2f} / ¥{settings.budget_jpy:g}", file=out)
+    if failures := sum(len(o.stage_failures) for o in refined.outcomes):
+        print(f"            {style.bad(f'{failures} stage failures')}  (the items of those stages were dropped)", file=out)
     for o in refined.outcomes:
-        if o.status != "refined":
+        if o.status != "refined" or o.stage_failures:
             print(style.dim(f"            {o.status:<7} {o.table}  {o.detail or (o.dropped[0].reason if o.dropped else '')}"),
                   file=out)
     if refined.stopped is not None:
@@ -353,19 +357,24 @@ def _refine_line(out: TextIO, style: _Style, refined: pipeline.Refined, model: B
               file=out)
 
 
-def _llm(env_file: Path) -> tuple[BudgetedModel, LlmSettings]:
-    """.env と環境変数から、予算つきの LLM を組み立てる（composition root）。"""
+def _llm(env_file: Path) -> tuple[pipeline.Inference, LlmSettings]:
+    """.env と環境変数から、予算を共有する LLM と判断モデルを組み立てる（composition root）。"""
     from dotenv import dotenv_values
 
     # .env は任意（無ければ環境変数だけ）。足りない設定は parse_settings が名前を挙げてエラーにする
     from_file = dotenv_values(env_file) if env_file.is_file() else {}
     settings = parse_settings({**from_file, **os.environ})
-    pricing = load_pricing(settings.model)
-    return BudgetedModel(ClaudeModel.from_api_key(settings.model, settings.api_key), pricing, settings.budget_usd), settings
+    budget = Budget(settings.budget_usd)
+    model = BudgetedModel(ClaudeModel.from_api_key(settings.model, settings.api_key), load_pricing(settings.model),
+                          budget)
+    decider = BudgetedDecisionModel(JevModel.from_api_key(settings.decision_model, settings.decision_api_key),
+                                    load_pricing(settings.decision_model), budget)
+    return pipeline.Inference(model, decider), settings
 
 
 def _llm_check(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
-    llm, _ = _llm(args.env)
+    inference, _ = _llm(args.env)
+    llm = inference.model
     request = StructuredRequest(
         purpose="llm-check", system="あなたは接続の確認に答える。", prompt="ok に true を入れて答える。",
         schema={"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]},
@@ -374,11 +383,17 @@ def _llm_check(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
     response = llm.ask(request)
     data: object = response.data
     ok = isinstance(data, dict) and cast(dict[str, object], data).get("ok") is True
-    spent = summarize(llm.spends)
-    print(f"{style.accent('◆ LLM')}  {response.model}  {style.good('ok') if ok else style.bad('unexpected answer')}  "
-          f"{spent['input_tokens']} in / {spent['output_tokens']} out  ${spent['cost_usd']}  "
-          f"{style.dim(f'(budget ${llm.limit_usd:.4f})')}", file=out)
-    return 0 if ok else 1
+    decided = inference.decider.decide(DecisionRequest(
+        purpose="llm-check decision", state={"message": "This is a connection check."},
+        questions={"check": Choice("Is the `message` a connection check?", {"yes": None, "no": None})}))
+    decision_ok = decided.answers["check"].choice == "yes"
+    for label, model_name, good in (("LLM", response.model, ok), ("DECISION", decided.model, decision_ok)):
+        spent = summarize([s for s in inference.budget.spends
+                           if s.model == (inference.model.model if label == "LLM" else inference.decider.model)])
+        print(f"{style.accent(f'◆ {label}')}  {model_name}  {style.good('ok') if good else style.bad('unexpected answer')}  "
+              f"{spent['input_tokens']} in / {spent['output_tokens']} out  ${spent['cost_usd']}", file=out)
+    print(style.dim(f"   budget ${inference.budget.limit_usd:.4f}"), file=out)
+    return 0 if ok and decision_ok else 1
 
 
 def _validate(args: argparse.Namespace, out: TextIO, style: _Style) -> int:

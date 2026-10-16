@@ -7,7 +7,8 @@ Adapter 層。API キーなどの秘密は .env（git に乗せない）か環�
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-REQUIRED = ("ANTHROPIC_API_KEY", "MANDARA_LLM_MODEL", "MANDARA_BUDGET_JPY", "MANDARA_JPY_PER_USD")
+REQUIRED = ("ANTHROPIC_API_KEY", "MANDARA_LLM_MODEL", "TYPESAFE_API_KEY", "MANDARA_DECISION_MODEL",
+            "MANDARA_BUDGET_JPY", "MANDARA_JPY_PER_USD")
 
 
 class SettingsError(Exception):
@@ -18,6 +19,9 @@ class SettingsError(Exception):
 class LlmSettings:
     api_key: str
     model: str
+    decision_api_key: str
+    decision_model: str
+    """判断モデル（分類の問い。T3.7）。版を固定する（別名だと閾値を合わせた版から黙って変わる）。"""
     budget_jpy: float
     jpy_per_usd: float
 
@@ -26,7 +30,8 @@ class LlmSettings:
         return self.budget_jpy / self.jpy_per_usd
 
     def __repr__(self) -> str:  # API キーを表示しない
-        return f"LlmSettings(model={self.model!r}, budget_jpy={self.budget_jpy}, jpy_per_usd={self.jpy_per_usd})"
+        return (f"LlmSettings(model={self.model!r}, decision_model={self.decision_model!r}, "
+                f"budget_jpy={self.budget_jpy}, jpy_per_usd={self.jpy_per_usd})")
 
 
 def parse_settings(env: Mapping[str, str | None]) -> LlmSettings:
@@ -47,6 +52,8 @@ def parse_settings(env: Mapping[str, str | None]) -> LlmSettings:
     return LlmSettings(
         api_key=(env.get("ANTHROPIC_API_KEY") or "").strip(),
         model=(env.get("MANDARA_LLM_MODEL") or "").strip(),
+        decision_api_key=(env.get("TYPESAFE_API_KEY") or "").strip(),
+        decision_model=(env.get("MANDARA_DECISION_MODEL") or "").strip(),
         budget_jpy=positive("MANDARA_BUDGET_JPY"),
         jpy_per_usd=positive("MANDARA_JPY_PER_USD"),
     )

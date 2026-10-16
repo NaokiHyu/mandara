@@ -22,7 +22,9 @@ from typing import Any
 from mandara.codecs.registry import DECODERS, CodecError
 from mandara.evaluation.score import Report, score
 from mandara.extractors import catalog as catalog_extractor
+from mandara.llm.decision import BudgetedDecisionModel, DecisionModel, DecisionResponse
 from mandara.llm.model import (
+    Budget,
     BudgetedModel,
     BudgetExceededError,
     EstimateViolatedError,
@@ -31,12 +33,13 @@ from mandara.llm.model import (
     StructuredRequest,
     summarize,
 )
+from mandara.modeler import classify
 from mandara.modeler import llm as llm_modeler
 from mandara.modeler import meaning
 from mandara.modeler import rules as modeler
 from mandara.om.invariants import Violation, check
 from mandara.om.encoding_traits import ENCODING_TARGETS
-from mandara.om.model import Claim, ReviewStatus, Table, ValueType
+from mandara.om.model import Claim, ReviewStatus, SemanticType, Table, Unit, ValueType
 from mandara.om.names import qualify, split_qualified
 from mandara.om.ontology import Ontology
 from mandara.omstore.claim_store import load_claim_ledger, load_ledger_scope, write_claim_ledger
@@ -215,11 +218,13 @@ class TableOutcome:
     applied: tuple[str, ...]
     dropped: tuple[llm_modeler.Dropped, ...]
     answer: object = None
-    """LLM の答え（そのまま）。同じ問いに同じ答えが返る保証は無いので、再現のために記録する。"""
+    """段ごとの答え（判断モデルの選択と確率、LLM の答えそのまま）。同じ問いに同じ答えが返る保証は無いので、再現のために記録する。"""
     propagated: tuple[str, ...] = ()
     """答えの意味型を、外部キーで同じ意味の他の列へ伝播したもの。"""
     not_propagated: tuple[str, ...] = ()
     """伝播しなかった列と理由。"""
+    stage_failures: tuple[str, ...] = ()
+    """答えを得られなかった段（命名・性質・単位・grain）と理由。その段の項目だけを落として、ほかは当てた。"""
 
 
 @dataclass(frozen=True)
@@ -239,11 +244,20 @@ class RefineDefectError(Exception):
     """詰める途中でバグの疑いがあって止めた。それまでの結果（課金済みの答え）は OM と実行の記録に残してある。"""
 
 
-MAX_OUTPUT_TOKENS = 4000
+NAMING_MAX_OUTPUT_TOKENS = 3000
+GRAIN_MAX_OUTPUT_TOKENS = 400
 
 
-def refine(workspace: Workspace, model: LanguageModel, first: Sequence[str] = ()) -> Refined:
-    """v0 の提案を、表ごとに LLM に問うて詰める。first に挙げた表（名前）を先に問う（評価の範囲など）。
+class _TableFailed(Exception):
+    """この表の問いが答えを得られなかった（記録して次の表へ）。answer はそこまでの答え。"""
+
+    def __init__(self, detail: str, answer: dict[str, object]) -> None:
+        super().__init__(detail)
+        self.answer = answer
+
+
+def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, first: Sequence[str] = ()) -> Refined:
+    """v0 の提案を、表ごとに詰める。分類は判断モデル、名前と文は LLM（T3.7）。first に挙げた表（名前）を先に問う。
 
     答えを得られなかった表は記録して次へ。予算の上限や見積もりの崩れでは、そこで止めて残りは v0 のまま。
     結果の OM は検証を通したうえで書く（人の判断を含む OM は上書きしない）。
@@ -264,7 +278,8 @@ def refine(workspace: Workspace, model: LanguageModel, first: Sequence[str] = ()
         raise LedgerMismatchError(f"主張台帳に無い表が OM にある（台帳を作り直したら、OM も作り直す）: {missing[:3]}")
     priority = {name: i for i, name in enumerate(first)}
     order = sorted(ontology.tables, key=lambda t: (priority.get(t.name, len(priority)), t.name))
-    inferred_by = f"{llm_modeler.MODELER} ({model.model})"
+    # 作者の区切り " + "（llm_modeler.AUTHOR_SEPARATOR）は使わない
+    inferred_by = f"{llm_modeler.MODELER} ({decider.model}, {model.model})"
     groups = meaning.same_meaning_groups(claims)
     for group in groups.groups:
         meaning.group_semantic_type(ontology, group)  # 入力の OM の組が食い違っていれば、問う前に InconsistentGroupError
@@ -280,35 +295,186 @@ def refine(workspace: Workspace, model: LanguageModel, first: Sequence[str] = ()
         except defects as e:
             return _finish(workspace, ontology, order, outcomes, f"バグの疑いで止めた: {type(e).__name__}: {e}",
                            [t.name for t in order[i:]], defect=True)
-        request = StructuredRequest(
-            purpose=f"refine {table.name}", system=llm_modeler.SYSTEM,
-            prompt=llm_modeler.brief(table_claims, ontology.vocabulary.semantic_types or {}, table.kind, hints),
-            schema=llm_modeler.answer_schema(), max_output_tokens=MAX_OUTPUT_TOKENS)
+        record: dict[str, object] = {}
         try:
-            response = model.ask(request)
-            answer = llm_modeler.parse_answer(response.data)
+            asked = _ask_table(table, table_claims, ontology, hints, model, decider, record)
         except (BudgetExceededError, EstimateViolatedError) as e:
             stopped = str(e)
+            if record:  # 途中まで課金済みの答えは記録に残す（この表には当てない）
+                outcomes.append(TableOutcome(table.name, "failed", f"止めた: {e}", (), (), record))
+                return _finish(workspace, ontology, order, outcomes, stopped, [t.name for t in order[i + 1:]])
             return _finish(workspace, ontology, order, outcomes, stopped, [t.name for t in order[i:]])
-        except (LlmError, llm_modeler.InvalidAnswerError) as e:
-            outcomes.append(TableOutcome(table.name, "failed", f"{type(e).__name__}: {e}", (), ()))
+        except _TableFailed as e:
+            outcomes.append(TableOutcome(table.name, "failed", str(e), (), (), e.answer))
+            continue
+        if asked.answer is None:
+            outcomes.append(TableOutcome(table.name, "nothing_applied", "問うことが無い", (), tuple(asked.notes), record))
             continue
         try:
-            applied = llm_modeler.apply_answer(ontology, table.id, answer, table_claims, groups, inferred_by)
+            applied = llm_modeler.apply_answer(ontology, table.id, asked.answer, table_claims, groups, inferred_by)
             propagated = meaning.propagate(applied.ontology, groups, families)
         except defects as e:
             # この表の答えは当てずに、それまでの OM を書く。答え（課金済み）は記録に残す
             stopped = f"バグの疑いで止めた: {type(e).__name__}: {e}"
-            outcomes.append(TableOutcome(table.name, "failed", stopped, (), (), response.data))
+            outcomes.append(TableOutcome(table.name, "failed", stopped, (), (), record))
             return _finish(workspace, ontology, order, outcomes, stopped, [t.name for t in order[i + 1:]],
                            defect=True)
         ontology = propagated.ontology
         status = "kept" if applied.table_kept_as_is else ("refined" if applied.applied else "nothing_applied")
-        outcomes.append(TableOutcome(table.name, status, "", applied.applied, applied.dropped, response.data,
+        outcomes.append(TableOutcome(table.name, status, "; ".join(asked.stage_failures), applied.applied,
+                                     (*asked.notes, *applied.dropped), record,
                                      tuple(f"{meaning.label(f.member)} {f.semantic_type}" for f in propagated.filled),
                                      tuple(f"{meaning.label(n.member)} {n.semantic_type}: {n.reason}"
-                                           for n in propagated.not_filled)))
+                                           for n in propagated.not_filled),
+                                     tuple(asked.stage_failures)))
     return _finish(workspace, ontology, order, outcomes, stopped, [])
+
+
+@dataclass
+class _Asked:
+    """1つの表を問うた結果。"""
+
+    answer: llm_modeler.TableAnswer | None
+    """None は問うことが無かった。"""
+    notes: list[llm_modeler.Dropped]
+    """当てる前に落とした項目（閾値未満、決められない、段の失敗など）と理由。"""
+    stage_failures: list[str]
+    """答えを得られなかった段（命名・性質・単位・grain）。その段に関わる項目だけを落として続けた。"""
+
+
+def _ask_table(table: Table, table_claims: Sequence[Claim], ontology: Ontology,
+               hints: dict[str, llm_modeler.MeaningHint], model: LanguageModel, decider: DecisionModel,
+               record: dict[str, object]) -> _Asked:
+    """1つの表を、分類 → 命名 → 性質 → 単位 → grain の順に問い、従来の答えの形に組み立てる（T3.7）。
+
+    答えは段ごとに record に書く（再現のため。答えの形が不正でも、受け取った答えはそのまま残す）。
+    分類の失敗は表の失敗（_TableFailed）。命名・性質・単位・grain の失敗は、その段に関わる項目だけを理由つきで落として続け、
+    失敗した段を stage_failures に返す（分類の答えは当てる）。予算の例外はそのまま伝える。
+    """
+    vocabulary = ontology.vocabulary.semantic_types or {}
+    notes: list[llm_modeler.Dropped] = []
+    failures: list[str] = []
+
+    def failed(stage: str, e: Exception) -> str:
+        detail = f"{type(e).__name__}: {e}"
+        failures.append(f"{stage}: {detail}")
+        return detail
+
+    asked = classify.classify(table, table_claims, vocabulary, hints, decider.max_options, f"classify {table.name}")
+    response = None
+    if asked.request is not None:
+        try:
+            response = decider.decide(asked.request)
+        except (BudgetExceededError, EstimateViolatedError):
+            raise
+        except LlmError as e:
+            raise _TableFailed(f"分類: {type(e).__name__}: {e}", record) from e
+        record["classify"] = _decisions_record(response)
+    classified = classify.read_classified(asked, response)
+    notes += classified.abstained
+    kind = classified.kind.value if classified.kind is not None else table.kind
+
+    # 命名（LLM）：new になった列
+    new_columns = sorted(c for c, p in classified.columns.items() if p.value == classify.NEW)
+    named: classify.Named | None = None
+    new_types: list[llm_modeler.SemanticTypeAnswer] = []
+    if new_columns:
+        request = StructuredRequest(
+            purpose=f"name {table.name}", system=classify.NAMING_SYSTEM,
+            prompt=classify.naming_prompt(table_claims, vocabulary, kind, hints, new_columns),
+            schema=classify.NamingAnswer.model_json_schema(), max_output_tokens=NAMING_MAX_OUTPUT_TOKENS)
+        naming_data: object = None
+        try:
+            naming_data = model.ask(request).data
+            record["naming"] = {"data": naming_data}
+            named = classify.read_naming(classify.parse_naming(naming_data), new_columns, vocabulary)
+        except (BudgetExceededError, EstimateViolatedError):
+            raise
+        except (LlmError, llm_modeler.InvalidAnswerError) as e:
+            detail = failed("命名", e)
+            record["naming"] = {"data": naming_data, "error": detail}
+            notes += [llm_modeler.Dropped(f"column {c}", f"命名を得られなかった: {detail}") for c in new_columns]
+        if named is not None:
+            notes += named.dropped
+            props = classify.properties(table_claims, named, f"properties {table.name}")
+            props_response = None
+            if props.request is not None:
+                try:
+                    props_response = decider.decide(props.request)
+                    record["properties"] = _decisions_record(props_response)
+                except (BudgetExceededError, EstimateViolatedError):
+                    raise
+                except LlmError as e:
+                    detail = failed("性質", e)
+                    record["properties"] = {"error": detail}
+                    notes += [llm_modeler.Dropped(f"column {c}", f"意味型 {t.name} の性質を得られなかった: {detail}")
+                              for t in named.types for c in t.columns]
+                    named = classify.Named((), named.dropped)
+            new_types, dropped = classify.read_properties(table_claims, named, props, props_response)
+            notes += dropped
+
+    # 単位：単位の要る意味型の列
+    final_types = {name: d for name, d in ((n, vocabulary.get(c.semantic_type or "")) for n, c in
+                                           (table.columns or {}).items()) if d is not None}
+    new_by_name = {t.name: t for t in new_types}
+    for name, picked in classified.columns.items():
+        if picked.value != classify.NEW:
+            final_types[name] = vocabulary[picked.value]
+        elif named is not None:
+            t = next((t for t in named.types if name in t.columns), None)
+            if t is not None and (a := new_by_name.get(t.name)) is not None:
+                final_types[name] = SemanticType(name=a.name, type=a.type, additivity=a.additivity,
+                                                 requires_unit=a.requires_unit)
+    needs_unit = sorted(name for name in classified.columns
+                        if name in final_types and final_types[name].requires_unit)
+    code_columns = sorted(name for name, d in final_types.items() if d.type == ValueType.code.value)
+    unit_asked = classify.units(table_claims, needs_unit, code_columns, f"units {table.name}")
+    unit_answers: dict[str, tuple[Unit | None, str | None, float]] = {}
+    if unit_asked.request is not None:
+        try:
+            unit_response = decider.decide(unit_asked.request)
+            record["units"] = _decisions_record(unit_response)
+            unit_answers, dropped = classify.read_units(unit_response)
+            notes += dropped
+        except (BudgetExceededError, EstimateViolatedError):
+            raise
+        except LlmError as e:
+            detail = failed("単位", e)
+            record["units"] = {"error": detail}
+            notes += [llm_modeler.Dropped(f"column {c}", f"単位を得られなかった: {detail}") for c in needs_unit]
+
+    # grain（LLM）：要る表で、まだ無いとき
+    grain: str | None = None
+    if not (table.grain or "").strip() and table.status == ReviewStatus.proposed.value and classify.needs_grain(
+            kind, final_types):
+        request = StructuredRequest(
+            purpose=f"grain {table.name}", system=classify.GRAIN_SYSTEM,
+            prompt=classify.grain_prompt(table_claims, vocabulary, kind, hints),
+            schema=classify.GrainAnswer.model_json_schema(), max_output_tokens=GRAIN_MAX_OUTPUT_TOKENS)
+        grain_data: object = None
+        try:
+            grain_data = model.ask(request).data
+            record["grain"] = {"data": grain_data}
+            grain = classify.parse_grain(grain_data).grain
+        except (BudgetExceededError, EstimateViolatedError):
+            raise
+        except (LlmError, llm_modeler.InvalidAnswerError) as e:
+            detail = failed("grain", e)
+            record["grain"] = {"data": grain_data, "error": detail}
+            notes.append(llm_modeler.Dropped("grain", f"grain を得られなかった: {detail}"))
+
+    if not record:  # 何も問わなかった
+        return _Asked(None, notes, failures)
+    answer, dropped = classify.assemble(table, table_claims, asked, classified, new_types, named, unit_answers,
+                                        unit_asked.evidence, grain)
+    return _Asked(answer, notes + dropped, failures)
+
+
+def _decisions_record(response: DecisionResponse) -> dict[str, object]:
+    """判断の答えの記録：選んだもの、0 でない確率、答えたモデルの版。"""
+    return {"model": response.model, "request_id": response.request_id, "answers": {
+        key: {"choice": a.choice, "probabilities": {o: p for o, p in a.probabilities.items() if p > 0}}
+        for key, a in sorted(response.answers.items())}}
 
 
 def _finish(workspace: Workspace, ontology: Ontology, order: Sequence[Table], outcomes: list[TableOutcome],
@@ -392,8 +558,24 @@ class RunResult:
     record: Path
 
 
+@dataclass(frozen=True)
+class Inference:
+    """推論に使うモデル。LLM（名前と文）と判断モデル（分類）は1つの予算を共有する。"""
+
+    model: BudgetedModel
+    decider: BudgetedDecisionModel
+
+    def __post_init__(self) -> None:
+        if self.model.budget is not self.decider.budget:
+            raise ValueError("LLM と判断モデルは同じ予算を共有する")
+
+    @property
+    def budget(self) -> Budget:
+        return self.model.budget
+
+
 def run(workspace: Workspace, reader: CatalogReader, scope: Scope, gold: Path | None, clock: Clock,
-        model: BudgetedModel | None = None) -> RunResult:
+        inference: Inference | None = None) -> RunResult:
     """抽出 → 提案 → （LLM があれば）推論 → （正解があれば）評価を通しで行い、実行の記録を書く。失敗も記録してから伝える。"""
     started = _utc(clock())
     log = _RunLog(workspace.runs / f"{started.strftime('%Y%m%dT%H%M%S%fZ')}.json", clock, {
@@ -413,20 +595,26 @@ def run(workspace: Workspace, reader: CatalogReader, scope: Scope, gold: Path | 
         log.update(ledger_hash=proposed.ledger_hash, proposal=_proposal_counts(proposed.proposal.ontology),
                    skipped=[{"claim": s.claim, "reason": s.reason} for s in proposed.proposal.skipped])
     refined = None
-    if model is not None:
+    if inference is not None:
         with log.stage("refine"):
             first = [t.name for t in load_ontology(gold).tables] if gold is not None else []
             try:
-                refined = refine(workspace, model, first)
+                refined = refine(workspace, inference.model, inference.decider, first)
             finally:
-                log.update(llm={"model": model.model, "limit_usd": model.limit_usd, **summarize(model.spends)})
+                spends = inference.budget.spends
+                log.update(llm={"model": inference.model.model, "decision_model": inference.decider.model,
+                                "limit_usd": inference.budget.limit_usd, **summarize(spends),
+                                "by_model": {m: summarize([s for s in spends if s.model == m])
+                                             for m in sorted({s.model for s in spends})}})
             log.update(refine={
                 "stopped": refined.stopped, "not_reached": list(refined.not_reached),
                 "outcomes": dict(sorted(Counter(o.status for o in refined.outcomes).items())),
+                "stage_failures": sum(len(o.stage_failures) for o in refined.outcomes),
                 "order": list(refined.order),
                 "tables": [{"table": o.table, "status": o.status, "detail": o.detail, "applied": list(o.applied),
                             "dropped": [{"item": d.item, "reason": d.reason} for d in o.dropped],
                             "propagated": list(o.propagated), "not_propagated": list(o.not_propagated),
+                            "stage_failures": list(o.stage_failures),
                             "answer": o.answer}
                            for o in refined.outcomes],
             })

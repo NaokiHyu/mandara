@@ -152,7 +152,7 @@ stateDiagram-v2
 ```mermaid
 flowchart LR
     S1["1. 抽出<br/>カタログ → 主張台帳"] --> S2["2. 提案<br/>規則だけで OM の下書き"]
-    S2 --> S3["3. 詰める（任意）<br/>AI が種類・意味型・関係型を推論"]
+    S2 --> S3["3. 詰める（任意）<br/>判断モデルが分類し、LLM が名付ける"]
     S3 --> S4["4. 評価（任意）<br/>正解 OM と突き合わせ"]
     S4 --> S5["5. レビュー<br/>画面か CLI で問いに答える"]
     S5 --> S6["6. 見る<br/>グラフ・一覧・地図"]
@@ -171,7 +171,7 @@ flowchart LR
 | PostgreSQL 17 | サンプルデータを入れる |
 | [uv](https://docs.astral.sh/uv/) | Python（3.13 以上）の環境と依存 |
 | [pnpm](https://pnpm.io/) と Node.js | 画面 |
-| Anthropic の API キー | AI で詰める段（3）を使うときだけ |
+| Anthropic と TypeSafe の API キー | AI で詰める段（3）を使うときだけ。名前と文は Anthropic の LLM、分類は TypeSafe の判断モデル（Jev） |
 
 ### サンプルデータを入れる
 
@@ -192,11 +192,16 @@ uv sync
 
 ```sh
 cp .env.example .env
-# .env の ANTHROPIC_API_KEY= に API キーを書く（.env は git に乗らない）
-uv run mandara llm-check     # 接続を1回だけ確かめる（費用はごくわずか）
+# .env の ANTHROPIC_API_KEY= と TYPESAFE_API_KEY= に API キーを書く（.env は git に乗らない）
+uv run mandara llm-check     # 両方の接続を1回ずつ確かめる（費用はごくわずか）
 ```
 
-`.env` では、モデル（既定 `claude-haiku-5-5`）と **1 回の実行の予算の上限**（既定 10 円）を決めます。上限を超えそうになると、問うのを止めて残りは規則だけの提案のまま残します。黙って安いモデルに切り替えたりはしません。
+AI の段は、問いを2種類に分けています。
+
+- **分類**（表の種類、関係型、どの意味型か、値の型、役割、加法性、単位）：選択肢を決めて、判断モデル（Jev）に問います。答えは選択肢ごとの確率で返り、選んだ選択肢の確率がそのまま確信度になります。0.6 未満や「決められない」は提案せず、理由を記録します
+- **生成**（新しい意味型の名前と説明、enum のラベル、grain の文）：LLM に問います。分類で「新しい意味」となった列や、grain が要る表のときだけ問います
+
+`.env` では、モデル（LLM は既定 `claude-haiku-5-5`、判断モデルは `jev-1.13.0` に版を固定）と **1 回の実行の予算の上限**（既定 10 円。2 つのモデルの合計）を決めます。上限を超えそうになると、問うのを止めて残りは規則だけの提案のまま残します。黙って安いモデルに切り替えたりはしません。
 
 ---
 
@@ -217,12 +222,12 @@ uv run mandara run --source adventureworks --conninfo dbname=adventureworks \
 ◆ MANDARA  adventureworks  humanresources person production purchasing sales
   extract   89 objects → 2,241 claims
   propose   89 tables (relation 12 · undecided 77; derived 21) · 90 relations
-  refine    failed 4 · nothing_applied 4 · refined 38  claude-haiku-5-5  ¥9.60 / ¥10
+  refine    refined 49  jev-1.13.0 + claude-haiku-5-5  ¥9.31 / ¥10
   evaluate  vs evals/datasets/adventureworks/gold/ontology
             primary_key          ████████████████████   14/14   err 0%
-            semantic_type_pairs  █████████████·······  147/234  err 0%
+            semantic_type_pairs  █████████████████···  201/234  err 0%
             ...
-  record    work/adventureworks/runs/20261015T102607963288Z.json
+  record    work/adventureworks/runs/20261016T145029115357Z.json
 ```
 
 結果は `work/adventureworks/` に書かれます（git には乗せません）。
@@ -325,12 +330,13 @@ OM はふつうの YAML なので、エディタで読めて、git で差分を�
 |---|---|---|
 | 主キー | 14/14 | 14/14 |
 | 関係の端点（どの列でつながるか） | 15/17 | 15/17 |
-| 関係の型 | 8/15 | 11/15 |
-| 表の種類 | 0/14 | 8/14（誤り 11%） |
-| 列の値の型 | 0/141 | 86/141 |
-| 同じ意味の列の組（意味型） | 0/234 | 147/234（誤り 0%） |
+| 関係の型 | 8/15 | 14/15 |
+| 表の種類 | 0/14 | 11/14（誤り 21%） |
+| 列の値の型 | 0/141 | 115/141（誤り 2%） |
+| 同じ意味の列の組（意味型） | 0/234 | 201/234（誤り 0%） |
+| grain（1 行が何か） | 0/5 | 4/5 |
 
-AI の段は予算 10 円で 89 表中 46 表まで問うて止まり、正解の表のうち product と salesorderheader は AI の答えが出力の上限で切れて受け取れませんでした（改善中）。点数の履歴は [docs/backlog.md](backlog.md) にあります。
+AI の段は予算 10 円で 89 表中 49 表まで問うて止まりました。表の種類の誤りは、受注（ヘッダと明細）を event と判定したもの（正解は domain）と、部品表を domain と判定したもの（正解は relation）です。点数の履歴は [docs/backlog.md](backlog.md) にあります。
 
 ---
 

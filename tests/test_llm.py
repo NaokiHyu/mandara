@@ -22,6 +22,7 @@ from hypothesis import strategies as st
 from mandara.llm.claude.model import ClaudeModel
 from mandara.llm.model import (
     ESTIMATE_MARGIN,
+    Budget,
     BudgetedModel,
     BudgetExceededError,
     EstimateViolatedError,
@@ -96,15 +97,16 @@ def plans(draw: st.DrawFn) -> list[Step]:
 def test_budget_laws(plan: list[Step], limit: float) -> None:
     """前提が崩れない限り累計は上限以下。課金されうる費用はすべて累計。崩れたら、それ以後は何も送らない。"""
     model = FakeModel(plan)
-    budgeted = BudgetedModel(model, PRICING, limit)
+    budgeted = BudgetedModel(model, PRICING, Budget(limit))
+    budget = budgeted.budget
     for n, step in enumerate(plan):
-        sent_before, spent_before = len(model.sent), budgeted.spent_usd
-        was_violated = budgeted.violated is not None
+        sent_before, spent_before = len(model.sent), budget.spent_usd
+        was_violated = budget.violated is not None
         model.asked = n
         try:
             budgeted.ask(_request(step.max_output, f"q{n}"))
         except BudgetExceededError:
-            assert len(model.sent) == sent_before and budgeted.spent_usd == spent_before  # 送っていない
+            assert len(model.sent) == sent_before and budget.spent_usd == spent_before  # 送っていない
             continue
         except EstimateViolatedError:
             if was_violated:
@@ -115,23 +117,23 @@ def test_budget_laws(plan: list[Step], limit: float) -> None:
         if was_violated:
             raise AssertionError("前提が崩れた後に送った")
         # 送った。課金されうる費用が累計に入っている
-        assert len(budgeted.spends) == len(model.sent)
-        last = budgeted.spends[-1]
+        assert len(budget.spends) == len(model.sent)
+        last = budget.spends[-1]
         if step.outcome == "failed":
             assert last.usage is None and last.cost_usd > 0  # 分からない費用は最悪の見積もりで
         elif step.outcome != "cache":
             assert last.cost_usd == pytest.approx(PRICING.cost_usd(step.actual_in, step.actual_out))
-        if budgeted.violated is None:
-            assert budgeted.spent_usd <= limit + 1e-12
+        if budget.violated is None:
+            assert budget.spent_usd <= limit + 1e-12
 
 
 def test_estimate_violation_stops_everything_after() -> None:
     step = Step(10, 10_000, 10, 100, "answered")  # 数えた 10 より実際の入力がずっと多い
     model = FakeModel([step, step])
-    budgeted = BudgetedModel(model, PRICING, 1.0)
+    budgeted = BudgetedModel(model, PRICING, Budget(1.0))
     with pytest.raises(EstimateViolatedError):
         budgeted.ask(_request())
-    assert len(budgeted.spends) == 1  # 使った費用は記録する
+    assert len(budgeted.budget.spends) == 1  # 使った費用は記録する
     with pytest.raises(EstimateViolatedError, match="もう送らない"):
         budgeted.ask(_request())
     assert len(model.sent) == 1
@@ -139,7 +141,7 @@ def test_estimate_violation_stops_everything_after() -> None:
 
 def test_tier_boundary_is_estimated_pessimistically() -> None:
     """数えた入力が段の境目の少し下でも、余裕を掛けた数が境目を超えるなら高い段で見積もる。"""
-    budgeted = BudgetedModel(FakeModel([Step(95_000, 95_000, 0, 10, "answered")]), PRICING, 1.0)
+    budgeted = BudgetedModel(FakeModel([Step(95_000, 95_000, 0, 10, "answered")]), PRICING, Budget(1.0))
     request = _request(10)
     assert budgeted.worst_case_usd(request) == pytest.approx(PRICING.cost_usd(math.ceil(95_000 * ESTIMATE_MARGIN), 10))
     assert budgeted.worst_case_usd(request) > PRICING.cost_usd(95_000, 10) * 4  # 高い段（5 倍）
@@ -147,9 +149,9 @@ def test_tier_boundary_is_estimated_pessimistically() -> None:
 
 def test_budget_needs_matching_pricing_and_positive_limit() -> None:
     with pytest.raises(ValueError, match="違う"):
-        BudgetedModel(FakeModel([], model="other"), PRICING, 1.0)
+        BudgetedModel(FakeModel([], model="other"), PRICING, Budget(1.0))
     with pytest.raises(ValueError, match="正の値"):
-        BudgetedModel(FakeModel([]), PRICING, 0)
+        Budget(0)
 
 
 def test_pricing_tiers() -> None:
@@ -264,13 +266,16 @@ def test_sdk_failure_keeps_cause() -> None:
 # ---------------------------------------------------------------- 設定
 
 GOOD = {"ANTHROPIC_API_KEY": "sk-secret", "MANDARA_LLM_MODEL": "claude-haiku-5-5",
+        "TYPESAFE_API_KEY": "ts-secret", "MANDARA_DECISION_MODEL": "jev-1.13.0",
         "MANDARA_BUDGET_JPY": "10", "MANDARA_JPY_PER_USD": "150"}
 
 
 def test_settings() -> None:
     settings = parse_settings(GOOD)
     assert settings.budget_usd == pytest.approx(10 / 150)
-    assert "sk-secret" not in repr(settings) and "sk-secret" not in str(settings)
+    for secret in ("sk-secret", "ts-secret"):
+        assert secret not in repr(settings) and secret not in str(settings)
+    assert settings.decision_model == "jev-1.13.0"
     with pytest.raises(SettingsError) as e:
         parse_settings({**GOOD, "MANDARA_BUDGET_JPY": "x"})
     assert "sk-secret" not in str(e.value)
@@ -278,6 +283,8 @@ def test_settings() -> None:
 
 @pytest.mark.parametrize(("change", "reason"), [
     ({"ANTHROPIC_API_KEY": ""}, "足りない"),
+    ({"TYPESAFE_API_KEY": " "}, "足りない"),
+    ({"MANDARA_DECISION_MODEL": None}, "足りない"),
     ({"MANDARA_JPY_PER_USD": None}, "足りない"),
     ({"MANDARA_BUDGET_JPY": "ten"}, "数ではない"),
     ({"MANDARA_BUDGET_JPY": "-1"}, "正の数"),

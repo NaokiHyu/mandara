@@ -20,9 +20,17 @@ from mandara.app import pipeline
 from mandara.app.pipeline import Workspace
 from mandara.connectors.postgres.catalog_reader import PostgresCatalogReader
 from mandara.extractors.catalog import extract
+from mandara.llm.decision import (
+    BudgetedDecisionModel,
+    ChoiceAnswer,
+    DecisionRequest,
+    DecisionResponse,
+)
 from mandara.llm.model import (
+    Budget,
     BudgetedModel,
     InvalidOutputError,
+    LlmError,
     PriceTier,
     Pricing,
     StructuredRequest,
@@ -304,7 +312,7 @@ def test_brief_shows_the_group_and_its_domain() -> None:
 
 @dataclass
 class ScriptedModel:
-    """表の名前ごとに、答え（dict）か例外を返す。"""
+    """LLM の偽物。問いの目的（"name <表>" / "grain <表>"）ごとに、答え（dict）か例外を返す。台本に無ければ空の答え。"""
 
     script: dict[str, Any]
     model: str = "fake"
@@ -314,13 +322,58 @@ class ScriptedModel:
         return 1000
 
     def ask(self, request: StructuredRequest) -> StructuredResponse:
-        name = request.purpose.removeprefix("refine ")
-        self.asked.append(name)
-        reply = self.script.get(name, {"kind": None, "kind_confidence": 0.1, "kind_evidence": [], "grain": None,
-                                       "grain_evidence": [], "new_semantic_types": [], "columns": [], "relations": []})
+        self.asked.append(request.purpose)
+        reply = self.script.get(request.purpose, {"semantic_types": []} if request.purpose.startswith("name ")
+                                else {"grain": "1行 = 1件"})
         if isinstance(reply, Exception):
             raise reply
-        return StructuredResponse(reply, Usage(1000, 500), self.model, None)
+        return StructuredResponse(reply, Usage(1000, min(500, request.max_output_tokens)), self.model, None)
+
+
+@dataclass
+class ScriptedDecider:
+    """判断モデルの偽物。問いの目的（"classify <表>" など）ごとに、{問いの ID: 選ぶ選択肢} か例外を返す。
+    台本に無い問いは確率を等分する（閾値に届かないので提案しない）。"""
+
+    script: dict[str, Any]
+    model: str = "fakejev"
+    asked: list[str] = field(default_factory=lambda: list[str]())
+    max_options: int = 255
+
+    def max_input_tokens(self, request: DecisionRequest) -> int:
+        return 1000
+
+    def decide(self, request: DecisionRequest) -> DecisionResponse:
+        self.asked.append(request.purpose)
+        reply = self.script.get(request.purpose, {})
+        if isinstance(reply, Exception):
+            raise reply
+        answers: dict[str, ChoiceAnswer] = {}
+        for key, question in request.questions.items():
+            options = list(question.options)
+            chosen = reply.get(key)
+            if chosen is None:
+                answers[key] = ChoiceAnswer(options[0], {o: 1 / len(options) for o in options})
+            else:
+                assert chosen in options, f"{key}: {chosen} は選択肢 {options[:5]}… に無い"
+                rest = 0.1 / (len(options) - 1)
+                answers[key] = ChoiceAnswer(chosen, {o: 0.9 if o == chosen else rest for o in options})
+        return DecisionResponse(answers, Usage(1000, 10), self.model, None)
+
+
+def _about(asked: list[str], table: str) -> list[str]:
+    return [a for a in asked if a.split(" ", 1)[1] == table]
+
+
+CHEAP = Pricing("fake", (PriceTier(None, 0.0001, 0.0001),))
+CHEAP_JEV = Pricing("fakejev", (PriceTier(None, 0.0001, 0.0),))
+
+
+def _refine(workspace: Workspace, model: ScriptedModel, decider: ScriptedDecider, first: list[str],
+            limit: float = 1.0, pricing: Pricing = CHEAP, jev_pricing: Pricing = CHEAP_JEV) -> pipeline.Refined:
+    budget = Budget(limit)
+    return pipeline.refine(workspace, BudgetedModel(model, pricing, budget),
+                           BudgetedDecisionModel(decider, jev_pricing, budget), first)
 
 
 @pytest.fixture
@@ -332,49 +385,103 @@ def workspace(tmp_path: Path) -> Iterator[Workspace]:
 
 
 def test_refine_records_failures_and_stops_on_budget(workspace: Workspace) -> None:
-    pricing = Pricing("fake", (PriceTier(None, 1.0, 1.0),))  # 1 問 ≈ $0.0017（見積もり）
-    model = ScriptedModel({"person.person": InvalidOutputError("切れた", Usage(1000, 4000)),
-                           "sales.customer": {"broken": True}})
-    budgeted = BudgetedModel(model, pricing, 0.01)
-    refined = pipeline.refine(workspace, budgeted, ["sales.customer", "person.person"])
-    assert model.asked[:2] == ["sales.customer", "person.person"]  # 先に問う表から
+    decider = ScriptedDecider({"classify person.person": InvalidOutputError("壊れた", Usage(1000, 0)),
+                               "classify sales.customer": LlmError("HTTP 529")})
+    expensive = Pricing("fakejev", (PriceTier(None, 1.0, 0.0),))  # 1 問 $0.0011（見積もり）
+    refined = _refine(workspace, ScriptedModel({}), decider, ["sales.customer", "person.person"], limit=0.01,
+                      jev_pricing=expensive)
+    assert decider.asked[:2] == ["classify sales.customer", "classify person.person"]  # 先に問う表から
     statuses = {o.table: o.status for o in refined.outcomes}
     assert statuses["sales.customer"] == "failed" and statuses["person.person"] == "failed"
     assert refined.stopped is not None and "予算" in refined.stopped
     assert len(refined.outcomes) + len(refined.not_reached) == len(V0.tables)
-    assert budgeted.spent_usd <= 0.01
     assert check(load_ontology(workspace.ontology)) == []  # 止まっても、書いた OM は検証を通る
 
 
-def test_refine_applies_answers(workspace: Workspace) -> None:
+def test_refine_applies_classifications(workspace: Workspace) -> None:
     name = "sales.specialofferproduct"
     fk = _fk(name, "product")
-    model = ScriptedModel({name: {"kind": "relation", "kind_confidence": 0.8, "kind_evidence": [fk],
-                                  "grain": None, "grain_evidence": [], "new_semantic_types": [], "columns": [],
-                                  "relations": [{"foreign_key": fk, "type": "has", "role": "product",
-                                                 "confidence": 0.7, "evidence": [fk]}]}})
-    pricing = Pricing("fake", (PriceTier(None, 0.0001, 0.0001),))
-    refined = pipeline.refine(workspace, BudgetedModel(model, pricing, 1.0), [name])
+    decider = ScriptedDecider({f"classify {name}": {f"relation {fk}": "has"}})
+    model = ScriptedModel({})
+    refined = _refine(workspace, model, decider, [name])
     assert refined.stopped is None and refined.outcomes[0].status == "refined"
-    assert [d.item for d in refined.outcomes[0].dropped] == ["kind"]  # v0 が relation と決めていて同じ
+    assert refined.outcomes[0].applied == (f"relation {fk}",)
+    # 語彙が空なので、列はすべて問わずに命名へ回る（台本の命名は空）。名前の返らない列は理由つきで落ちる
+    assert _about(model.asked, name) == [f"name {name}"]
+    assert any(d.item == "column productid" and "命名の答えに無い" in d.reason for d in refined.outcomes[0].dropped)
     table = next(t for t in load_ontology(workspace.ontology).tables if t.name == name)
-    assert any(r.role == "product" and r.inferred_by == "modeler-llm 0.1 (fake)" for r in table.relations or [])
+    relation = next(r for r in table.relations or [] if fk in (r.evidence or []))
+    assert relation.inferred_by == "modeler-llm 0.2 (fakejev, fake)" and relation.confidence == pytest.approx(0.9)
 
 
-def test_refine_propagates_domains_through_foreign_keys(workspace: Workspace) -> None:
+def test_low_confidence_classifications_are_recorded_not_applied(workspace: Workspace) -> None:
+    name = "sales.specialofferproduct"
+    refined = _refine(workspace, ScriptedModel({}), ScriptedDecider({}), [name])
+    outcome = refined.outcomes[0]
+    assert outcome.status == "nothing_applied" and outcome.applied == ()
+    thresholds = [d for d in outcome.dropped if "閾値" in d.reason]
+    assert thresholds and {d.item for d in thresholds} >= {f"relation {fk}" for fk in
+                                                          [_fk(name, "product"), _fk(name, "specialoffer")]}
+
+
+def test_refine_names_new_semantic_types_and_propagates(workspace: Workspace) -> None:
     address = "person.address"
-    evidence = [_claims(address)[0].id]
-    model = ScriptedModel({address: {"kind": None, "kind_confidence": 0.1, "kind_evidence": [], "grain": None,
-                                     "grain_evidence": [], "new_semantic_types": [_address_id(evidence)],
-                                     "columns": [{"name": "addressid", "semantic_type": "address_id", "confidence": 0.8,
-                                                  "evidence": evidence}], "relations": []}})
-    pricing = Pricing("fake", (PriceTier(None, 0.0001, 0.0001),))
-    refined = pipeline.refine(workspace, BudgetedModel(model, pricing, 1.0), [address])
+    decider = ScriptedDecider({
+        f"classify {address}": {"column addressid": "new"},
+        f"properties {address}": {"type address_id": "identifier", "role address_id": "none",
+                                  "additivity address_id": "none"}})
+    model = ScriptedModel({f"name {address}": {"semantic_types": [
+        {"name": "address_id", "description": "住所", "columns": ["addressid"], "values": None,
+         "values_evidence": []}]}})
+    refined = _refine(workspace, model, decider, [address])
+    assert _about(model.asked, address) == [f"name {address}"]
+    assert "column addressid" in refined.outcomes[0].applied and "semantic_type address_id" in refined.outcomes[0].applied
     assert sorted(refined.outcomes[0].propagated) == [
         "person.businessentityaddress.addressid address_id", "sales.salesorderheader.billtoaddressid address_id",
         "sales.salesorderheader.shiptoaddressid address_id"]
-    header = next(t for t in load_ontology(workspace.ontology).tables if t.name == "sales.salesorderheader")
+    ontology = load_ontology(workspace.ontology)
+    assert (ontology.vocabulary.semantic_types or {})["address_id"].type == ValueType.identifier.value
+    header = next(t for t in ontology.tables if t.name == "sales.salesorderheader")
     assert (header.columns or {})["billtoaddressid"].semantic_type == "address_id"
+
+
+def test_naming_failure_drops_only_the_new_columns(workspace: Workspace) -> None:
+    name = "sales.specialofferproduct"
+    fk = _fk(name, "product")
+    decider = ScriptedDecider({f"classify {name}": {f"relation {fk}": "has", "column productid": "new"}})
+    model = ScriptedModel({f"name {name}": InvalidOutputError("切れた", Usage(1000, 3000))})
+    refined = _refine(workspace, model, decider, [name])
+    outcome = refined.outcomes[0]
+    assert outcome.status == "refined" and outcome.applied == (f"relation {fk}",)
+    assert any(d.item == "column productid" and "命名" in d.reason for d in outcome.dropped)
+
+
+def test_money_columns_get_units_from_the_decider(workspace: Workspace) -> None:
+    name = "sales.salesorderdetail"
+    decider = ScriptedDecider({
+        f"classify {name}": {"column unitprice": "new"},
+        f"properties {name}": {"type unit_price": "money", "role unit_price": "none",
+                               "additivity unit_price": "non-additive"},
+        f"units {name}": {"unit unitprice": "USD"}})
+    model = ScriptedModel({f"name {name}": {"semantic_types": [
+        {"name": "unit_price", "description": "単価", "columns": ["unitprice"], "values": None,
+         "values_evidence": []}]}})
+    refined = _refine(workspace, model, decider, [name])
+    assert "column unitprice" in refined.outcomes[0].applied
+    table = next(t for t in load_ontology(workspace.ontology).tables if t.name == name)
+    column = (table.columns or {})["unitprice"]
+    assert column.semantic_type == "unit_price" and column.unit is not None and column.unit.fixed == "USD"
+
+
+def test_grain_is_asked_only_when_needed(workspace: Workspace) -> None:
+    name = "sales.salesorderdetail"  # v0 は種類を決めていない
+    decider = ScriptedDecider({f"classify {name}": {"kind": "event"}})
+    model = ScriptedModel({f"grain {name}": {"grain": "1行 = 受注の明細1行"}})
+    refined = _refine(workspace, model, decider, [name])
+    assert _about(model.asked, name) == [f"name {name}", f"grain {name}"]
+    assert {"kind", "grain"} <= set(refined.outcomes[0].applied)
+    table = next(t for t in load_ontology(workspace.ontology).tables if t.name == name)
+    assert (table.kind, table.grain) == ("event", "1行 = 受注の明細1行")
 
 
 def test_brief_lists_every_claim_of_the_table() -> None:
@@ -382,12 +489,7 @@ def test_brief_lists_every_claim_of_the_table() -> None:
     text = v1.brief(_claims(name), {}, None, {})
     for claim in _claims(name):
         assert claim.id in text
-    assert "allowed units" in text
 
-
-def test_answer_schema_is_an_object_schema() -> None:
-    schema = v1.answer_schema()
-    assert schema["type"] == "object" and "columns" in schema["properties"]
 
 
 
@@ -411,18 +513,17 @@ def test_refine_refuses_before_asking_when_humans_decided(workspace: Workspace) 
     ontology = load_ontology(workspace.ontology)
     write_reviewed_ontology(workspace.ontology, apply(ontology, ontology.tables[0].id, Reject(), "alice",
                                                       date(2026, 10, 15)))
-    model = ScriptedModel({})
+    decider = ScriptedDecider({})
     with pytest.raises(OntologyWriteRefusedError):
-        pipeline.refine(workspace, BudgetedModel(model, Pricing("fake", (PriceTier(None, 1, 1),)), 1.0))
-    assert model.asked == []  # 予算を使う前に止まる
+        _refine(workspace, ScriptedModel({}), decider, [])
+    assert decider.asked == []  # 予算を使う前に止まる
 
 
 def test_refine_rejects_unknown_first_tables(workspace: Workspace) -> None:
     from mandara.modeler.rules import InvalidInputError
 
     with pytest.raises(InvalidInputError, match="no.such"):
-        pipeline.refine(workspace, BudgetedModel(ScriptedModel({}), Pricing("fake", (PriceTier(None, 1, 1),)), 1.0),
-                        ["no.such"])
+        _refine(workspace, ScriptedModel({}), ScriptedDecider({}), ["no.such"])
 
 
 def _seed_conflicting_product_ids(workspace: Workspace) -> Ontology:
@@ -444,10 +545,10 @@ def _seed_conflicting_product_ids(workspace: Workspace) -> Ontology:
 
 def test_refine_refuses_before_asking_when_a_group_is_inconsistent(workspace: Workspace) -> None:
     seeded = _seed_conflicting_product_ids(workspace)
-    model = ScriptedModel({})
+    decider = ScriptedDecider({})
     with pytest.raises(InconsistentGroupError):
-        pipeline.refine(workspace, BudgetedModel(model, Pricing("fake", (PriceTier(None, 1, 1),)), 1.0))
-    assert model.asked == [] and load_ontology(workspace.ontology) == seeded
+        _refine(workspace, ScriptedModel({}), decider, [])
+    assert decider.asked == [] and load_ontology(workspace.ontology) == seeded
 
 
 def test_refine_stops_on_a_defect_and_keeps_what_it_had(workspace: Workspace,
@@ -459,13 +560,47 @@ def test_refine_stops_on_a_defect_and_keeps_what_it_had(workspace: Workspace,
         raise PropagationError("模したバグ")
 
     monkeypatch.setattr(meaning, "propagate", broken)
-    model = ScriptedModel({})
-    pricing = Pricing("fake", (PriceTier(None, 0.0001, 0.0001),))
+    decider = ScriptedDecider({})
     address = "person.address"
-    refined = pipeline.refine(workspace, BudgetedModel(model, pricing, 1.0), [address])
+    refined = _refine(workspace, ScriptedModel({}), decider, [address])
     assert refined.defect and refined.stopped == "バグの疑いで止めた: PropagationError: 模したバグ"
-    assert model.asked == [address]
+    assert decider.asked == [f"classify {address}"]
     assert (refined.outcomes[0].table, refined.outcomes[0].status) == (address, "failed")
     assert refined.outcomes[0].answer is not None  # 課金済みの答えは記録に残す
     assert len(refined.not_reached) == len(V0.tables) - 1
     assert load_ontology(workspace.ontology) == before
+
+
+def test_rerun_does_not_duplicate_the_author(workspace: Workspace) -> None:
+    name = "sales.salesorderdetail"
+    decider = ScriptedDecider({f"classify {name}": {"kind": "event"}})
+    _refine(workspace, ScriptedModel({}), decider, [name])
+    _refine(workspace, ScriptedModel({}), decider, [name])
+    table = next(t for t in load_ontology(workspace.ontology).tables if t.name == name)
+    authors = (table.inferred_by or "").split(v1.AUTHOR_SEPARATOR)
+    assert len(authors) == len(set(authors)) and "modeler-llm 0.2 (fakejev, fake)" in authors
+
+
+def test_invalid_naming_answers_are_kept_in_the_record(workspace: Workspace) -> None:
+    name = "sales.specialofferproduct"
+    broken = {"semantic_types": "[not a list]"}
+    refined = _refine(workspace, ScriptedModel({f"name {name}": broken}), ScriptedDecider({}), [name])
+    outcome = refined.outcomes[0]
+    record = outcome.answer
+    assert isinstance(record, dict) and record["naming"]["data"] == broken and "error" in record["naming"]
+    assert outcome.stage_failures and outcome.stage_failures[0].startswith("命名")
+
+
+def test_grain_is_asked_even_when_nothing_is_classified() -> None:
+    """分類する問いが無くても（v0 が種類を決め、外部キーも、問う列も無い）、grain の要る表なら grain は問う。"""
+    name = "sales.salesorderdetail"
+    table = next(t for t in V0.tables if t.name == name)
+    proposed = {n: col.model_copy(update={"status": "approved"}) for n, col in (table.columns or {}).items()}
+    event = table.model_copy(update={"kind": "event", "columns": proposed})
+    ontology = replace(V0, tables=tuple(event if t.id == table.id else t for t in V0.tables))
+    claims = [x for x in _claims(name) if x.predicate != "references"]
+    model, decider = ScriptedModel({f"grain {name}": {"grain": "1行 = 受注の明細1行"}}), ScriptedDecider({})
+    record: dict[str, object] = {}
+    asked = pipeline._ask_table(event, claims, ontology, {}, model, decider, record)  # pyright: ignore[reportPrivateUsage]
+    assert decider.asked == [] and model.asked == [f"grain {name}"]
+    assert asked.answer is not None and asked.answer.grain == "1行 = 受注の明細1行"

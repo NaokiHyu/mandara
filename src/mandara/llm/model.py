@@ -3,7 +3,7 @@
 Domain 層。SDK の型を知らない。
 - 問いは「決めた JSON の形で答えさせる」構造化された問いだけ。自由記述の答えは受け取らない
 - 答えは信頼できない入力。形の検証は、受け取る側（使うユースケース）が行う。失敗したらエラーで、黙ってリトライしない
-- 予算（BudgetedModel）：送る前に最悪の費用（余裕を掛けた入力トークン数 × 入力の単価 ＋ 出力の上限 × 出力の単価）を見積もり、
+- 予算（Budget。LLM と判断モデル〔mandara.llm.decision〕で共有し、合計で上限を守る）：送る前に最悪の費用（余裕を掛けた入力トークン数 × 入力の単価 ＋ 出力の上限 × 出力の単価）を見積もり、
   累計が上限を超えるなら送らずに BudgetExceededError。送った後は、答えの成否にかかわらず課金されうる費用を累計する。
   見積もりの前提が崩れたら以後は送らない。安いモデルへの切り替えはしない
 """
@@ -117,6 +117,7 @@ class Spend:
     request_id: str | None
     outcome: str
     """"answered" / "invalid output"（課金済み、答えは不正）/ "failed"（送った後に失敗、費用は最悪の見積もり）。"""
+    model: str
 
 
 ESTIMATE_MARGIN = 1.1
@@ -130,32 +131,64 @@ class EstimateViolatedError(LlmError):
 
 
 @dataclass
-class BudgetedModel:
-    """予算の上限を守る LanguageModel。上限は1回の実行（このオブジェクトの寿命）での累計。
+class Budget:
+    """1回の実行（このオブジェクトの寿命）の予算。LLM と判断モデルで共有する（上限は合計で守る）。
 
     課金されうる費用は、答えの成否にかかわらず累計する（不正な答えは実際の使用量、送った後の失敗は最悪の見積もり）。
     """
 
-    inner: LanguageModel
-    pricing: Pricing
     limit_usd: float
     spends: list[Spend] = field(default_factory=lambda: list[Spend]())
     violated: str | None = None
-    """見積もりの前提が崩れた理由。崩れたら以後は送らない。"""
+    """見積もりの前提が崩れた理由。崩れたら以後は何も送らない。"""
 
     def __post_init__(self) -> None:
-        if self.pricing.model != self.inner.model:
-            raise ValueError(f"単価のモデル {self.pricing.model} と、使うモデル {self.inner.model} が違う")
         if self.limit_usd <= 0:
             raise ValueError(f"予算の上限は正の値: {self.limit_usd}")
 
     @property
-    def model(self) -> str:
-        return self.inner.model
-
-    @property
     def spent_usd(self) -> float:
         return sum(s.cost_usd for s in self.spends)
+
+    def admit(self, purpose: str, worst: float) -> None:
+        """送ってよいか。だめなら例外（送っていない）。"""
+        if self.violated is not None:
+            raise EstimateViolatedError(f"見積もりの前提が崩れたので、もう送らない: {self.violated}")
+        if self.spent_usd + worst > self.limit_usd:
+            raise BudgetExceededError(purpose, self.spent_usd, worst, self.limit_usd)
+
+    def failed(self, purpose: str, model: str, worst: float) -> None:
+        """送った後の失敗（接続断など）。課金されたかどうか分からないので、最悪の見積もりを使ったことにする。"""
+        self.spends.append(Spend(purpose, None, worst, None, "failed", model))
+
+    def record(self, purpose: str, pricing: Pricing, usage: Usage, request_id: str | None, outcome: str,
+               worst: float) -> None:
+        if usage.cache_tokens:
+            self.spends.append(Spend(purpose, usage, worst, request_id, outcome, pricing.model))
+            self.violated = f"単価の無いキャッシュの課金がある（{usage.cache_tokens} トークン、{purpose}）"
+            raise EstimateViolatedError(self.violated)
+        cost = pricing.cost_usd(usage.input_tokens, usage.output_tokens)
+        self.spends.append(Spend(purpose, usage, cost, request_id, outcome, pricing.model))
+        if cost > worst:
+            self.violated = f"実際の費用 ${cost:.6f} が見積もり ${worst:.6f} を超えた（{purpose}）"
+            raise EstimateViolatedError(self.violated)
+
+
+@dataclass
+class BudgetedModel:
+    """予算の上限を守る LanguageModel。"""
+
+    inner: LanguageModel
+    pricing: Pricing
+    budget: Budget
+
+    def __post_init__(self) -> None:
+        if self.pricing.model != self.inner.model:
+            raise ValueError(f"単価のモデル {self.pricing.model} と、使うモデル {self.inner.model} が違う")
+
+    @property
+    def model(self) -> str:
+        return self.inner.model
 
     def count_input_tokens(self, request: StructuredRequest) -> int:
         return self.inner.count_input_tokens(request)
@@ -165,34 +198,20 @@ class BudgetedModel:
         return self.pricing.cost_usd(math.ceil(counted * ESTIMATE_MARGIN), request.max_output_tokens)
 
     def ask(self, request: StructuredRequest) -> StructuredResponse:
-        if self.violated is not None:
-            raise EstimateViolatedError(f"見積もりの前提が崩れたので、もう送らない: {self.violated}")
+        if self.budget.violated is not None:  # 数える呼び出しもしない
+            self.budget.admit(request.purpose, 0)
         worst = self.worst_case_usd(request)
-        if self.spent_usd + worst > self.limit_usd:
-            raise BudgetExceededError(request.purpose, self.spent_usd, worst, self.limit_usd)
+        self.budget.admit(request.purpose, worst)
         try:
             response = self.inner.ask(request)
         except InvalidOutputError as e:
-            self._record(request, e.usage, e.request_id, "invalid output", worst)
+            self.budget.record(request.purpose, self.pricing, e.usage, e.request_id, "invalid output", worst)
             raise
         except LlmError:
-            # 送った後の失敗（接続断など）は、課金されたかどうか分からない。最悪の見積もりを使ったことにする
-            self.spends.append(Spend(request.purpose, None, worst, None, "failed"))
+            self.budget.failed(request.purpose, self.model, worst)
             raise
-        self._record(request, response.usage, response.request_id, "answered", worst)
+        self.budget.record(request.purpose, self.pricing, response.usage, response.request_id, "answered", worst)
         return response
-
-    def _record(self, request: StructuredRequest, usage: Usage, request_id: str | None, outcome: str,
-                worst: float) -> None:
-        if usage.cache_tokens:
-            self.spends.append(Spend(request.purpose, usage, worst, request_id, outcome))
-            self.violated = f"単価の無いキャッシュの課金がある（{usage.cache_tokens} トークン、{request.purpose}）"
-            raise EstimateViolatedError(self.violated)
-        cost = self.pricing.cost_usd(usage.input_tokens, usage.output_tokens)
-        self.spends.append(Spend(request.purpose, usage, cost, request_id, outcome))
-        if cost > worst:
-            self.violated = f"実際の費用 ${cost:.6f} が見積もり ${worst:.6f} を超えた（{request.purpose}）"
-            raise EstimateViolatedError(self.violated)
 
 
 def summarize(spends: Sequence[Spend]) -> dict[str, object]:
