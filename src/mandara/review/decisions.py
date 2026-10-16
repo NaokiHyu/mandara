@@ -86,6 +86,11 @@ def questions(ontology: Ontology) -> list[Question]:
     return [_question(where, a, ontology, names) for where, a in sorted(pending, key=order)]
 
 
+def is_table_batch_member(question: Question, table_id: str) -> bool:
+    """表ごとの一括承認の候補（仕様 9.3）：その表の問いで、承認に種類を選ぶ必要が無い。"""
+    return question.table == table_id and not question.needs_kind
+
+
 def is_bulk_candidate(question: Question, threshold: float) -> bool:
     """一括承認の候補（仕様 9.3）：確信度が閾値以上で、承認に種類を選ぶ必要が無い。"""
     return question.confidence is not None and question.confidence >= threshold and not question.needs_kind

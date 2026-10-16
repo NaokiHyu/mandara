@@ -643,7 +643,7 @@ class SourceRef(ConfiguredBaseModel):
 
     source: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Claim', 'SourceRef']} })
     schema_name: str = Field(default=..., description="""スキーマ名（schema は pydantic の BaseModel と衝突するので避ける）""", json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef']} })
-    table: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef', 'ReviewQuestion', 'PointSet']} })
+    table: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef', 'ReviewQuestion', 'TableApproval', 'PointSet']} })
     column: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource', 'SourceRef', 'PointSet']} })
 
 
@@ -700,7 +700,7 @@ class ReviewQuestion(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
 
     location: str = Field(default=..., description="""答えを当てる注釈の場所（Ontology.annotations() の場所）""", json_schema_extra = { "linkml_meta": {'domain_of': ['ReviewQuestion', 'ReviewAnswer']} })
-    table: Optional[str] = Field(default=None, description="""問いの属する表の安定 ID（語彙の enum の値の問いには無い）""", json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef', 'ReviewQuestion', 'PointSet']} })
+    table: Optional[str] = Field(default=None, description="""問いの属する表の安定 ID（語彙の enum の値の問いには無い）""", json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef', 'ReviewQuestion', 'TableApproval', 'PointSet']} })
     subject: ReviewSubject = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Claim', 'ReviewQuestion']} })
     text: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Claim', 'ReviewQuestion', 'EvidenceLine']} })
     confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0, json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation', 'Claim', 'ReviewQuestion']} })
@@ -735,7 +735,17 @@ class BulkApproval(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'tree_root': True})
 
     threshold: float = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['BulkApproval']} })
-    locations: list[str] = Field(default=..., description="""見せた候補の場所。今も候補のままであることを確かめてから承認する""", json_schema_extra = { "linkml_meta": {'domain_of': ['BulkApproval']} })
+    locations: list[str] = Field(default=..., description="""見せた候補の場所。今も候補のままであることを確かめてから承認する""", json_schema_extra = { "linkml_meta": {'domain_of': ['BulkApproval', 'TableApproval']} })
+
+
+class TableApproval(ConfiguredBaseModel):
+    """
+    表ごとの一括承認（仕様 9.3）。表の提案を一覧で見せ、まとめて承認する（種類を選ぶ問いは除く）。 プロセス境界（UI → HTTP API）で受け渡す形
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'tree_root': True})
+
+    table: str = Field(default=..., description="""表の安定 ID""", json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef', 'ReviewQuestion', 'TableApproval', 'PointSet']} })
+    locations: list[str] = Field(default=..., description="""見せた問いの場所。今もその表の、種類を選ばなくてよい問いのままであることを確かめてから承認する""", json_schema_extra = { "linkml_meta": {'domain_of': ['BulkApproval', 'TableApproval']} })
 
 
 class PointSet(ConfiguredBaseModel):
@@ -744,7 +754,7 @@ class PointSet(ConfiguredBaseModel):
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'tree_root': True})
 
-    table: str = Field(default=..., description="""表の安定 ID""", json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef', 'ReviewQuestion', 'PointSet']} })
+    table: str = Field(default=..., description="""表の安定 ID""", json_schema_extra = { "linkml_meta": {'domain_of': ['SourceRef', 'ReviewQuestion', 'TableApproval', 'PointSet']} })
     column: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource', 'SourceRef', 'PointSet']} })
     points: list[GeoPointRow] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['PointSet']} })
     nulls: int = Field(default=..., ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['PointSet']} })
@@ -796,6 +806,7 @@ ReviewQuestion.model_rebuild()
 EvidenceLine.model_rebuild()
 ReviewAnswer.model_rebuild()
 BulkApproval.model_rebuild()
+TableApproval.model_rebuild()
 PointSet.model_rebuild()
 GeoPointRow.model_rebuild()
 PointFailure.model_rebuild()

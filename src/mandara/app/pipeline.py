@@ -53,7 +53,16 @@ from mandara.omstore.yaml_store import (
     write_ontology,
     write_reviewed_ontology,
 )
-from mandara.review.decisions import Approve, Decision, Question, apply, is_bulk_candidate, questions
+from mandara.review.decisions import (
+    Approve,
+    Decision,
+    Question,
+    ReviewError,
+    apply,
+    is_bulk_candidate,
+    is_table_batch_member,
+    questions,
+)
 from mandara.source.catalog import CatalogReader, Scope
 from mandara.source.rows import ColumnReader
 from mandara.source.values import GeoPoint
@@ -541,6 +550,32 @@ def bulk_approve(workspace: Workspace, locations: Sequence[str], threshold: floa
         ontology = apply(ontology, location, Approve(), reviewer, on)
     if locations:
         write_reviewed_ontology(workspace.ontology, ontology)
+    return len(locations)
+
+
+def table_batch(workspace: Workspace, table_id: str) -> list[Question]:
+    """表ごとの一括承認の候補（仕様 9.3）。人は一覧を見てから approve_table で確定する。種類を選ぶ問いは1件ずつ答える。"""
+    return _table_batch(load_ontology(workspace.ontology), table_id)
+
+
+def _table_batch(ontology: Ontology, table_id: str) -> list[Question]:
+    if ontology.table(table_id) is None:
+        raise ReviewError(f"表が無い: {table_id}")
+    return [q for q in questions(ontology) if is_table_batch_member(q, table_id)]
+
+
+def approve_table(workspace: Workspace, table_id: str, locations: Sequence[str], reviewer: str, on: date) -> int:
+    """一覧で見せた表の問い（locations）を承認する。今もその表の候補のままであることを確かめる（見せた後に変わっていれば止める）。
+    候補の確認と承認は同じ読み込みの OM で行い、全部を当ててから1回で書く（途中で当てられない問いがあれば、何も書かない）。"""
+    if not locations:
+        raise ReviewError("承認する問いが無い")
+    ontology = load_ontology(workspace.ontology)
+    candidates = {q.location for q in _table_batch(ontology, table_id)}
+    if stale := [loc for loc in locations if loc not in candidates]:
+        raise LedgerMismatchError(f"見せた一覧と今の候補が食い違う（{len(stale)} 件。例 {stale[:3]}）。一覧を出し直す")
+    for location in locations:
+        ontology = apply(ontology, location, Approve(), reviewer, on)
+    write_reviewed_ontology(workspace.ontology, ontology)
     return len(locations)
 
 

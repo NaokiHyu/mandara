@@ -561,6 +561,17 @@ export interface BulkApproval {
 
 
 /**
+ * 表ごとの一括承認（仕様 9.3）。表の提案を一覧で見せ、まとめて承認する（種類を選ぶ問いは除く）。 プロセス境界（UI → HTTP API）で受け渡す形
+ */
+export interface TableApproval {
+    /** 表の安定 ID */
+    table: string,
+    /** 見せた問いの場所。今もその表の、種類を選ばなくてよい問いのままであることを確かめてから承認する */
+    locations: string[],
+}
+
+
+/**
  * 表の geo.point の列の値を点にしたもの（地図のため）。プロセス境界（HTTP API → UI）で受け渡す形。 変換できなかった行は黙って捨てず failed に、NULL は数を nulls に持つ。 rows_read = points の数 + nulls + failed の数。truncated なら、表には limit を超える行がある
  */
 export interface PointSet {

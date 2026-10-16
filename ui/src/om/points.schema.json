@@ -1638,6 +1638,29 @@
             "title": "Table",
             "type": "object"
         },
+        "TableApproval": {
+            "additionalProperties": false,
+            "description": "\u8868\u3054\u3068\u306e\u4e00\u62ec\u627f\u8a8d\uff08\u4ed5\u69d8 9.3\uff09\u3002\u8868\u306e\u63d0\u6848\u3092\u4e00\u89a7\u3067\u898b\u305b\u3001\u307e\u3068\u3081\u3066\u627f\u8a8d\u3059\u308b\uff08\u7a2e\u985e\u3092\u9078\u3076\u554f\u3044\u306f\u9664\u304f\uff09\u3002 \u30d7\u30ed\u30bb\u30b9\u5883\u754c\uff08UI \u2192 HTTP API\uff09\u3067\u53d7\u3051\u6e21\u3059\u5f62",
+            "properties": {
+                "locations": {
+                    "description": "\u898b\u305b\u305f\u554f\u3044\u306e\u5834\u6240\u3002\u4eca\u3082\u305d\u306e\u8868\u306e\u3001\u7a2e\u985e\u3092\u9078\u3070\u306a\u304f\u3066\u3088\u3044\u554f\u3044\u306e\u307e\u307e\u3067\u3042\u308b\u3053\u3068\u3092\u78ba\u304b\u3081\u3066\u304b\u3089\u627f\u8a8d\u3059\u308b",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "table": {
+                    "description": "\u8868\u306e\u5b89\u5b9a ID",
+                    "type": "string"
+                }
+            },
+            "required": [
+                "table",
+                "locations"
+            ],
+            "title": "TableApproval",
+            "type": "object"
+        },
         "TableKind": {
             "description": "\u8868\u7a2e\u5225\uff084.1\uff09",
             "enum": [

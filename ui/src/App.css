@@ -134,6 +134,8 @@ button.link { border: none; background: none; padding: 0; color: var(--text-stro
 .banner.bulk { display: flex; align-items: center; gap: calc(var(--gap) * 2); border-color: var(--ok); }
 .banner.bulk strong { color: var(--ok); }
 .banner.bulk button { margin-left: auto; }
+.banner.table-batch { border-color: var(--accent); }
+.banner.table-batch strong { color: var(--accent); }
 
 .card {
   border: 1px solid var(--line); border-top: 2px solid var(--accent); background: var(--panel);

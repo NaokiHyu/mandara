@@ -25,6 +25,7 @@ from mandara.app.pipeline import Workspace
 from mandara.connectors.postgres.catalog_reader import PostgresCatalogReader
 from mandara.review.decisions import Approve, Decision, Reject, ReviewError
 from mandara.om.model import TableKind
+from mandara.omstore.yaml_store import load_ontology
 from mandara.source.catalog import Scope
 
 ROOT = Path(__file__).parent.parent
@@ -207,3 +208,38 @@ def test_a_failed_reload_after_writing_is_not_reported_as_a_refusal(prepared: Pa
     assert status == 500 and body["written"] is True and body["error"].startswith("答えは書いた")
     ontology = pipeline.read_ontology(work / "adventureworks" / "ontology")
     assert dict(ontology.annotations())[location].status == "rejected"
+
+
+def test_table_approval_approves_what_was_shown_for_that_table(prepared: Path, tmp_path: Path) -> None:
+    work = _copy(prepared, tmp_path / "work")
+    client = _client(work)
+    _, queue = _request(client, "GET", QUEUE)
+    table = next((q["table"] for q in queue["questions"] if q.get("table") and not q["needs_kind"]), None)
+    assert table is not None
+    shown = [q["location"] for q in queue["questions"] if q.get("table") == table and not q["needs_kind"]]
+    kept = [q["location"] for q in queue["questions"] if q.get("table") == table and q["needs_kind"]]
+    assert shown
+    status, after = _request(client, "POST", f"{QUEUE}/table", {"table": table, "locations": shown})
+    assert status == 200
+    remaining = {q["location"] for q in after["questions"]}
+    assert not remaining & set(shown) and set(kept) <= remaining  # 種類を選ぶ問いは残る
+    approved = dict(load_ontology(work / "adventureworks" / "ontology").annotations())
+    assert all(approved[loc].status == "approved" and approved[loc].reviewed_by == "alice" for loc in shown)
+
+    # 見せた一覧が古い（もう承認済み）、他の表の問い、空の一覧は止める。止めたときは何も書かない
+    status, body = _request(client, "POST", f"{QUEUE}/table", {"table": table, "locations": shown[:1]})
+    assert status == 409 and "一覧を出し直す" in body["error"]
+    other = next((q for q in after["questions"] if q.get("table") not in (None, table) and not q["needs_kind"]), None)
+    assert other is not None
+    other_table = [q["location"] for q in after["questions"] if q.get("table") == other["table"] and not q["needs_kind"]]
+    before = _snapshot(work)
+    # 正しい場所に、古い場所や別の表の場所を混ぜても、全体を止めて何も書かない
+    for mixed in ([*other_table, shown[0]], [*other_table, kept[0]] if kept else [*other_table, "nope"]):
+        status, _ = _request(client, "POST", f"{QUEUE}/table", {"table": other["table"], "locations": mixed})
+        assert status == 409 and _snapshot(work) == before
+    status, _ = _request(client, "POST", f"{QUEUE}/table", {"table": table, "locations": [other["location"]]})
+    assert status == 409 and _snapshot(work) == before
+    status, _ = _request(client, "POST", f"{QUEUE}/table", {"table": table, "locations": []})
+    assert status == 409
+    status, _ = _request(client, "POST", f"{QUEUE}/table", {"table": "tbl_nope", "locations": shown})
+    assert status == 409

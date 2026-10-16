@@ -1,10 +1,10 @@
 // レビュー画面（仕様 9.3）：提案に問いの形で答える。根拠は3行まで、影響の大きい順、一括承認は一覧を見てから。
 // 書き込みは API（CLI と同じユースケース）だけが行う。当てられない答えは API の理由をそのまま見せ、選び直してもらう。
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ApiError, getReview, postAnswer, postBulk, WrittenButStaleError } from "./api";
+import { ApiError, getReview, postAnswer, postBulk, postTable, WrittenButStaleError } from "./api";
 import type { OntologyDocument, ReviewAnswer, ReviewQuestion, ReviewQueue } from "./om/model";
-import { KIND_KEYS, SUBJECT_LABEL, SUBJECTS, asSubject, countBySubject, keyAction, nextLocation, visible,
-         type Subject } from "./review";
+import { KIND_KEYS, SUBJECT_LABEL, SUBJECTS, asSubject, countBySubject, keyAction, nextLocation, tableBatch,
+         visible, type Subject } from "./review";
 import { TableDetail } from "./TableDetail";
 import { KIND } from "./vocabulary";
 
@@ -24,7 +24,9 @@ export function ReviewView({ ontologyId, doc, onChanged, onOpenTable }: {
   const [answered, setAnswered] = useState(0);
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
-  const [bulkOpen, setBulkOpen] = useState(false);
+  /** 開いている一括承認の一覧：確信度で選んだ候補（threshold）か、表ごとの候補（table）。 */
+  const [batch, setBatch] = useState<{ type: "threshold" } | { type: "table"; table: string } | null>(null);
+  const bulkOpen = batch !== null;
 
   useEffect(() => {
     setQueue({ state: "loading" });
@@ -100,6 +102,11 @@ export function ReviewView({ ontologyId, doc, onChanged, onOpenTable }: {
   const counts = countBySubject(q.questions);
   const candidates = q.questions.filter((x) => x.bulk_candidate);
   const table = focus?.table === undefined ? undefined : doc.tables.find((t) => t.id === focus.table);
+  const sameTable = table === undefined ? [] : tableBatch(q.questions, table.id);
+  const done = (after: ReviewQueue) => {
+    setQueue({ state: "ok", value: after }); setBatch(null);
+    setCurrent(after.questions[0]?.location ?? null); onChanged();
+  };
 
   return (
     <div className="review">
@@ -136,14 +143,25 @@ export function ReviewView({ ontologyId, doc, onChanged, onOpenTable }: {
         {q.writable && candidates.length > 0 && (
           <div className="banner bulk">
             <span>一括承認の候補 <strong>{candidates.length.toLocaleString()}</strong> 件（確信度 ≥ {q.bulk_minimum}）</span>
-            <button onClick={() => setBulkOpen(true)}>一覧を見る</button>
+            <button onClick={() => setBatch({ type: "threshold" })}>一覧を見る</button>
           </div>
         )}
-        {bulkOpen ? (
-          <BulkPanel ontologyId={ontologyId} queue={q} candidates={candidates}
-                     onDone={(after) => { setQueue({ state: "ok", value: after }); setBulkOpen(false);
-                                          setCurrent(after.questions[0]?.location ?? null); onChanged(); }}
-                     onClose={() => setBulkOpen(false)} />
+        {q.writable && !bulkOpen && table !== undefined && sameTable.length > 1 && (
+          <div className="banner bulk table-batch">
+            <span>この表（{table.name}）の提案 <strong>{sameTable.length.toLocaleString()}</strong> 件</span>
+            <button onClick={() => setBatch({ type: "table", table: table.id })}>表ごと承認…</button>
+          </div>
+        )}
+        {batch?.type === "threshold" ? (
+          <BulkPanel title="一括承認" detail={`確信度 ≥ ${q.bulk_minimum}`} bulkMinimum={q.bulk_minimum}
+                     candidates={candidates}
+                     submit={() => postBulk(ontologyId, { threshold: q.bulk_minimum,
+                                                          locations: candidates.map((c) => c.location) })}
+                     onDone={done} onClose={() => setBatch(null)} />
+        ) : batch?.type === "table" ? (
+          <TableBatchPanel ontologyId={ontologyId} queue={q} table={batch.table}
+                           name={doc.tables.find((t) => t.id === batch.table)?.name ?? batch.table}
+                           onDone={done} onClose={() => setBatch(null)} />
         ) : focus === undefined ? (
           <div className="done">
             <div className="done-mark">◆</div>
@@ -230,10 +248,32 @@ function QuestionCard({ question, index, total, writable, bulkMinimum, reviewer,
   );
 }
 
-function BulkPanel({ ontologyId, queue, candidates, onDone, onClose }: {
+/** 表ごと承認の一覧。その表の、種類を選ばなくてよい問いを見せて、まとめて承認する（種類を選ぶ問いは1件ずつ）。 */
+function TableBatchPanel({ ontologyId, queue, table, name, onDone, onClose }: {
   ontologyId: string;
   queue: ReviewQueue;
+  table: string;
+  name: string;
+  onDone: (after: ReviewQueue) => void;
+  onClose: () => void;
+}) {
+  const candidates = tableBatch(queue.questions, table);
+  const kindLeft = queue.questions.some((x) => x.table === table && x.needs_kind);
+  return (
+    <BulkPanel title="表ごと承認" detail={`${name}${kindLeft ? " · 種類を選ぶ問いは1件ずつ" : ""}`}
+               bulkMinimum={queue.bulk_minimum} candidates={candidates}
+               submit={() => postTable(ontologyId, { table, locations: candidates.map((c) => c.location) })}
+               onDone={onDone} onClose={onClose} />
+  );
+}
+
+function BulkPanel({ title, detail, bulkMinimum, candidates, submit, onDone, onClose }: {
+  title: string;
+  detail: string;
+  bulkMinimum: number;
   candidates: ReviewQuestion[];
+  /** 見せた candidates を承認する（API が今も候補のままかを確かめる）。 */
+  submit: () => Promise<ReviewQueue>;
   onDone: (after: ReviewQueue) => void;
   onClose: () => void;
 }) {
@@ -243,7 +283,7 @@ function BulkPanel({ ontologyId, queue, candidates, onDone, onClose }: {
     setBusy(true);
     setRefusal(null);
     try {
-      onDone(await postBulk(ontologyId, { threshold: queue.bulk_minimum, locations: candidates.map((c) => c.location) }));
+      onDone(await submit());
     } catch (error) {
       if (error instanceof WrittenButStaleError) throw error; // 書いた後の失敗は、一覧の画面で拾わない
       setRefusal(error instanceof ApiError ? error.message : String(error));
@@ -251,15 +291,15 @@ function BulkPanel({ ontologyId, queue, candidates, onDone, onClose }: {
     }
   };
   return (
-    <section className="bulk-panel" aria-label="一括承認">
+    <section className="bulk-panel" aria-label={title}>
       <header>
-        <h1>一括承認 <span className="dim">確信度 ≥ {queue.bulk_minimum} · {candidates.length.toLocaleString()} 件</span></h1>
+        <h1>{title} <span className="dim">{detail} · {candidates.length.toLocaleString()} 件</span></h1>
         <button onClick={onClose} disabled={busy}>閉じる</button>
       </header>
       <ol className="bulk-list">
         {candidates.map((c) => (
           <li key={c.location}>
-            <Confidence value={c.confidence} high={queue.bulk_minimum} compact />
+            <Confidence value={c.confidence} high={bulkMinimum} compact />
             <span className={`tag tag-${c.subject}`}>{SUBJECT_LABEL[asSubject(c.subject)]}</span>
             <span>{c.text}</span>
           </li>

@@ -62,3 +62,9 @@ export function nextLocation(before: readonly ReviewQuestion[], after: readonly 
   return candidates.find((q) => q.location !== answered && remaining.has(q.location) && !skipped.has(q.location))
     ?.location ?? null;
 }
+
+/** 表ごとの一括承認の候補（仕様 9.3）：その表の問いのうち、種類を選ばなくてよいもの。
+ *  正はサーバー（review.decisions.is_table_batch_member）。食い違えば API が 409 で止める。 */
+export function tableBatch(questions: readonly ReviewQuestion[], table: string): ReviewQuestion[] {
+  return questions.filter((q) => q.table === table && !q.needs_kind);
+}

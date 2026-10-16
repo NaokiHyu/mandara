@@ -723,6 +723,20 @@ classes:
         multivalued: true
         required: true
 
+  TableApproval:
+    tree_root: true
+    description: >-
+      表ごとの一括承認（仕様 9.3）。表の提案を一覧で見せ、まとめて承認する（種類を選ぶ問いは除く）。
+      プロセス境界（UI → HTTP API）で受け渡す形
+    attributes:
+      table:
+        description: 表の安定 ID
+        required: true
+      locations:
+        description: 見せた問いの場所。今もその表の、種類を選ばなくてよい問いのままであることを確かめてから承認する
+        multivalued: true
+        required: true
+
   PointSet:
     tree_root: true
     description: >-

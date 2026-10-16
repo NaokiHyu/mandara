@@ -5,6 +5,7 @@ UI 層の入口。ユースケース（mandara.app.pipeline）を呼び、プロ
 - 地図の点は、接続を渡されたソースからだけ読む（ゼロコピー。上限つき）。接続の無いソースは 409 で理由を返す
 - 既定ではこの機械の中（127.0.0.1）からしか繋げない。Host ヘッダも localhost に限る（DNS リバインディング対策）
 - 書くのはレビューの答えだけ（仕様 9.3）。CLI と同じユースケース（pipeline.answer / bulk_approve）を呼ぶ。
+  表ごとの一括承認（pipeline.approve_table）は画面だけ（CLI には無い）。
   書けるのは work の OM で、serve に --reviewer を渡したときだけ。正解 OM には書かない。
   書く要求は JSON（application/json）に限り、Origin があればこの機械のものに限る（別のサイトから書かせない）。
   書き込みはこのプロセスの中で1つずつ（読んで、当てて、書く、の間に別の書き込みを挟まない）。
@@ -41,6 +42,7 @@ from mandara.om.model import (
     ReviewDecision,
     ReviewQuestion,
     ReviewQueue,
+    TableApproval,
     TableKind,
 )
 from mandara.om.ontology import Ontology
@@ -271,9 +273,20 @@ def create_app(sources: list[OntologySource], readers: dict[str, ColumnReader] |
             pipeline.bulk_approve(workspace, bulk.locations, bulk.threshold, r.reviewer, r.today())
         return await run_in_threadpool(write, ontology_id, request, act)
 
+    async def post_table(ontology_id: str, request: Request) -> JSONResponse:
+        try:
+            batch = TableApproval.model_validate(await body_of(request))
+        except ValueError as e:
+            return JSONResponse({"error": f"表ごとの承認の形が違う: {e}"}, status_code=422)
+
+        def act(workspace: pipeline.Workspace, r: Reviewing) -> None:
+            pipeline.approve_table(workspace, batch.table, batch.locations, r.reviewer, r.today())
+        return await run_in_threadpool(write, ontology_id, request, act)
+
     app.add_api_route("/api/ontologies/{ontology_id}/review", get_review, methods=["GET"])
     app.add_api_route("/api/ontologies/{ontology_id}/review/answers", post_answer, methods=["POST"])
     app.add_api_route("/api/ontologies/{ontology_id}/review/bulk", post_bulk, methods=["POST"])
+    app.add_api_route("/api/ontologies/{ontology_id}/review/table", post_table, methods=["POST"])
     app.add_api_route("/api/ontologies", list_ontologies, methods=["GET"])
     app.add_api_route("/api/ontologies/{ontology_id}/tables/{table_id}/points", get_points, methods=["GET"])
     app.add_api_route("/api/ontologies/{ontology_id}", get_ontology, methods=["GET"])

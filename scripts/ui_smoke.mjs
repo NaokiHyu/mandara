@@ -32,11 +32,21 @@ const CASES = [
     after: "Number(document.querySelector('.review-queue .count')?.textContent.replace(/,/g, '')) === window.__pending - 1" },
   // 一括承認：一覧を見てから承認すると、候補が無くなる
   { name: "review bulk", query: "?ontology=work:adventureworks&view=review",
-    expect: "document.querySelector('.banner.bulk button') !== null",
-    act: "document.querySelector('.banner.bulk button').click()",
+    expect: "document.querySelector('.banner.bulk:not(.table-batch) button') !== null",
+    act: "document.querySelector('.banner.bulk:not(.table-batch) button').click()",
     then: "document.querySelector('.bulk-panel footer .approve')",
     thenAct: "document.querySelector('.bulk-panel footer .approve').click()",
-    after: "document.querySelector('.banner.bulk') === null && document.querySelector('.card .question') !== null" },
+    after: "document.querySelector('.banner.bulk:not(.table-batch)') === null && document.querySelector('.card .question') !== null" },
+  // 表ごと承認：表の提案の一覧を見てから承認すると、問いがその数だけ減る
+  { name: "review table", query: "?ontology=work:adventureworks&view=review",
+    expect: "document.querySelector('.banner.table-batch button') !== null",
+    act: "window.__pending = Number(document.querySelector('.review-queue .count').textContent.replace(/,/g, '')); " +
+         "document.querySelector('.banner.table-batch button').click()",
+    then: "document.querySelector('.bulk-panel footer .approve')",
+    thenAct: "window.__batch = document.querySelectorAll('.bulk-panel .bulk-list li').length; " +
+             "document.querySelector('.bulk-panel footer .approve').click()",
+    after: "document.querySelector('.bulk-panel') === null && window.__batch > 1 && " +
+           "Number(document.querySelector('.review-queue .count')?.textContent.replace(/,/g, '')) === window.__pending - window.__batch" },
   // 承認した結果が、オントロジーの画面（表の詳細）に出る
   { name: "approved in ontology", query: "?ontology=work:adventureworks&view=list",
     expect: "document.querySelectorAll('.contexts .table').length > 0",
