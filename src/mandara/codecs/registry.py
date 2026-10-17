@@ -1,18 +1,18 @@
-"""物理的な表現（①の SourceEncoding）→ コーデックの登録表。
+"""登録したコーデック（mandara.codecs.codec.Codec）の一覧。コーデックを足すときは、ここに1行足す。
 
-Domain 層。コーデックは、ソースの値を意味の型（①の ValueType）の値に変える純粋な関数。
-変換先の型は①の encoding_traits（ENCODING_TARGETS）が決めている。登録表の網羅はテストで検査する。
+Domain 層。変換先の型は①の encoding_traits（ENCODING_TARGETS）が決めている。
+①の SourceEncoding のどの値にも、ちょうど1つのコーデックがあること（tests/test_codecs.py で検査する）。
 """
 
-from collections.abc import Callable
+from mandara.codecs.codec import Codec, CodecError
+from mandara.codecs.geography import SQLSERVER_GEOGRAPHY
 
-from mandara.codecs.geography import CodecError, decode_sqlserver_geography
-from mandara.om.model import SourceEncoding
+CODECS: tuple[Codec, ...] = (
+    SQLSERVER_GEOGRAPHY,
+)
 
-Decoder = Callable[[object], object]
+BY_ENCODING: dict[str, Codec] = {c.encoding.value: c for c in CODECS}
+if len(BY_ENCODING) != len(CODECS):
+    raise AssertionError(f"同じ encoding のコーデックが2つ以上ある: {sorted(c.encoding.value for c in CODECS)}")
 
-DECODERS: dict[str, Decoder] = {
-    SourceEncoding.sqlserver_geography.value: decode_sqlserver_geography,
-}
-
-__all__ = ["DECODERS", "CodecError", "Decoder"]
+__all__ = ["BY_ENCODING", "CODECS", "Codec", "CodecError"]

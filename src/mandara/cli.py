@@ -166,6 +166,10 @@ def _reader(args: argparse.Namespace) -> PostgresCatalogReader:
     return PostgresCatalogReader(args.conninfo)
 
 
+def _values(args: argparse.Namespace) -> PostgresColumnReader:
+    return PostgresColumnReader(args.conninfo)
+
+
 def _now() -> datetime:
     return datetime.now(UTC)
 
@@ -179,7 +183,7 @@ def _run(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
     _banner(out, style, workspace, scope)
     started = time.monotonic()
     llm = _llm(args.env) if args.llm else None
-    result = pipeline.run(workspace, _reader(args), scope, args.gold, _now, llm[0] if llm else None)
+    result = pipeline.run(workspace, _reader(args), _values(args), scope, args.gold, _now, llm[0] if llm else None)
     _extract_line(out, style, result.extracted)
     _propose_line(out, style, result.proposed)
     if result.refined is not None and llm is not None:
@@ -194,7 +198,7 @@ def _extract(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
     workspace = _workspace(args)
     scope = Scope(tuple(args.schema))
     _banner(out, style, workspace, scope)
-    _extract_line(out, style, pipeline.extract(workspace, _reader(args), scope))
+    _extract_line(out, style, pipeline.extract(workspace, _reader(args), scope, _values(args)))
     return 0
 
 
@@ -425,6 +429,15 @@ def _banner(out: TextIO, style: _Style, workspace: Workspace, scope: Scope) -> N
 
 def _extract_line(out: TextIO, style: _Style, extracted: pipeline.Extracted) -> None:
     print(f"  {style.dim('extract')}   {extracted.tables} objects → {len(extracted.claims):,} claims", file=out)
+    for e in extracted.examined:
+        where = f"{e.table}.{e.column}"
+        if e.detection.encoding is not None:
+            print(f"  {style.dim('encoding')}  {where} → {e.detection.encoding}  "
+                  f"{style.dim(f'{e.detection.values} 件を読めた')}", file=out)
+        else:
+            print(f"  {style.dim('encoding')}  {where} → 決まらない: {e.detection.reason}", file=out)
+    for n in extracted.not_examined:
+        print(f"  {style.dim('encoding')}  {n.table}.{n.column} → 見ていない: {n.reason}", file=out)
 
 
 def _propose_line(out: TextIO, style: _Style, proposed: pipeline.Proposed) -> None:

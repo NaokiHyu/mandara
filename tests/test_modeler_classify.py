@@ -153,7 +153,7 @@ def test_enum_is_a_candidate_only_when_values_are_named() -> None:
     with_values = c.NamedType(name="gender_code", description="性別", columns=["gender"],
                               values=[v1.EnumValueAnswer(code="M", label="男性")], values_evidence=[])
     without = c.NamedType(name="job_title", description="職名", columns=["jobtitle"], values_evidence=[])
-    asked = c.properties(claims, c.Named((with_values, without), ()), "properties")
+    asked = c.properties(_table(name), claims, c.Named((with_values, without), ()), "properties")
     assert asked.candidates["gender_code"] == ("enum",)
     assert "enum" not in asked.candidates["job_title"]
 
@@ -192,9 +192,39 @@ def test_named_types_are_capped_below_measured_confidence() -> None:
     name = "humanresources.employee"
     t = c.NamedType(name="job_title", description="職名", columns=["jobtitle"], values_evidence=[])
     named = c.Named((t,), ())
-    asked = c.properties(_claims(name), named, "properties")
+    asked = c.properties(_table(name), _claims(name), named, "properties")
     assert asked.request is not None
     answers = {k: ChoiceAnswer(list(q.options)[0], {o: 1.0 if i == 0 else 0.0 for i, o in enumerate(q.options)})
                for k, q in asked.request.questions.items()}
     types, _ = c.read_properties(_claims(name), named, asked, DecisionResponse(answers, Usage(1, 0), "m", None))
     assert types and all(x.confidence <= c.NAMED_CONFIDENCE for x in types)
+
+
+def test_encoded_columns_are_offered_only_the_types_the_encoding_decodes_to() -> None:
+    """OM の spatiallocation（バイト列）に geography の encoding があれば、画像の意味型は問わない・当てない（ENCODING_MISMATCH）。"""
+    vocabulary = {**VOCABULARY,
+                  "location": SemanticType(name="location", type=ValueType("geo.point"), description="位置"),
+                  "photo": SemanticType(name="photo", type=ValueType("media.image"), description="写真")}
+    name = "person.address"
+    plain = _table(name)
+    hints = v1.meaning_hints(SEEDED, plain, GROUPS)
+    asked = c.classify(plain, _claims(name), vocabulary, hints, MAX_OPTIONS, "classify")
+    assert asked.request is not None
+    assert {"location", "photo"} <= set(asked.request.questions["column spatiallocation"].options)
+    columns = dict(plain.columns or {})
+    columns["spatiallocation"] = columns["spatiallocation"].model_copy(update={"encoding": "sqlserver_geography"})
+    encoded = plain.model_copy(update={"columns": columns})
+    asked = c.classify(encoded, _claims(name), vocabulary, hints, MAX_OPTIONS, "classify")
+    assert asked.request is not None
+    assert set(asked.request.questions["column spatiallocation"].options) - {c.NEW, c.UNCLEAR} == {"location"}
+    named = c.Named((c.NamedType(name="spot", description="位置", columns=["spatiallocation"], values_evidence=[]),), ())
+    assert c.properties(encoded, _claims(name), named, "properties").candidates["spot"] == ("geo.point",)
+    assert "media.image" in c.properties(plain, _claims(name), named, "properties").candidates["spot"]
+
+
+def test_an_encoding_that_contradicts_the_column_family_is_an_error() -> None:
+    from mandara.om.value_types import IncompatibleEncodingError, assignable
+
+    assert assignable("binary", "sqlserver_geography") == {"geo.point"}
+    with pytest.raises(IncompatibleEncodingError, match="型族 integer"):
+        assignable("integer", "sqlserver_geography")

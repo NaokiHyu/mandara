@@ -233,3 +233,102 @@ def test_qualified_name_roundtrip(parts: list[str]) -> None:
 def test_plain_names_are_not_quoted() -> None:
     assert qualify("sales", "orders") == "sales.orders"
     assert qualify("s1", "..") == 's1.".."'
+
+
+# ---------------------------------------------------------------- 物理的な表現（実データの値の抽出器の主張から）
+
+
+def _with_binary() -> tuple[Catalog, list[Column]]:
+    columns = [Column("id", 1, "integer", TypeFamily.integer, False, None, None, None),
+               Column("loc", 2, "bytea", TypeFamily.binary, True, None, None, None)]
+    table = Table("s", "t", ObjectKind.table, None, tuple(columns), Key("pk", ("id",)), (), (), ())
+    return Catalog(Scope(("s",)), (table,)), columns
+
+
+def test_encoded_columns_are_proposed_with_their_encoding() -> None:
+    from mandara.codecs.detect import detect
+    from mandara.codecs.geography import encode_sqlserver_geography
+    from mandara.extractors import values
+    from mandara.source.values import GeoPoint
+
+    catalog, columns = _with_binary()
+    [target], not_examined = values.targets(catalog)
+    assert target.column == columns[1] and not_examined == []
+    claim = values.encoding_claim("src", target, detect([encode_sqlserver_geography(GeoPoint(1.0, 2.0)), None]))
+    assert claim is not None
+    ontology = propose("src", ("s",), [*extract("src", catalog), claim]).ontology
+    column = (ontology.tables[0].columns or {})["loc"]
+    assert column.encoding == "sqlserver_geography" and claim.id in (column.evidence or [])
+    assert column.confidence == 0.95 and (ontology.tables[0].columns or {})["id"].encoding is None
+    assert values.encoding_claim("src", target, detect([b"not a point"])) is None
+
+
+def test_encoded_as_on_an_unknown_column_is_an_error() -> None:
+    from mandara.om.claims import new_claim
+    from mandara.om.model import ClaimPredicate, ClaimSource, ClaimSourceKind, SourceEncoding, SourceRef
+
+    catalog, _ = _with_binary()
+    stray = new_claim(subject=SourceRef(source="src", schema_name="s", table="t", column="nope"),
+                      predicate=ClaimPredicate.encoded_as, source=ClaimSource(kind=ClaimSourceKind.data, locator="x"),
+                      extracted_by="test", confidence=0.95, encoding=SourceEncoding.sqlserver_geography)
+    with pytest.raises(InvalidInputError, match="encoded_as"):
+        propose("src", ("s",), [*extract("src", catalog), stray])
+
+
+def test_tables_without_a_primary_key_are_not_examined() -> None:
+    from mandara.extractors import values
+
+    catalog, _ = _with_binary()
+    view = replace(catalog.tables[0], kind=ObjectKind.view, primary_key=None)
+    found, not_examined = values.targets(Catalog(catalog.scope, (view,)))
+    assert found == [] and [(n.table, n.column) for n in not_examined] == [("s.t", "loc")]
+
+
+def test_two_encodings_for_one_column_are_an_error() -> None:
+    from mandara.om.claims import new_claim
+    from mandara.om.model import ClaimPredicate, ClaimSource, ClaimSourceKind, SourceEncoding, SourceRef
+
+    catalog, _ = _with_binary()
+    twice = [new_claim(subject=SourceRef(source="src", schema_name="s", table="t", column="loc"),
+                       predicate=ClaimPredicate.encoded_as, source=ClaimSource(kind=ClaimSourceKind.data, locator=where),
+                       extracted_by="test", confidence=0.95, encoding=SourceEncoding.sqlserver_geography)
+             for where in ("a", "b")]
+    with pytest.raises(InvalidInputError, match="2つ以上"):
+        propose("src", ("s",), [*extract("src", catalog), *twice])
+
+
+def test_extract_records_every_examined_column(tmp_path: Path) -> None:
+    """抽出は binary の列の見本を読み、決まった列だけ主張にし、決まらない列も見なかった列も理由つきで返す。"""
+    from collections.abc import Sequence
+
+    from mandara.app import pipeline
+    from mandara.codecs.geography import encode_sqlserver_geography
+    from mandara.source.rows import ColumnRow, ColumnSample
+    from mandara.source.values import GeoPoint
+
+    catalog, columns = _with_binary()
+    other = replace(columns[1], name="photo", position=3)
+    table = replace(catalog.tables[0], columns=(*columns, other))
+    view = replace(table, name="v", kind=ObjectKind.view, primary_key=None)
+    point = encode_sqlserver_geography(GeoPoint(1.0, 2.0))
+    samples = {"loc": [point, None, point], "photo": [b"\x89PNG", None]}
+
+    class Catalogs:
+        def read(self, scope: Scope) -> Catalog:
+            return Catalog(scope, (table, view))
+
+    class Values:
+        def read_column(self, schema: str, table: str, key_columns: Sequence[str], column: str,
+                        limit: int) -> ColumnSample:
+            assert (schema, table, list(key_columns), limit) == ("s", "t", ["id"], 100)
+            return ColumnSample(tuple(ColumnRow((i,), v) for i, v in enumerate(samples[column])), truncated=True)
+
+    ws = pipeline.Workspace(tmp_path / "src", "src")
+    extracted = pipeline.extract(ws, Catalogs(), Scope(("s",)), Values())
+    found = {e.column: (e.detection.encoding, e.detection.reason, e.detection.values, e.detection.nulls, e.truncated)
+             for e in extracted.examined}
+    assert found == {"loc": ("sqlserver_geography", None, 2, 1, True),
+                     "photo": (None, "どのコーデックの形にも当たらない", 1, 1, True)}
+    assert [(n.table, n.column) for n in extracted.not_examined] == [("s.v", "loc"), ("s.v", "photo")]
+    assert [(c.subject.column, c.encoding) for c in extracted.claims if c.predicate == "encoded_as"] == [
+        ("loc", "sqlserver_geography")]

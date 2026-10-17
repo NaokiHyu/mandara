@@ -49,7 +49,7 @@ from mandara.om.model import (
     ValueType,
 )
 from mandara.om.names import qualify
-from mandara.om.value_types import COMPATIBLE, UNIT_BEARING
+from mandara.om.value_types import UNIT_BEARING, assignable
 from mandara.om.ontology import SELF, Ontology
 
 MODELER = "modeler-llm 0.2"
@@ -354,7 +354,8 @@ def _apply_semantic_types(answer: TableAnswer, existing: Mapping[str, SemanticTy
 def _apply_columns(answer: TableAnswer, ontology: Ontology, table: Table, semantic_types: Mapping[str, SemanticType],
                    table_claims: Sequence[Claim], groups: MeaningGroups, twice: set[str],
                    work: _Work) -> dict[str, Column]:
-    families = {c.subject.column: c.family for c in table_claims if c.predicate == ClaimPredicate.typed_as.value}
+    families = {c.subject.column: str(c.family) for c in table_claims
+                if c.predicate == ClaimPredicate.typed_as.value and c.family is not None}
     columns = dict(table.columns or {})
     # 1巡目：組に依らない検査。通ったものだけで、組の中の食い違いを判定する（他の理由で落ちる答えを数えない）
     passed: list[tuple[ColumnAnswer, Column, list[str]]] = []
@@ -374,8 +375,11 @@ def _apply_columns(answer: TableAnswer, ontology: Ontology, table: Table, semant
             work.drop(item, f"語彙に無い意味型 {c.semantic_type}")
             continue
         family = families.get(c.name)
-        if family is None or semantic_type.type not in COMPATIBLE[family]:
-            work.drop(item, f"列の型族 {family} に、値の型 {semantic_type.type} は当てられない")
+        if family is None:
+            work.drop(item, "型の主張が無い")
+            continue
+        if semantic_type.type not in assignable(family, column.encoding):
+            work.drop(item, f"列（型族 {family}、encoding {column.encoding}）に、値の型 {semantic_type.type} は当てられない")
             continue
         evidence = work.cited(item, c.evidence)
         if evidence is None:

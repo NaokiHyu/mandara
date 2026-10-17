@@ -12,7 +12,7 @@ Domain 層の純粋な関数。入力は主張台帳と範囲だけで、カタ�
 
 import hashlib
 import json
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from typing import TypedDict
@@ -48,6 +48,8 @@ CONTEXT_CONFIDENCE = 0.7
 KIND_CONFIDENCE = 0.9
 """表の種類の規則は、仕様 4.1 の定義にそのまま当たる（ビューは計算で導出される、中間表は複数の参照の組で識別される）。
 ただしソースの命名・使われ方とずれることはあるので 1.0 にはしない。"""
+ENCODING_CONFIDENCE = 0.95
+"""物理的な表現は、読んだ値（上限までの見本）がすべてそのコーデックで読めたことによる。見本の外の行は読んでいない。"""
 REFERENCE_CONFIDENCE = 0.9
 """外部キーは参照を確実に示す。ただし関係型（has / part-of / is-a）は v0 では判定していない。"""
 
@@ -169,7 +171,13 @@ def _table(
     ]
 
     typed = sorted(_all(claims, ClaimPredicate.typed_as), key=lambda c: _present(c.position, c))
-    columns = {_column(c): Column(name=_column(c), **_proposed(DECLARED_CONFIDENCE, [c.id])) for c in typed}
+    encoded_claims = _all(claims, ClaimPredicate.encoded_as)
+    if twice := sorted(n for n, k in Counter(_column(c) for c in encoded_claims).items() if k > 1):
+        raise InvalidInputError(f"{qualify(schema, name)} の同じ列に encoded_as が2つ以上ある（台帳が不正）: {twice}")
+    encoded = {_column(c): c for c in encoded_claims}
+    if stray := sorted(encoded.keys() - {_column(c) for c in typed}):
+        raise InvalidInputError(f"{qualify(schema, name)} の型の主張が無い列に encoded_as がある（台帳が不完全）: {stray}")
+    columns = {_column(c): _column_of(c, encoded.get(_column(c))) for c in typed}
 
     table = Table(
         id=table_ids[key],
@@ -185,6 +193,13 @@ def _table(
         note="context はスキーマ名からの推定" + ("" if kind is not None else "。kind は未決（規則では決まらない）"),
     )
     return table, skipped
+
+
+def _column_of(typed: Claim, encoded: Claim | None) -> Column:
+    if encoded is None:
+        return Column(name=_column(typed), **_proposed(DECLARED_CONFIDENCE, [typed.id]))
+    return Column(name=_column(typed), encoding=_present(encoded.encoding, encoded),
+                  **_proposed(min(DECLARED_CONFIDENCE, ENCODING_CONFIDENCE), [typed.id, encoded.id]))
 
 
 def _kind(declared: Claim, primary: Claim | None, references: list[Claim]) -> tuple[TableKind | None, list[str]]:

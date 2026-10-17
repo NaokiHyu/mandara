@@ -37,7 +37,7 @@ from mandara.om.model import (
 )
 from mandara.om.names import split_qualified
 from mandara.om.ontology import SELF, Ontology
-from mandara.codecs.registry import DECODERS, CodecError
+from mandara.codecs.registry import BY_ENCODING, CodecError
 from mandara.source.records import Contains, Equals, InvalidKeyError, NotKeyableError, RecordReader, key_text
 from mandara.source.values import GeoPoint
 
@@ -147,9 +147,9 @@ def display(value: object, semantic_type: SemanticType | None, encoding: str | N
     enum は語彙のラベルを添える。"""
     if value is None:
         return None
-    if encoding is not None and (decode := DECODERS.get(encoding)) is not None:
+    if encoding is not None and (codec := BY_ENCODING.get(encoding)) is not None:
         try:
-            value = decode(value)
+            value = codec.decode(value)
         except CodecError as e:
             return f"（{encoding} として読めない: {e}）"
     if isinstance(value, GeoPoint):

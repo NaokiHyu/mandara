@@ -169,7 +169,7 @@ enums:
   ClaimPredicate:
     description: >-
       主張の述語（6.6.2）。述語ごとに、主語の粒度（表 / 列）と、値として持つフィールドが決まっている。
-      今あるのはカタログの抽出器（T1.3）が出すものだけ。足すときは①を変え、検証の形の表も足す
+      カタログの抽出器（T1.3）と、実データの値の抽出器（T2.4）が出す。足すときは①を変え、検証の形の表も足す
     permissible_values:
       identified_by:
         description: 表は columns で識別される（主キー）
@@ -193,12 +193,16 @@ enums:
         description: 列のソース上の型名は type_name、型族は family、表の中の位置は position
       aliased_as:
         description: 列はユーザー定義の型の別名 type_name を使う
+      encoded_as:
+        description: 列の値は物理的な表現 encoding で書かれている（実データの値の抽出器 T2.4 が出す。読んだ値がすべてそのコーデックで読めた）
   ClaimSourceKind:
     description: 主張の出所の種類（6.6.2）
     permissible_values:
       schema:
       sql:
       codelist:
+      data:
+        description: ソースの実データの値（列の値を読んだもの）
       design-doc:
       memo:
       package:
@@ -559,6 +563,8 @@ classes:
         minimum_value: 1
       object_kind:
         range: ObjectKind
+      encoding:
+        range: SourceEncoding
       source:
         range: ClaimSource
         required: true

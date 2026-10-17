@@ -164,7 +164,7 @@ export enum ReferentialAction {
     set_default = "set_default",
 };
 /**
-* 主張の述語（6.6.2）。述語ごとに、主語の粒度（表 / 列）と、値として持つフィールドが決まっている。 今あるのはカタログの抽出器（T1.3）が出すものだけ。足すときは①を変え、検証の形の表も足す
+* 主張の述語（6.6.2）。述語ごとに、主語の粒度（表 / 列）と、値として持つフィールドが決まっている。 カタログの抽出器（T1.3）と、実データの値の抽出器（T2.4）が出す。足すときは①を変え、検証の形の表も足す
 */
 export enum ClaimPredicate {
     
@@ -190,6 +190,8 @@ export enum ClaimPredicate {
     typed_as = "typed_as",
     /** 列はユーザー定義の型の別名 type_name を使う */
     aliased_as = "aliased_as",
+    /** 列の値は物理的な表現 encoding で書かれている（実データの値の抽出器 T2.4 が出す。読んだ値がすべてそのコーデックで読めた） */
+    encoded_as = "encoded_as",
 };
 /**
 * 主張の出所の種類（6.6.2）
@@ -199,6 +201,8 @@ export enum ClaimSourceKind {
     schema = "schema",
     sql = "sql",
     codelist = "codelist",
+    /** ソースの実データの値（列の値を読んだもの） */
+    data = "data",
     design_doc = "design-doc",
     memo = "memo",
     package = "package",
@@ -457,6 +461,7 @@ export interface Claim {
     /** 列の、表の中の位置（1 から） */
     position?: number,
     object_kind?: string,
+    encoding?: string,
     source: ClaimSource,
     /** 抽出器の名前と版 */
     extracted_by: string,

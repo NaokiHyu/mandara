@@ -46,7 +46,7 @@ from mandara.om.model import (
     ValueType,
 )
 from mandara.om.names import qualify
-from mandara.om.value_types import COMPATIBLE, UNIT_BEARING
+from mandara.om.value_types import UNIT_BEARING, assignable
 
 THRESHOLD = 0.6
 """これ未満の確信度の提案は出さない（仕様 6.3 の既定）。"""
@@ -291,7 +291,8 @@ def classify(table: Table, table_claims: Sequence[Claim], vocabulary: Mapping[st
         if family is None:
             not_asked.append(Dropped(f"column {name}", "型の主張が無い"))
             continue
-        compatible = [d for d in vocabulary.values() if d.type in COMPATIBLE[family]]
+        allowed = assignable(family, column.encoding)
+        compatible = [d for d in vocabulary.values() if d.type in allowed]
         options: dict[str, str | None] = {d.name: _type_brief(d) for d in compatible}
         if not options:
             new_only.append(name)  # 当てうる既存の意味型が無い：問うまでもなく新しい意味型
@@ -476,14 +477,17 @@ class Properties:
     not_asked: tuple[Dropped, ...]
 
 
-def properties(table_claims: Sequence[Claim], named: Named, purpose: str) -> Properties:
+def properties(table: Table, table_claims: Sequence[Claim], named: Named, purpose: str) -> Properties:
+    """列に当ててよい値の型は、型族（主張）と OM の列の encoding から（型の主張の無い列には何も当てられない）。"""
     families = _families(table_claims)
+    columns = table.columns or {}
+    by_column = {c: assignable(f, columns[c].encoding if c in columns else None) for c, f in families.items()}
     questions: dict[str, Choice] = {}
     candidates: dict[str, tuple[str, ...]] = {}
     not_asked: list[Dropped] = []
     for t in named.types:
         allowed = [v.value for v in ValueType
-                   if all(v.value in COMPATIBLE.get(families.get(c, ""), frozenset()) for c in t.columns)]
+                   if all(v.value in by_column.get(c, frozenset()) for c in t.columns)]
         candidates_before = list(allowed)
         # enum は値の一覧を持つ型（apply_answer の検査）。命名が値を挙げたかどうかで、enum を候補に入れるか決める
         allowed = ([v for v in allowed if v == ValueType.enum.value] if t.values
@@ -491,7 +495,7 @@ def properties(table_claims: Sequence[Claim], named: Named, purpose: str) -> Pro
         if not allowed:
             reason = ("値の一覧があるが、列の型族に enum を当てられない" if t.values
                       else "命名が値の一覧を挙げていないので enum にできず、列の型族に当てられる値の型がほかに無い"
-                      if ValueType.enum.value in candidates_before else "列の型族すべてに当てられる値の型が無い")
+                      if ValueType.enum.value in candidates_before else "すべての列に当てられる値の型（型族と encoding から）が無い")
             not_asked.append(Dropped(f"semantic_type {t.name}", reason))
             not_asked += [Dropped(f"column {c}", f"意味型 {t.name} の値の型が決まらない") for c in t.columns]
             continue

@@ -277,7 +277,7 @@ class ReferentialAction(str, Enum):
 
 class ClaimPredicate(str, Enum):
     """
-    主張の述語（6.6.2）。述語ごとに、主語の粒度（表 / 列）と、値として持つフィールドが決まっている。 今あるのはカタログの抽出器（T1.3）が出すものだけ。足すときは①を変え、検証の形の表も足す
+    主張の述語（6.6.2）。述語ごとに、主語の粒度（表 / 列）と、値として持つフィールドが決まっている。 カタログの抽出器（T1.3）と、実データの値の抽出器（T2.4）が出す。足すときは①を変え、検証の形の表も足す
     """
     identified_by = "identified_by"
     """
@@ -323,6 +323,10 @@ class ClaimPredicate(str, Enum):
     """
     列はユーザー定義の型の別名 type_name を使う
     """
+    encoded_as = "encoded_as"
+    """
+    列の値は物理的な表現 encoding で書かれている（実データの値の抽出器 T2.4 が出す。読んだ値がすべてそのコーデックで読めた）
+    """
 
 
 class ClaimSourceKind(str, Enum):
@@ -332,6 +336,10 @@ class ClaimSourceKind(str, Enum):
     schema = "schema"
     sql = "sql"
     codelist = "codelist"
+    data = "data"
+    """
+    ソースの実データの値（列の値を読んだもの）
+    """
     design_doc = "design-doc"
     memo = "memo"
     package = "package"
@@ -609,7 +617,7 @@ class Column(Annotation):
     semantic_type: Optional[str] = Field(default=None, description="""vocabulary の semantic_types のキー""", json_schema_extra = { "linkml_meta": {'domain_of': ['Column', 'Cell']} })
     pii: Optional[bool] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Column']} })
     unit: Optional[UnitSource] = Field(default=None, description="""量の単位の出所（C5）。fixed / column のちょうど1つ""", json_schema_extra = { "linkml_meta": {'domain_of': ['Column']} })
-    encoding: Optional[SourceEncoding] = Field(default=None, description="""ソース上の値の物理的な表現。意味の型の標準的な表現と同じなら書かない""", json_schema_extra = { "linkml_meta": {'domain_of': ['Column']} })
+    encoding: Optional[SourceEncoding] = Field(default=None, description="""ソース上の値の物理的な表現。意味の型の標準的な表現と同じなら書かない""", json_schema_extra = { "linkml_meta": {'domain_of': ['Column', 'Claim']} })
     status: ReviewStatus = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation']} })
     confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0, json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation', 'Claim', 'ReviewQuestion']} })
     evidence: Optional[list[str]] = Field(default=None, description="""主張台帳（6.6）の主張ID""", json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation', 'ReviewQuestion']} })
@@ -709,6 +717,7 @@ class Claim(ConfiguredBaseModel):
     family: Optional[TypeFamily] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     position: Optional[int] = Field(default=None, description="""列の、表の中の位置（1 から）""", ge=1, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     object_kind: Optional[ObjectKind] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
+    encoding: Optional[SourceEncoding] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Column', 'Claim']} })
     source: ClaimSource = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Claim', 'SourceRef']} })
     extracted_by: str = Field(default=..., description="""抽出器の名前と版""", json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     valid_at: Optional[date] = Field(default=None, description="""出所の日付（文書の日付など）。鮮度の根拠""", json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })

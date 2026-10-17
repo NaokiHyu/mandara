@@ -307,6 +307,8 @@ def claims(
         payload["position"] = draw(st.integers(min_value=1, max_value=1000))
     if "object_kind" in shape.fields:
         payload["object_kind"] = draw(st.sampled_from(tuple(ObjectKind)))
+    if "encoding" in shape.fields:
+        payload["encoding"] = draw(st.sampled_from(tuple(SourceEncoding)))
     return new_claim(
         subject=subject,
         predicate=predicate,

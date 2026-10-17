@@ -19,9 +19,11 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
-from mandara.codecs.registry import DECODERS, CodecError
+from mandara.codecs.detect import Detection, detect
+from mandara.codecs.registry import BY_ENCODING, CodecError
 from mandara.evaluation.score import Report, score
 from mandara.extractors import catalog as catalog_extractor
+from mandara.extractors import values as values_extractor
 from mandara.llm.decision import BudgetedDecisionModel, DecisionModel, DecisionResponse
 from mandara.llm.model import (
     Budget,
@@ -95,10 +97,23 @@ class Workspace:
 
 
 @dataclass(frozen=True)
+class Examined:
+    """値を読んで物理的な表現を判別した列。"""
+
+    table: str
+    column: str
+    detection: Detection
+    truncated: bool
+    """見本の上限で打ち切った（表にはまだ行がある）。"""
+
+
+@dataclass(frozen=True)
 class Extracted:
     claims: tuple[Claim, ...]
     tables: int
     scope: Scope
+    examined: tuple[Examined, ...]
+    not_examined: tuple[values_extractor.NotExamined, ...]
 
 
 @dataclass(frozen=True)
@@ -109,12 +124,21 @@ class Proposed:
     含まない（モデラーはどちらも読まない）ので、提案の入力の指紋として足りる。"""
 
 
-def extract(workspace: Workspace, reader: CatalogReader, scope: Scope) -> Extracted:
-    """カタログを読み、主張台帳を範囲とともに作り直す。"""
+def extract(workspace: Workspace, reader: CatalogReader, scope: Scope, values: ColumnReader) -> Extracted:
+    """カタログを読み、バイト列の列の値の見本から物理的な表現を判別し、主張台帳を範囲とともに作り直す。"""
     catalog = reader.read(scope)
     claims = catalog_extractor.extract(workspace.source, catalog)
+    targets, not_examined = values_extractor.targets(catalog)
+    examined: list[Examined] = []
+    for target in targets:
+        sample = values.read_column(target.table.schema, target.table.name, values_extractor.key_columns(target),
+                                    target.column.name, values_extractor.SAMPLE_LIMIT)
+        detection = detect([row.value for row in sample.rows])
+        examined.append(Examined(target.table.qualified_name, target.column.name, detection, sample.truncated))
+        if (claim := values_extractor.encoding_claim(workspace.source, target, detection)) is not None:
+            claims.append(claim)
     write_claim_ledger(workspace.claims, workspace.source, catalog.scope.schemas, claims)
-    return Extracted(tuple(claims), len(catalog.tables), catalog.scope)
+    return Extracted(tuple(claims), len(catalog.tables), catalog.scope, tuple(examined), tuple(not_examined))
 
 
 def propose(workspace: Workspace) -> Proposed:
@@ -175,8 +199,8 @@ def read_points(ontology: Ontology, table_id: str, column: str, reader: ColumnRe
         raise PointsError(f"{table.name}.{column} の物理的な表現（encoding）が分からないので、点に変換できない")
     if ENCODING_TARGETS.get(found.encoding) != ValueType("geo.point").value:
         raise PointsError(f"encoding {found.encoding} は geo.point に変換しない（変換先 {ENCODING_TARGETS.get(found.encoding)}）")
-    decode = DECODERS.get(found.encoding)
-    if decode is None:
+    codec = BY_ENCODING.get(found.encoding)
+    if codec is None:
         raise PointsError(f"encoding {found.encoding} のコーデックが無い")
     if table.identity is None:
         raise PointsError(f"{table.name} に主キーが無いので、行を特定できない")
@@ -194,7 +218,7 @@ def read_points(ontology: Ontology, table_id: str, column: str, reader: ColumnRe
             nulls += 1
             continue
         try:
-            point = decode(row.value)
+            point = codec.decode(row.value)
         except CodecError as e:
             failed.append((key, str(e)))
             continue
@@ -406,7 +430,7 @@ def _ask_table(table: Table, table_claims: Sequence[Claim], ontology: Ontology,
             notes += [llm_modeler.Dropped(f"column {c}", f"命名を得られなかった: {detail}") for c in new_columns]
         if named is not None:
             notes += named.dropped
-            props = classify.properties(table_claims, named, f"properties {table.name}")
+            props = classify.properties(table, table_claims, named, f"properties {table.name}")
             props_response = None
             if props.request is not None:
                 try:
@@ -626,8 +650,8 @@ class Inference:
         return self.model.budget
 
 
-def run(workspace: Workspace, reader: CatalogReader, scope: Scope, gold: Path | None, clock: Clock,
-        inference: Inference | None = None) -> RunResult:
+def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, scope: Scope, gold: Path | None,
+        clock: Clock, inference: Inference | None = None) -> RunResult:
     """抽出 → 提案 → （LLM があれば）推論 → （正解があれば）評価を通しで行い、実行の記録を書く。失敗も記録してから伝える。"""
     started = _utc(clock())
     log = _RunLog(workspace.runs / f"{started.strftime('%Y%m%dT%H%M%S%fZ')}.json", clock, {
@@ -635,13 +659,17 @@ def run(workspace: Workspace, reader: CatalogReader, scope: Scope, gold: Path | 
         "started_at": started.isoformat(),
         "source": workspace.source,
         "requested_scope": list(scope.schemas),
-        "versions": {"extractor": catalog_extractor.EXTRACTOR, "modeler": modeler.MODELER},
+        "versions": {"extractor": catalog_extractor.EXTRACTOR, "values_extractor": values_extractor.EXTRACTOR,
+                     "modeler": modeler.MODELER},
         "completed": [],
     })
     with log.stage("extract"):
-        extracted = extract(workspace, reader, scope)
+        extracted = extract(workspace, reader, scope, values)
         log.update(scope=list(extracted.scope.schemas), tables=extracted.tables,
-                   claims=dict(sorted(Counter(c.predicate for c in extracted.claims).items())))
+                   claims=dict(sorted(Counter(c.predicate for c in extracted.claims).items())),
+                   encodings={"examined": [_examined_record(e) for e in extracted.examined],
+                              "not_examined": [{"table": n.table, "column": n.column, "reason": n.reason}
+                                               for n in extracted.not_examined]})
     with log.stage("propose"):
         proposed = propose(workspace)
         log.update(ledger_hash=proposed.ledger_hash, proposal=_proposal_counts(proposed.proposal.ontology),
@@ -680,6 +708,13 @@ def run(workspace: Workspace, reader: CatalogReader, scope: Scope, gold: Path | 
                 a.aspect: {"correct": a.correct, "gold": a.gold, "proposed": a.proposed} for a in report.aspects})
     log.update(status="succeeded", finished_at=_utc(clock()).isoformat())
     return RunResult(extracted, proposed, refined, report, log.path)
+
+
+def _examined_record(e: Examined) -> dict[str, object]:
+    d = e.detection
+    return {"table": e.table, "column": e.column, "values": d.values, "nulls": d.nulls, "truncated": e.truncated,
+            "encoding": d.encoding, "reason": d.reason,
+            "tallies": [{"encoding": t.encoding, "matched": t.matched, "decoded": t.decoded} for t in d.tallies]}
 
 
 class _RunLog:

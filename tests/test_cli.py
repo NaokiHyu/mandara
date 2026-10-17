@@ -45,7 +45,11 @@ def test_run_writes_everything_and_is_deterministic(tmp_path: Path) -> None:
     [record] = list((ws / "runs").iterdir())
     data = json.loads(record.read_text())
     assert data["status"] == "succeeded" and data["completed"] == ["extract", "propose", "evaluate"]
-    assert data["versions"] == {"extractor": "catalog 0.1", "modeler": "modeler-rules 0.1"}
+    assert data["versions"] == {"extractor": "catalog 0.1", "values_extractor": "values 0.1",
+                                "modeler": "modeler-rules 0.1"}
+    decided = {(e["table"], e["column"]): e["encoding"] for e in data["encodings"]["examined"] if e["encoding"]}
+    assert decided == {("person.address", "spatiallocation"): "sqlserver_geography"}
+    assert "person.address.spatiallocation → sqlserver_geography" in out
     assert data["gold"]["tables"] == 14 and len(data["gold"]["hash"]) == 16
     assert data["proposal"]["relations"] == 90 and data["skipped"] == []
     assert data["evaluation"]["relation_endpoints"] == {"correct": 15, "gold": 17, "proposed": 15}

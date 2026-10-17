@@ -17,7 +17,7 @@ from mandara.om.invariants import check
 from mandara.om.model import Claim, ClaimPredicate, Column, ReviewStatus
 from mandara.om.names import qualify, split_qualified
 from mandara.om.ontology import Ontology
-from mandara.om.value_types import COMPATIBLE
+from mandara.om.value_types import assignable
 
 PROPAGATOR = "modeler-meaning 0.1"
 
@@ -123,7 +123,7 @@ class PropagationError(Exception):
 def propagate(ontology: Ontology, groups: MeaningGroups, families: Mapping[Member, str]) -> Propagated:
     """組の意味型を、意味型がまだ無い組の列に付ける。冪等。families は列の SQL の型族（column_families）。
 
-    付けないもの（理由を残す）：人が判断済みの列、型族と値の型が両立しない列、単位の要る意味型（単位を決められない）、
+    付けないもの（理由を残す）：人が判断済みの列、型族・encoding と値の型が両立しない列、単位の要る意味型（単位を決められない）、
     組の意味型が人の判断や確信度の無い列から来ているもの（人の判断からの伝播は未対応。T6.1 で決める）。
     """
     semantic_types = ontology.vocabulary.semantic_types or {}
@@ -148,8 +148,12 @@ def propagate(ontology: Ontology, groups: MeaningGroups, families: Mapping[Membe
                                                           "（人の判断からの伝播は未対応）"))
                 continue
             family = families.get(member)
-            if family is None or semantic_type.type not in COMPATIBLE[family]:
-                not_filled.append(NotFilled(member, name, f"列の型族 {family} に、値の型 {semantic_type.type} は当てられない"))
+            if family is None:
+                not_filled.append(NotFilled(member, name, "型の主張が無い"))
+                continue
+            if semantic_type.type not in assignable(family, column.encoding):
+                not_filled.append(NotFilled(member, name, f"列（型族 {family}、encoding {column.encoding}）に、"
+                                                          f"値の型 {semantic_type.type} は当てられない"))
                 continue
             if semantic_type.requires_unit:
                 not_filled.append(NotFilled(member, name, "単位の要る意味型は、単位を決められないので伝播しない"))
