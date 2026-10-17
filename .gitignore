@@ -10,3 +10,4 @@ ui/dist/
 .env.*
 !.env.example
 *.tsbuildinfo
+work-backup/

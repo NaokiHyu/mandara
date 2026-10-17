@@ -89,7 +89,8 @@ button.link { border: none; background: none; padding: 0; color: var(--text-stro
 .map-pane { display: flex; flex-direction: column; gap: var(--gap); height: 100%; }
 .map-pane select { align-self: flex-start; }
 .map-frame { position: relative; flex: 1; min-height: 400px; border: 1px solid var(--line); }
-.map { position: absolute; inset: 0; }
+/* MapLibre の CSS（後から読む）は .maplibregl-map に position: relative を置くので、詳細度を上げて枠いっぱいに保つ */
+.map-frame > .map { position: absolute; inset: 0; }
 .map-status {
   position: absolute; left: var(--gap); bottom: var(--gap); padding: 2px var(--gap);
   background: var(--panel); border: 1px solid var(--line); font-size: var(--size-small);

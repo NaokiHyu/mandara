@@ -21,7 +21,7 @@ const CASES = [
   { name: "list", query: "?ontology=gold:adventureworks&view=list",
     expect: "document.querySelectorAll('.contexts .table').length === 14" },
   { name: "map", query: "?ontology=gold:adventureworks&table=tbl_person_address&view=map",
-    expect: "document.querySelector('.map canvas') !== null && /person\\.address\\.spatiallocation · 19,614 points/.test(document.querySelector('.map-status')?.textContent ?? '')" },
+    expect: "document.querySelector('.map canvas') !== null && document.querySelector('.map').getBoundingClientRect().height > 100 && /person\\.address\\.spatiallocation · 19,614 points/.test(document.querySelector('.map-status')?.textContent ?? '')" },
   { name: "unknown view", query: "?ontology=gold:adventureworks&view=nope",
     expect: "/表示 nope は無い/.test(document.body.textContent ?? '') && document.querySelector('.graph canvas') !== null" },
   // レビュー（使い捨ての作業領域。scripts/check.sh が --reviewer smoke で立てる）：答えると書かれ、問いが1つ減る
