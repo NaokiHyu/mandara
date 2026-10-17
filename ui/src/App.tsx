@@ -3,6 +3,7 @@ import { ApiError, getOntology, listOntologies } from "./api";
 import type { OntologyDocument, OntologyListing, Table } from "./om/model";
 import { geoColumns, type GeoColumn } from "./geo";
 import { GraphView } from "./GraphView";
+import type { Place, Within } from "./domain";
 import { contextColor } from "./graph";
 import { shortName, toGraph } from "./graph";
 import { DomainView } from "./DomainView";
@@ -22,25 +23,36 @@ const VIEWS: readonly View[] = ["graph", "list", "map", "review", "domain"];
 /** URL（?ontology=…&table=…&view=…&key=…）で、どの OM のどの表をどう見ているかを表す。開き直しても、共有しても同じものが見える。
  *  view が無ければ graph。知らない view は、黙って置き換えずに伝える（unknownView）。key はドメインビューワのインスタンス（主キーの値）。 */
 function readUrl(): { ontology: string | null; table: string | null; view: View; unknownView: string | null;
-                      key: string[] | null } {
+                      key: string[] | null; within: Within | undefined; partialWithin: boolean } {
   const params = new URLSearchParams(location.search);
   const raw = params.get("view");
   const view = raw === null ? "graph" : VIEWS.find((v) => v === raw);
+  const withinParts = ["within_table", "within_key", "within_relation"].map((k) => params.has(k));
   return {
     ontology: params.get("ontology"),
     table: params.get("table"),
     view: view ?? "graph",
     unknownView: view === undefined ? raw : null,
     key: params.has("key") ? params.getAll("key") : null,
+    within: withinParts.every(Boolean)
+      ? { table: params.get("within_table") ?? "", key: params.getAll("within_key"),
+          relation: params.get("within_relation") ?? "" } : undefined,
+    partialWithin: withinParts.some(Boolean) && !withinParts.every(Boolean),
   };
 }
 
-function writeUrl(ontology: string | null, table: string | null, view: View, key: readonly string[] | null): void {
+function writeUrl(ontology: string | null, table: string | null, view: View, key: readonly string[] | null,
+                  within: Within | undefined): void {
   const params = new URLSearchParams();
   if (ontology !== null) params.set("ontology", ontology);
   if (table !== null) params.set("table", table);
   if (view !== "graph") params.set("view", view);
   if (view === "domain" && key !== null) for (const k of key) params.append("key", k);
+  if (view === "domain" && key === null && within !== undefined) {
+    params.set("within_table", within.table);
+    for (const k of within.key) params.append("within_key", k);
+    params.set("within_relation", within.relation);
+  }
   const search = params.toString();
   history.replaceState(null, "", search === "" ? location.pathname : `?${search}`);
 }
@@ -53,13 +65,16 @@ export function App() {
   const [unknownView] = useState(() => readUrl().unknownView);
   const [table, setTable] = useState<string | null>(() => readUrl().table);
   const [instanceKey, setInstanceKey] = useState<string[] | null>(() => readUrl().key);
+  const [within, setWithin] = useState<Within | undefined>(() => readUrl().within);
+  const [partialWithin] = useState(() => readUrl().partialWithin);
   const select = useCallback((id: string | null) => setTable(id), []);
   const openTable = useCallback((id: string) => { setTable(id); setView("graph"); }, []);
 
-  useEffect(() => writeUrl(selected, table, view, instanceKey), [selected, table, view, instanceKey]);
-  const place = useCallback((p: { table: string; key: readonly string[] | null } | null) => {
+  useEffect(() => writeUrl(selected, table, view, instanceKey, within), [selected, table, view, instanceKey, within]);
+  const place = useCallback((p: Place | null) => {
     setTable(p?.table ?? null);
     setInstanceKey(p?.key === null || p === null ? null : [...p.key]);
+    setWithin(p?.within);
   }, []);
 
   useEffect(() => {
@@ -108,6 +123,9 @@ export function App() {
         </nav>
       </header>
       <main className="body">
+        {partialWithin && (
+          <p className="failure">URL の within_table・within_key・within_relation がそろっていないので、絞らずに開いた</p>
+        )}
         {unknownView !== null && (
           <p className="failure">表示 {unknownView} は無い（{VIEWS.join(" / ")} のどれか）。graph で開いた</p>
         )}
@@ -124,7 +142,8 @@ export function App() {
         {doc?.state === "ok" && (
           view === "domain" ? (
             <DomainView ontologyId={requireSelected(selected)}
-                        place={table === null ? null : { table, key: instanceKey }} onPlace={place} />
+                        place={table === null ? null : { table, key: instanceKey, ...(within ? { within } : {}) }}
+                        onPlace={place} />
           ) : (
             <Workspace ontologyId={requireSelected(selected)} doc={doc.value} view={view} table={table} onSelect={select}
                        onChanged={refresh} onOpenTable={openTable} />

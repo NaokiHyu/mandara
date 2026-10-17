@@ -1,12 +1,15 @@
 // 近隣の集まり（1:n の子、relation を挟んだ n:m）。見せ方（GroupView）は API が OM と件数から決めたものに従う：
 // 一覧 / 集計の頭出し / 時系列の線グラフ / 期間の帯。どの見せ方でも、件数・集計・最新の日・行への入り口を出す。
-import { relatedTitle } from "./domain";
+import { groupKey, relatedTitle } from "./domain";
 import { useEffect, useRef, useState } from "react";
 import { amountText, bucketLabel, measureText, partialBucket, periodBars, seriesLine, ticks, trend } from "./groupview";
-import { GroupView, type DomainSummary, type InstanceSummary, type RelatedGroup } from "./om/model";
+import { GroupView, type DomainSummary, type GroupProfile, type InstanceSummary, type RelatedGroup } from "./om/model";
 import { DomainIcon, Label } from "./parts";
 
 const count = new Intl.NumberFormat("en-US");
+
+/** 集合の見せ方と集計（契約の GroupProfile。近隣の集まり RelatedGroup と、ドメインの集合 DomainRows が持つ）と、その行。 */
+export type Profiled = GroupProfile & Pick<RelatedGroup, "rows" | "truncated">;
 
 export function GroupPanel({ group: g, target, color, onOpen, onList }: {
   group: RelatedGroup;
@@ -24,9 +27,14 @@ export function GroupPanel({ group: g, target, color, onOpen, onList }: {
         <span className="dim"> {title.detail}</span>
         <span className="count-badge">{count.format(g.count)}</span>
         {g.missing > 0 && <span className="failure small"> 先の行が無い {g.missing}</span>}
-        {target !== undefined && <button className="link small" onClick={onList}>一覧 →</button>}
+        {target !== undefined && (
+          <button className="link small" onClick={onList}
+                  title={g.kind === "children" ? "このインスタンスにつながる行だけの集合を開く" : "ドメイン全体の集合を開く（n:m の絞り込みは未対応）"}>
+            {g.kind === "children" ? "この集合 →" : "一覧 →"}
+          </button>
+        )}
       </h2>
-      {g.view === GroupView.time_series && <Series group={g} color={color} />}
+      {g.view === GroupView.time_series && <Series group={g} color={color} chartId={groupKey(g)} />}
       {g.view !== GroupView.list && <Totals group={g} />}
       {g.view === GroupView.timeline && <Timeline group={g} color={color} onOpen={onOpen} />}
       {g.view !== GroupView.timeline && <Rows group={g} onOpen={onOpen} />}
@@ -35,7 +43,7 @@ export function GroupPanel({ group: g, target, color, onOpen, onList }: {
 }
 
 /** 集計の頭出し：尺度の集計、最新の日（今日でなければ基準日を明示）、enum の内訳、集計しなかった尺度。 */
-function Totals({ group: g }: { group: RelatedGroup }) {
+export function Totals({ group: g }: { group: Profiled }) {
   return (
     <div className="totals">
       {(g.measures ?? []).length > 0 && (
@@ -77,7 +85,7 @@ function Totals({ group: g }: { group: RelatedGroup }) {
 
 /** 時系列：件数の面グラフ（カテゴリの色のグラデーション）、合計できる尺度の1つ目を点線で別の目盛りに重ねる。
  *  幅は枠に合わせて描き直す（伸び縮みで線が歪まない）。ホバーで十字線とその区切りの値。最新の区切りを強調し、前の区切りとの増減を出す。 */
-function Series({ group: g, color }: { group: RelatedGroup; color: string }) {
+export function Series({ group: g, color, chartId }: { group: Profiled; color: string; chartId: string }) {
   const points = g.series ?? [];
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -104,7 +112,7 @@ function Series({ group: g, color }: { group: RelatedGroup; color: string }) {
   const headline = (g.measures ?? []).find((m) => m.op === "sum" && m.column === measure);
   const measureUnit = (g.measures ?? []).find((m) => m.column === measure)?.unit_text;
   const partial = t !== null && partialBucket(t.last.start, g.series_unit, g.latest?.day);
-  const gradient = `grad-${g.relation}-${g.via_table ?? ""}`.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const gradient = `grad-${chartId}`.replace(/[^a-zA-Z0-9_-]/g, "_");
   const step = points.length > 1 ? chart.width / (points.length - 1) : chart.width;
   const at = (clientX: number, el: SVGSVGElement) => {
     const x = clientX - el.getBoundingClientRect().left - pad.left;
@@ -204,12 +212,15 @@ function unitName(unit: string | undefined): string {
 }
 
 /** 期間の帯。終わりが無い（NULL）期間は右端まで伸ばし、今も有効として印を付ける。 */
-function Timeline({ group: g, color, onOpen }: { group: RelatedGroup; color: string; onOpen: (r: InstanceSummary) => void }) {
+export function Timeline({ group: g, color, onOpen, note }: {
+  group: Profiled; color: string; onOpen: (r: InstanceSummary) => void; note?: string;
+}) {
   if (g.period_from === undefined || g.period_to === undefined) return null;
   const cells = (r: InstanceSummary) => [...(r.link_cells ?? []), ...r.cells];
   const { bars, unreadable, first, last } = periodBars(g.rows, g.period_from, g.period_to, cells);
   return (
     <div className="timeline">
+      {note !== undefined && <p className="dim small">{note}</p>}
       <div className="timeline-scale dim small"><span>{first}</span><span>{last}</span></div>
       <ul>
         {bars.map((b, i) => (

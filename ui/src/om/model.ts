@@ -721,17 +721,34 @@ export interface HiddenTable {
 
 
 /**
- * ドメインの検索結果（集合のビュー。表のイメージ）。query が無ければ先頭から。プロセス境界（HTTP API → UI）で受け渡す形
+ * ドメインの集合のビュー（表のイメージ）。within があれば、そのインスタンスにつながる行だけの部分集合（八百屋 X の野菜）。 集合の見せ方と集計（GroupProfile。インスタンスの近隣の集まりと同じ規則・同じ形）は集合全体について、rows は検索（query）で 絞った先頭・新しいものから。プロセス境界（HTTP API → UI）で受け渡す形
  */
-export interface DomainRows {
+export interface DomainRows extends GroupProfile {
     table: string,
     name: string,
+    within?: Within,
     query?: string,
     /** 一覧に出す列（技術列を除く。cells の列はこの中から） */
     columns: string[],
     rows: InstanceSummary[],
     limit: number,
     truncated: boolean,
+}
+
+
+/**
+ * 集合を絞るインスタンス（親）と、子の表からその親への関係（1:n の子の集まり）
+ */
+export interface Within {
+    /** 親のドメイン（表の安定 ID） */
+    table: string,
+    key: string[],
+    /** 子の表から親への関係の安定 ID */
+    relation: string,
+    /** 親のインスタンスの見出し */
+    label: string,
+    /** 親の表の名前 */
+    name: string,
 }
 
 
@@ -803,30 +820,12 @@ export interface InstanceLink {
 }
 
 
-
-export interface RelatedGroup {
-    kind: string,
-    /** たどった関係の安定 ID（via なら、relation の表から先への関係） */
-    relation: string,
-    relation_type: string,
-    /** 集まりの行のドメイン */
-    table: string,
-    name: string,
-    /** 参照に使う列。children なら集まりの表の列（このインスタンスを指す列）、via なら relation の表の列（先を指す列） */
-    columns: string[],
-    /** 挟んだ relation の表（via のとき） */
-    via_table?: string,
-    /** relation の表から、このインスタンスへの関係の安定 ID（via のとき）。relation の表が同じ表へ2本の参照を持つと （部品表の組立品と部品）、どちら側から見た集まりかを区別する */
-    via_relation?: string,
-    /** relation の表の、このインスタンスを指す列（via のとき） */
-    via_columns?: string[],
-    via_name?: string,
-    rows: InstanceSummary[],
-    truncated: boolean,
-    /** relation の表の行が指す先の行が無かった数（via のとき。壊れた参照） */
-    missing: number,
+/**
+ * 集まり・集合の見せ方と集計（browse.group_view と _profile）。インスタンスの近隣の集まり（RelatedGroup）と、 ドメインの集合（DomainRows）が同じ形で持つ（部分集合も全体も同じ規則で見せる）
+ */
+export interface GroupProfile {
     view: string,
-    /** 集まりの行の数（via なら relation の表の行の数）。rows は先頭・新しいものからの一部 */
+    /** 集まり・集合の行の数（via なら relation の表の行の数。集合なら検索で絞る前）。rows は先頭・新しいものからの一部 */
     count: number,
     /** 出来事の時刻の列（role event_time。via なら relation の表の列）。rows はこの列の新しい順 */
     time_column?: string,
@@ -849,6 +848,31 @@ export interface RelatedGroup {
     series?: SeriesPoint[],
     /** 最新の日（time_column の値の日付で最も新しい日）のまとめ。データが今日まで届いていれば今日（is_today）。 届いていなければ最新の日を基準日として明示する */
     latest?: LatestDay,
+}
+
+
+
+export interface RelatedGroup extends GroupProfile {
+    kind: string,
+    /** たどった関係の安定 ID（via なら、relation の表から先への関係） */
+    relation: string,
+    relation_type: string,
+    /** 集まりの行のドメイン */
+    table: string,
+    name: string,
+    /** 参照に使う列。children なら集まりの表の列（このインスタンスを指す列）、via なら relation の表の列（先を指す列） */
+    columns: string[],
+    /** 挟んだ relation の表（via のとき） */
+    via_table?: string,
+    /** relation の表から、このインスタンスへの関係の安定 ID（via のとき）。relation の表が同じ表へ2本の参照を持つと （部品表の組立品と部品）、どちら側から見た集まりかを区別する */
+    via_relation?: string,
+    /** relation の表の、このインスタンスを指す列（via のとき） */
+    via_columns?: string[],
+    via_name?: string,
+    rows: InstanceSummary[],
+    truncated: boolean,
+    /** relation の表の行が指す先の行が無かった数（via のとき。壊れた参照） */
+    missing: number,
 }
 
 

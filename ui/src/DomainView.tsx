@@ -2,16 +2,17 @@
 // relation の表は出さずにリンクとしてたどる。値はソースをその場で読む（ゼロコピー）。読めなかったら理由をそのまま見せる。
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, getDomainRows, getDomains, getInstance } from "./api";
-import { emphasized, extendTrail, groupKey, linkTitle, type Place, samePlace } from "./domain";
-import { GroupPanel } from "./GroupPanel";
+import { emphasized, extendTrail, groupKey, linkTitle, type Place, samePlace, type Within } from "./domain";
+import { GroupPanel, Series, Timeline, Totals } from "./GroupPanel";
 import { DomainIcon, Label } from "./parts";
 import { contextColor, shortName } from "./graph";
 import { type DomainIndex, type DomainRows, type DomainSummary, type Instance, type InstanceSummary,
-         GroupView, LinkState } from "./om/model";
+         GroupView, LinkState, type RelatedGroup, RelatedKind } from "./om/model";
 
 type Load<T> = { state: "loading" } | { state: "ok"; value: T } | { state: "error"; error: unknown };
 
 const SEARCH_DELAY_MS = 250;
+const count = new Intl.NumberFormat("en-US");
 
 export function DomainView({ ontologyId, place, onPlace }: {
   ontologyId: string;
@@ -74,7 +75,8 @@ export function DomainView({ ontologyId, place, onPlace }: {
             <p className="dim">承認済みの domain / event の表がドメイン。relation の表はリンクとしてたどる</p>
           </div>
         ) : place.key === null ? (
-          <Collection key={current.table} ontologyId={ontologyId} domain={current} color={color} onOpen={go} />
+          <Collection key={`${current.table}/${JSON.stringify(place.within ?? null)}`} ontologyId={ontologyId}
+                      domain={current} within={place.within} known={byTable} color={color} onOpen={go} />
         ) : (
           <InstancePane key={`${current.table}/${place.key.join("/")}`} ontologyId={ontologyId} domain={current}
                         instanceKey={place.key} known={byTable} color={color} onOpen={go} />
@@ -134,6 +136,7 @@ function Trail({ trail, byTable, current, color, onGo }: {
           {i > 0 && <span className="dim sep">›</span>}
           <button className={`link${current !== null && samePlace(p, current) ? " on" : ""}`} onClick={() => onGo(p)}>
             <span className="dot" style={{ background: `var(${color(p.table)})` }} />
+            {p.within !== undefined && `${shortName(byTable.get(p.within.table)?.name ?? p.within.table)} #${p.within.key.join("·")} の `}
             {shortName(byTable.get(p.table)?.name ?? p.table)}{p.key === null ? "" : ` #${p.key.join("·")}`}
           </button>
         </span>
@@ -143,9 +146,11 @@ function Trail({ trail, byTable, current, color, onGo }: {
 }
 
 /** 集合（表のイメージ）：検索窓と結果。結果の行を開くとインスタンス。 */
-function Collection({ ontologyId, domain, color, onOpen }: {
+function Collection({ ontologyId, domain, within, known, color, onOpen }: {
   ontologyId: string;
   domain: DomainSummary;
+  within: Within | undefined;
+  known: Map<string, DomainSummary>;
   color: (table: string) => string;
   onOpen: (p: Place) => void;
 }) {
@@ -155,20 +160,35 @@ function Collection({ ontologyId, domain, color, onOpen }: {
     let live = true;
     const timer = setTimeout(() => {
       setRows({ state: "loading" });
-      getDomainRows(ontologyId, domain.table, query).then(
+      getDomainRows(ontologyId, domain.table, query, within).then(
         (value) => { if (live) setRows({ state: "ok", value }); },
         (error: unknown) => { if (live) setRows({ state: "error", error }); });
     }, query === "" ? 0 : SEARCH_DELAY_MS);
     return () => { live = false; clearTimeout(timer); };
-  }, [ontologyId, domain.table, query]);
+  }, [ontologyId, domain.table, query, within]);
 
   return (
     <article className="collection" aria-label="ドメイン">
       <header className="domain-head">
         <DomainIcon kind={domain.kind} color={color(domain.table)} big />
+        {rows.state === "ok" && rows.value.within !== undefined && (
+          <>
+            <button className="chip within" onClick={() => rows.state === "ok" && rows.value.within !== undefined
+              && onOpen({ table: rows.value.within.table, key: rows.value.within.key })}>
+              {known.get(rows.value.within.table) !== undefined && (
+                <DomainIcon kind={known.get(rows.value.within.table)?.kind ?? ""} color={color(rows.value.within.table)} />
+              )}
+              <span className="key">{rows.value.within.label}</span>
+            </button>
+            <span className="dim">の</span>
+          </>
+        )}
         <h1>{shortName(domain.name)}</h1>
         <span className="context-tag" style={{ color: `var(${color(domain.table)})` }}>{domain.context}</span>
         <span className="dim">{domain.name}</span>
+        {within !== undefined && (
+          <button className="link small" onClick={() => onOpen({ table: domain.table, key: null })}>すべての {shortName(domain.name)} →</button>
+        )}
       </header>
       {domain.grain !== undefined && <p className="grain dim">{domain.grain}</p>}
       <input className="search" autoFocus placeholder={domain.searchable.length > 0
@@ -176,9 +196,23 @@ function Collection({ ontologyId, domain, color, onOpen }: {
         : "検索：キー"} value={query} onChange={(e) => setQuery(e.target.value)} />
       {rows.state === "loading" && <p className="dim">searching…</p>}
       {rows.state === "error" && <ErrorText error={rows.error} />}
+      {rows.state === "ok" && rows.value.view !== GroupView.list && (
+        <div className={`group collection-profile view-${rows.value.view}`}
+             style={{ borderLeftColor: `var(${color(domain.table)})` }}>
+          {rows.value.view === GroupView.time_series && (
+            <Series group={rows.value} color={color(domain.table)} chartId={`collection-${domain.table}`} />
+          )}
+          <Totals group={rows.value} />
+          {rows.value.view === GroupView.timeline && (
+            <Timeline group={rows.value} color={color(domain.table)} onOpen={(r) => onOpen({ table: r.table, key: r.key })}
+                      note="期間の帯は、表示中の行（検索と上限で絞った行）について" />
+          )}
+        </div>
+      )}
       {rows.state === "ok" && (
         <>
-          <p className="dim small">{rows.value.rows.length}{rows.value.truncated ? "+" : ""} 件
+          <p className="dim small">全 {count.format(rows.value.count)} 件{query.trim() !== "" ? ` · 検索 ${rows.value.rows.length}${rows.value.truncated ? "+" : ""} 件` : ""}
+            {" · "}{rows.value.rows.length}{rows.value.truncated ? "+" : ""} 件を表示
             {rows.value.truncated ? `（先頭 ${rows.value.limit} 件。絞り込むと続きが見つかる）` : ""}</p>
           <table className="rows">
             <thead>
@@ -240,6 +274,10 @@ function InstancePane({ ontologyId, domain, instanceKey, known, color, onOpen }:
   const open = (s: InstanceSummary) => onOpen({ table: s.table, key: s.key });
   // 時系列のまとまりは全幅で上に（線グラフは幅があるほど読める）。ほかは右の列に
   const hero = it.related.filter((g) => g.view === GroupView.time_series);
+  // 「一覧 →」：1:n の子は、このインスタンスで絞った集合（部分集合）を開く。n:m はまだ絞れない（ドメイン全体を開く）
+  const listOf = (g: RelatedGroup): Place => g.kind === RelatedKind.children
+    ? { table: g.table, key: null, within: { table: it.table, key: it.key, relation: g.relation } }
+    : { table: g.table, key: null };
   const rest = it.related.filter((g) => g.view !== GroupView.time_series);
   return (
     <article className="instance" aria-label="インスタンス">
@@ -254,7 +292,7 @@ function InstancePane({ ontologyId, domain, instanceKey, known, color, onOpen }:
         <section className="hero neighbors" aria-label="時系列">
           {hero.map((g) => (
             <GroupPanel key={groupKey(g)} group={g} target={known.get(g.table)}
-                        color={color(g.table)} onOpen={open} onList={() => onOpen({ table: g.table, key: null })} />
+                        color={color(g.table)} onOpen={open} onList={() => onOpen(listOf(g))} />
           ))}
         </section>
       )}
@@ -302,7 +340,7 @@ function InstancePane({ ontologyId, domain, instanceKey, known, color, onOpen }:
           )}
           {rest.map((g) => (
             <GroupPanel key={groupKey(g)} group={g} target={known.get(g.table)}
-                        color={color(g.table)} onOpen={open} onList={() => onOpen({ table: g.table, key: null })} />
+                        color={color(g.table)} onOpen={open} onList={() => onOpen(listOf(g))} />
           ))}
           {it.links.length === 0 && it.related.length === 0 && <p className="dim">近隣は無い</p>}
           {it.omitted.length > 0 && (

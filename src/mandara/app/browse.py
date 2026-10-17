@@ -50,24 +50,27 @@ from mandara.om.model import (
     Table,
     TableKind,
     ValueType,
+    Within,
 )
 from mandara.om.invariants import check
 from mandara.om.names import split_qualified
 from mandara.om.ontology import SELF, Ontology
 from mandara.codecs.registry import BY_ENCODING, CodecError
 from mandara.source.records import (
+    Aggregated,
+    All,
     Contains,
     Equals,
+    Group,
     InvalidKeyError,
     NotKeyableError,
     RecordReader,
-    Aggregated,
-    Group,
     Measure,
     Op,
     Records,
     TimeBucket,
     TimeUnit,
+    Where,
     key_text,
 )
 from mandara.source.values import GeoPoint
@@ -345,37 +348,91 @@ class _Memo:
     def __init__(self, inner: RecordReader) -> None:
         self._inner = inner
         self._seen: dict[tuple[object, ...], Records] = {}
+        self._aggregated: dict[tuple[object, ...], Aggregated] = {}
 
     def find(self, schema: str, table: str, columns: Sequence[str], order_by: Sequence[str],
-             where: Contains | Equals | None, limit: int, descending: bool = False) -> Records:
-        condition = (None if where is None else ("contains", where.columns, where.text) if isinstance(where, Contains)
-                     else ("equals", tuple(sorted((k, repr(v)) for k, v in where.values.items()))))
+             where: Where | None, limit: int, descending: bool = False) -> Records:
+        condition = _condition_key(where)
         key = (schema, table, tuple(columns), tuple(order_by), condition, limit, descending)
         if key not in self._seen:
             self._seen[key] = self._inner.find(schema, table, columns, order_by, where, limit, descending)
         return self._seen[key]
 
-    def aggregate(self, schema: str, table: str, where: Equals, by: str | TimeBucket | None,
+    def aggregate(self, schema: str, table: str, where: Equals | None, by: str | TimeBucket | None,
                   measures: Sequence[Measure], limit: int, latest_first: bool = False) -> Aggregated:
-        return self._inner.aggregate(schema, table, where, by, measures, limit, latest_first)
+        key = ("aggregate", schema, table, _condition_key(where), by, tuple(measures), limit, latest_first)
+        if key not in self._aggregated:
+            self._aggregated[key] = self._inner.aggregate(schema, table, where, by, measures, limit, latest_first)
+        return self._aggregated[key]
 
 
-def search(ontology: Ontology, table_id: str, reader: RecordReader, query: str | None,
-           limit: int = SEARCH_LIMIT) -> DomainRows:
-    """ドメインの集合：query があれば検索の列とキーの部分一致、無ければ先頭から。"""
+def _condition_key(where: Where | None) -> object:
+    if where is None:
+        return None
+    if isinstance(where, All):
+        return ("all", tuple(_condition_key(p) for p in where.parts))
+    if isinstance(where, Contains):
+        return ("contains", where.columns, where.text)
+    return ("equals", tuple(sorted((k, repr(v)) for k, v in where.values.items())))
+
+
+@dataclass(frozen=True)
+class WithinParent:
+    """集合を、親のインスタンス（table の key の行）につながる行に絞る。relation は子の表から親への関係の安定 ID。"""
+
+    table: str
+    key: tuple[str, ...]
+    relation: str
+
+
+def collection(ontology: Ontology, table_id: str, reader: RecordReader, today: date, query: str | None = None,
+               within: WithinParent | None = None, limit: int = SEARCH_LIMIT) -> DomainRows:
+    """ドメインの集合（within があれば、その親のインスタンスにつながる部分集合）。見せ方・集計・行の読み方はインスタンスの
+    1:n の集まりと同じ（_subset）。rows は query（検索の列とキーの部分一致）で絞る。"""
     _require_valid(ontology)
     reader = _Memo(reader)
     table = _domain(ontology, table_id)
+    narrowed, summary = _within(ontology, table, within, reader) if within is not None else (None, None)
     r = _reading(ontology, table)
+    if summary is not None and narrowed is None:  # 親の参照される列が NULL：つながる行は無い（空の部分集合）
+        return DomainRows.model_validate(dict(
+            table=table.id, name=table.name, within=summary, query=(query or "").strip() or None,
+            columns=[*r.labels, *r.cells], rows=[], limit=limit, truncated=False,
+            view=GroupView.list, count=0))
     text = (query or "").strip()
-    columns = searchable(ontology, table)
-    where = Contains(tuple(dict.fromkeys([*r.key, *columns])), text) if text else None
-    schema, name = _schema_table(table)
-    records = reader.find(schema, name, r.columns, r.key, where, limit)
-    return DomainRows(table=table.id, name=table.name, query=text or None,
-                      columns=[*r.labels, *r.cells],
-                      rows=[_summary(ontology, r, row, reader) for row in records.rows], limit=limit,
-                      truncated=records.truncated)
+    search = Contains(tuple(dict.fromkeys([*r.key, *searchable(ontology, table)])), text) if text else None
+    sub = _subset(ontology, table, narrowed, search, reader, today, limit, whole_page=True)
+    return DomainRows.model_validate(dict(
+        table=table.id, name=table.name, within=summary, query=text or None,
+        columns=[*sub.reading.labels, *sub.reading.cells], rows=sub.rows, limit=limit, truncated=sub.truncated,
+        **sub.profile.fields))
+
+
+def _within(ontology: Ontology, table: Table, within: WithinParent,
+            reader: RecordReader) -> tuple[Equals | None, Within]:
+    """親のインスタンスの行を読み、子の表の参照の列の値（Equals）にする。関係は子の表から親の表への、列の等値の関係。
+    親の参照される列が NULL なら、つながる行は無い（Equals の代わりに None）。"""
+    parent = _domain(ontology, within.table)
+    rel = next((x for x in table.relations or [] if x.id == within.relation), None)
+    if rel is None or not rel.via or not _points_to(ontology, table, rel, parent):
+        raise NotFoundError(f"{table.name} に、{parent.name} への関係 {within.relation} が無い")
+    pr = _reading(ontology, parent)
+    if len(within.key) != len(pr.key):
+        raise BadKeyError(f"親のキーの数が主キー {pr.key} と合わない: {list(within.key)}")
+    schema, name = _schema_table(parent)
+    columns = list(dict.fromkeys([*pr.columns, *(p.to for p in rel.via)]))
+    try:
+        found = reader.find(schema, name, columns, pr.key, Equals(dict(zip(pr.key, within.key, strict=True))), 1)
+    except InvalidKeyError as e:
+        raise BadKeyError(f"{parent.name} のキー {list(within.key)} を主キーの型として読めない") from e
+    if not found.rows:
+        raise NotFoundError(f"{parent.name} に行が無い: {list(within.key)}")
+    row = found.rows[0]
+    me = _summary(ontology, pr, row, reader)
+    summary = Within(table=parent.id, key=me.key, relation=rel.id, label=me.label, name=parent.name)
+    if any(row[p.to] is None for p in rel.via):
+        return None, summary
+    return Equals({p.from_: row[p.to] for p in rel.via}), summary
 
 
 def instance(ontology: Ontology, table_id: str, key: Sequence[str], reader: RecordReader, today: date,
@@ -463,19 +520,13 @@ def _children(ontology: Ontology, table: Table, row: Mapping[str, object], reade
             if any(row[p.to] is None for p in rel.via or []):
                 continue
             where = Equals({p.from_: row[p.to] for p in rel.via or []})
-            profile = _profile(ontology, other, where, reader, today)
-            if profile.count == 0:
+            sub = _subset(ontology, other, where, None, reader, today, limit)
+            if sub.profile.count == 0:
                 continue
-            columns = [p.from_ for p in rel.via or []]
-            cr = _reading(ontology, other)
-            cr = _Reading(cr.table, cr.key, cr.labels, _with_first(profile.time_columns, cr.cells, cr.labels))
-            schema, name = _schema_table(other)
-            found = reader.find(schema, name, cr.columns, profile.order or cr.key, where,
-                                profile.row_limit(limit), profile.descending)
             groups.append(RelatedGroup.model_validate(dict(
                 kind=RelatedKind.children, relation=rel.id, relation_type=rel.type, table=other.id, name=other.name,
-                columns=columns, rows=[_summary(ontology, cr, x, reader, skip=columns) for x in found.rows],
-                truncated=found.truncated, missing=0, **profile.fields)))
+                columns=[p.from_ for p in rel.via or []], rows=sub.rows, truncated=sub.truncated, missing=0,
+                **sub.profile.fields)))
     return groups
 
 
@@ -541,6 +592,33 @@ def _through_relations(ontology: Ontology, table: Table, row: Mapping[str, objec
                     via_relation=mine.id, via_columns=[p.from_ for p in mine.via or []], rows=rows,
                     truncated=links.truncated, missing=missing, **profile.fields)))
     return groups
+
+
+@dataclass(frozen=True)
+class _Subset:
+    profile: "_Profile"
+    rows: list[InstanceSummary]
+    truncated: bool
+    reading: _Reading
+
+
+def _subset(ontology: Ontology, table: Table, narrowed: Equals | None, search: Contains | None, reader: RecordReader,
+            today: date, limit: int, whole_page: bool = False) -> _Subset:
+    """ドメインの部分集合（narrowed で絞った行。無ければすべて）の見せ方・集計と行。インスタンスの 1:n の集まりと、
+    ドメインの集合（全体・親で絞ったもの）が同じこれを使う。行は search でさらに絞る（見せ方と集計は search の前の集合）。
+    添える列から、絞った列（どの行も同じ値）を除く。並びは時刻（または期間の始まり）の新しい順、同じならキーの降順。無ければキーの順。
+    行の数：集まり（インスタンスの中）は見せ方に応じて（集計・時系列なら新しい RECENT 件）、集合の画面（whole_page）は limit 件。"""
+    profile = _profile(ontology, table, narrowed, reader, today)
+    r = _reading(ontology, table)
+    skip = list(narrowed.values) if narrowed is not None else []
+    r = _Reading(r.table, r.key, r.labels, _with_first(profile.time_columns, r.cells, [*r.labels, *skip]))
+    parts = tuple(p for p in (narrowed, search) if p is not None)
+    where = None if not parts else parts[0] if len(parts) == 1 else All(parts)
+    order = list(dict.fromkeys([*profile.order, *r.key]))  # キーまで足して全順序にする（同じ時刻の行の並びを決める）
+    schema, name = _schema_table(table)
+    records = reader.find(schema, name, r.columns, order, where, limit if whole_page else profile.row_limit(limit),
+                          profile.descending)
+    return _Subset(profile, [_summary(ontology, r, row, reader) for row in records.rows], records.truncated, r)
 
 
 def _with_first(first: Sequence[str], rest: Sequence[str], exclude: Sequence[str]) -> list[str]:
@@ -653,7 +731,7 @@ class _Profile:
 _OP: dict[MeasureOp, Op] = {MeasureOp.sum: "sum", MeasureOp.avg: "avg"}
 
 
-def _profile(ontology: Ontology, table: Table, where: Equals, reader: RecordReader, today: date) -> _Profile:
+def _profile(ontology: Ontology, table: Table, where: Equals | None, reader: RecordReader, today: date) -> _Profile:
     """集まりの件数と、見せ方に応じた集計（ソースに押し下げる）。件数で見せ方を決めてから、要る集計だけを問う。"""
     plan = measure_plan(ontology, table)
     schema, name = _schema_table(table)
@@ -707,7 +785,7 @@ def _profile(ontology: Ontology, table: Table, where: Equals, reader: RecordRead
         "measures": [_measure_value(c, MeasureOp.sum, v, units.get(c)) for c, v in zip(additive, g.values[1:], strict=True)]
         or None}
     if snapshot:  # 半加法は、最新の時点（時刻の最大の値）の行だけで合計する
-        at = Equals({**where.values, plan.time: last})
+        at = Equals({**(where.values if where is not None else {}), plan.time: last})
         [shot] = reader.aggregate(schema, name, at, None, [Measure("sum", c) for c in snapshot], 1).groups
         latest |= {"snapshot_at": display(last, None),
                    "snapshot": [_measure_value(c, MeasureOp.sum, v, units.get(c))
@@ -749,7 +827,7 @@ def _int(value: object) -> int:
     return value
 
 
-def _units(table: Table, columns: Sequence[str], schema: str, name: str, where: Equals,
+def _units(table: Table, columns: Sequence[str], schema: str, name: str, where: Equals | None,
            reader: RecordReader) -> tuple[dict[str, str], list[SkippedMeasure]]:
     """尺度の単位：固定ならそれ。単位の列なら、集まりの中で値が1つのときだけ集計する（混ざっていれば合計しない。理由を返す）。
     同じ単位の列は1回だけ問う。"""

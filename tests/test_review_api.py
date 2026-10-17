@@ -305,6 +305,20 @@ def test_domain_viewer_follows_the_contracts(prepared: Path, tmp_path: Path) -> 
     status, body = _request(client, "GET", f"{path}/{person['table']}/instance?key=999999999")
     assert status == 404 and "行が無い" in body["error"]
 
+    # 子の集まり（1:n）は、親で絞った集合として開ける。within は3つそろえる
+    group = next(g for g in it["related"] if g["kind"] == "children")
+    within = f"within_table={person['table']}&" + "&".join(f"within_key={k}" for k in key)
+    status, part = _request(client, "GET", f"{path}/{group['table']}/rows?{within}&within_relation={group['relation']}")
+    assert status == 200 and part["count"] == group["count"] and part["within"]["key"] == key
+    ROWS_VALIDATOR.validate(part)
+    status, body = _request(client, "GET", f"{path}/{group['table']}/rows?{within}")
+    assert status == 422 and "そろえて" in body["error"]
+    status, body = _request(client, "GET", f"{path}/{group['table']}/rows?within_table={person['table']}"
+                                           f"&within_key=999999999&within_relation={group['relation']}")
+    assert status == 404 and "行が無い" in body["error"]
+    status, body = _request(client, "GET", f"{path}/{group['table']}/rows?{within}&within_relation=rel_nope")
+    assert status == 404 and "関係" in body["error"]
+
     unconnected = TestClient(create_app(discover(work, {}), reviewing=reviewing))
     status, index = _request(unconnected, "GET", path)
     assert status == 200 and not index["readable"]

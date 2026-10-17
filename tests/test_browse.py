@@ -20,10 +20,11 @@ from hypothesis import strategies as st
 
 from mandara.app import browse
 from mandara.connectors.postgres.record_reader import PostgresRecordReader
-from mandara.om.model import Additivity, GroupView, LabelSource, RelatedKind, SemanticType, Table, UnitSource, ValueType
+from mandara.om.model import Additivity, GroupProfile, GroupView, LabelSource, RelatedKind, SemanticType, Table, UnitSource, ValueType
 from mandara.om.ontology import Ontology
 from mandara.omstore.yaml_store import load_ontology
-from mandara.source.records import Aggregated, Contains, Equals, Group, Measure, Op, Records, TimeBucket, TimeUnit
+from mandara.source.records import (Aggregated, All, Contains, Equals, Group, Measure, Op, Records, TimeBucket,
+                                    TimeUnit, Where)
 
 GOLD = Path(__file__).parent.parent / "evals/datasets/adventureworks/gold/ontology"
 READER = PostgresRecordReader("dbname=adventureworks")
@@ -59,13 +60,13 @@ def test_unapproved_tables_are_not_domains() -> None:
     index = browse.domain_index(GOLD_OM, "gold", {"adventureworks"})
     assert index.domains == [] and all("承認されていない" in h.reason for h in index.hidden)
     with pytest.raises(browse.BrowseError, match="ドメインではない"):
-        browse.search(GOLD_OM, GOLD_OM.tables[0].id, READER, None)
+        browse.collection(GOLD_OM, GOLD_OM.tables[0].id, READER, TODAY)
 
 
 @pytest.mark.parametrize("name", [d.name for d in browse.domain_index(OM, "gold", set()).domains])
 def test_search_rows_open_as_instances_and_neighbors_lead_back(name: str) -> None:
     table = _table(name)
-    rows = browse.search(OM, table.id, READER, None, 3)
+    rows = browse.collection(OM, table.id, READER, TODAY, None, limit=3)
     assert rows.rows, f"{name} に行が無い"
     first = rows.rows[0]
     it = browse.instance(OM, table.id, first.key, READER, TODAY)
@@ -90,10 +91,10 @@ def test_search_rows_open_as_instances_and_neighbors_lead_back(name: str) -> Non
 
 def test_search_finds_by_text_and_by_key() -> None:
     product = _table("production.product")
-    found = browse.search(OM, product.id, READER, "mountain", 50)
+    found = browse.collection(OM, product.id, READER, TODAY, "mountain", limit=50)
     assert found.rows and all("mountain" in r.label.lower() or any("mountain" in (c.value or "").lower()
                                                                      for c in r.cells) for r in found.rows)
-    by_key = browse.search(OM, product.id, READER, "707", 50)
+    by_key = browse.collection(OM, product.id, READER, TODAY, "707", limit=50)
     assert ["707"] in [r.key for r in by_key.rows]
 
 
@@ -183,14 +184,18 @@ class DictReader:
     def __init__(self, tables: Mapping[tuple[str, str], Sequence[Mapping[str, object]]]) -> None:
         self.tables = tables
 
-    def _rows(self, schema: str, table: str, where: Contains | Equals | None) -> list[Mapping[str, object]]:
+    def _rows(self, schema: str, table: str, where: Where | None) -> list[Mapping[str, object]]:
         rows = list(self.tables.get((schema, table), []))
-        if isinstance(where, Equals):
-            rows = [r for r in rows if all(str(r[c]) == str(v) for c, v in where.values.items())]
+        for part in (where.parts if isinstance(where, All) else (where,) if where is not None else ()):
+            if isinstance(part, Equals):
+                rows = [r for r in rows if all(str(r[c]) == str(v) for c, v in part.values.items())]
+            else:
+                rows = [r for r in rows if any(part.text.lower() in str(r[c]).lower() for c in part.columns
+                                               if r[c] is not None)]
         return rows
 
     def find(self, schema: str, table: str, columns: Sequence[str], order_by: Sequence[str],
-             where: Contains | Equals | None, limit: int, descending: bool = False) -> Records:
+             where: Where | None, limit: int, descending: bool = False) -> Records:
         rows = self._rows(schema, table, where)
         for c in reversed(order_by):  # PostgreSQL と同じ：値の順（降順なら逆）、NULL は最後
             present = sorted((r for r in rows if r[c] is not None), key=lambda r: cast(Decimal, r[c]), reverse=descending)
@@ -198,7 +203,7 @@ class DictReader:
         picked = tuple({c: r[c] for c in columns} for r in rows)
         return Records(picked[:limit], truncated=len(picked) > limit)
 
-    def aggregate(self, schema: str, table: str, where: Equals, by: str | TimeBucket | None,
+    def aggregate(self, schema: str, table: str, where: Equals | None, by: str | TimeBucket | None,
                   measures: Sequence[Measure], limit: int, latest_first: bool = False) -> Aggregated:
         """SQL の集計と同じ意味（NULL は数えない、行が無ければ合計は None）の素朴な実装。"""
         rows = self._rows(schema, table, where)
@@ -275,7 +280,7 @@ def test_tables_without_label_columns_borrow_the_label_of_their_is_a_parent() ->
     assert parent is not None and parent[1].id == person.id
     index = {d.table: d for d in browse.domain_index(OM, "gold", {"adventureworks"}).domains}
     assert index[employee.id].label_from == person.id and index[person.id].label_from is None
-    for row in browse.search(OM, employee.id, READER, None, 5).rows:
+    for row in browse.collection(OM, employee.id, READER, TODAY, None, limit=5).rows:
         assert row.label == browse.instance(OM, person.id, row.key, READER, TODAY).label  # 同じキーの人の見出し
         assert row.label_source == LabelSource.borrowed
 
@@ -285,7 +290,7 @@ def test_a_missing_parent_row_is_told_as_a_broken_borrow() -> None:
     employee = _table("humanresources.employee")
     row = {c: None for c in (employee.columns or {})} | {"businessentityid": 7}
     reader = DictReader({("humanresources", "employee"): [row]})
-    [found] = browse.search(OM, employee.id, reader, None, 5).rows
+    [found] = browse.collection(OM, employee.id, reader, TODAY, None, limit=5).rows
     assert (found.label, found.label_source) == ("7", LabelSource.borrowed_missing)
 
 
@@ -299,7 +304,7 @@ def test_an_ontology_that_fails_validation_is_not_browsed() -> None:
     with pytest.raises(browse.InvalidOntologyError, match="検証を通らない"):
         browse.domain_index(cyclic, "gold", {"adventureworks"})
     with pytest.raises(browse.InvalidOntologyError):
-        browse.search(cyclic, employee.id, READER, None)
+        browse.collection(cyclic, employee.id, READER, TODAY)
 
 
 def test_via_rows_carry_the_attributes_of_each_link_row() -> None:
@@ -509,3 +514,94 @@ def test_empty_groups_aggregate_alike() -> None:
         [g] = cast(DictReader, reader).aggregate("production", "transactionhistory", where, None,
                                                  [Measure("count", None), Measure("sum", "quantity")], 1).groups
         assert g.values == (0, None)
+
+
+# ---------------------------------------------------------------- 集合と、インスタンスの中の集まりは同じもの（部分集合）
+
+
+@pytest.mark.parametrize(("name", "key"), [("sales.salesorderheader", ["43659"]), ("production.product", ["707"]),
+                                           ("sales.customer", ["29825"])])
+def test_a_group_in_an_instance_is_the_collection_within_that_instance(name: str, key: list[str]) -> None:
+    """インスタンスの 1:n の集まりと、そのインスタンスで絞ったドメインの集合は、件数・見せ方・集計が同じで、
+    行はどれも親を指し、全体の集合より大きくならない（八百屋 X の野菜 ⊆ 野菜）。"""
+    parent = _table(name)
+    it = browse.instance(OM, parent.id, key, READER, TODAY)
+    groups = [g for g in it.related if g.kind == RelatedKind.children]
+    assert groups
+    for g in groups:
+        within = browse.WithinParent(parent.id, tuple(it.key), g.relation)
+        part = browse.collection(OM, g.table, READER, TODAY, within=within, limit=50)
+        fields = set(GroupProfile.model_fields)
+        assert part.model_dump(include=fields) == g.model_dump(include=fields)  # 見せ方と集計のすべての項目が同じ
+        assert part.rows[:len(g.rows)] == g.rows  # 集まりの行は、集合の先頭の行（同じ並び、同じ添える列）
+        assert part.within is not None and (part.within.label, part.within.key) == (it.label, it.key)
+        whole = browse.collection(OM, g.table, READER, TODAY, limit=1)
+        assert part.count <= whole.count
+        for row in part.rows[:3]:
+            child = browse.instance(OM, g.table, row.key, READER, TODAY)
+            assert any(l.relation == g.relation and l.target is not None and l.target.key == it.key
+                       for l in child.links)
+
+
+def test_search_narrows_rows_but_not_the_profile() -> None:
+    """検索は行だけを絞る。集合の件数と集計は検索の前の集合について。"""
+    header = _table("sales.salesorderheader")
+    detail = _table("sales.salesorderdetail")
+    rel = next(r for r in detail.relations or [] if r.target == header.id)
+    within = browse.WithinParent(header.id, ("43659",), rel.id)
+    every = browse.collection(OM, detail.id, READER, TODAY, within=within)
+    found = browse.collection(OM, detail.id, READER, TODAY, "776", within=within)
+    assert found.count == every.count == 12 and 0 < len(found.rows) < len(every.rows)
+
+
+def test_wrong_within_is_an_error() -> None:
+    header, detail, product = _table("sales.salesorderheader"), _table("sales.salesorderdetail"), _table("production.product")
+    rel = next(r for r in detail.relations or [] if r.target == header.id)
+    with pytest.raises(browse.NotFoundError, match="関係"):
+        browse.collection(OM, detail.id, READER, TODAY, within=browse.WithinParent(product.id, ("707",), rel.id))
+    with pytest.raises(browse.NotFoundError, match="行が無い"):
+        browse.collection(OM, detail.id, READER, TODAY, within=browse.WithinParent(header.id, ("1",), rel.id))
+    with pytest.raises(browse.BadKeyError):
+        browse.collection(OM, detail.id, READER, TODAY, within=browse.WithinParent(header.id, ("x",), rel.id))
+
+
+def test_null_is_not_an_equality_value_and_a_null_parent_has_no_children() -> None:
+    with pytest.raises(ValueError, match="NULL"):
+        Equals({"a": None})
+    header, detail = _table("sales.salesorderheader"), _table("sales.salesorderdetail")
+    rel = next(r for r in detail.relations or [] if r.target == header.id)
+    # 親の参照される列（salesorderid）が NULL の行：つながる子は無い（空の部分集合として明示）
+    base: dict[str, object] = {c: None for c in (header.columns or {})}
+    nulled = replace(OM, tables=tuple(
+        t.model_copy(update={"identity": t.identity.model_copy(update={"primary": ["rowguid"]})})
+        if t.id == header.id and t.identity is not None else t for t in OM.tables))
+    reader = DictReader({("sales", "salesorderheader"): [base | {"salesorderid": None, "rowguid": "g"}]})
+    part = browse.collection(nulled, detail.id, reader, TODAY,
+                             within=browse.WithinParent(header.id, ("g",), rel.id))
+    assert (part.count, part.view, part.rows) == (0, GroupView.list, [])
+
+
+def test_parent_key_count_must_match() -> None:
+    header, detail = _table("sales.salesorderheader"), _table("sales.salesorderdetail")
+    rel = next(r for r in detail.relations or [] if r.target == header.id)
+    with pytest.raises(browse.BadKeyError, match="キーの数"):
+        browse.collection(OM, detail.id, READER, TODAY, within=browse.WithinParent(header.id, ("1", "2"), rel.id))
+
+
+def test_the_memo_reads_different_conditions_separately() -> None:
+    calls: list[object] = []
+
+    class Counting(DictReader):
+        def aggregate(self, schema: str, table: str, where: Equals | None, by: str | TimeBucket | None,
+                      measures: Sequence[Measure], limit: int, latest_first: bool = False) -> Aggregated:
+            calls.append(where)
+            return super().aggregate(schema, table, where, by, measures, limit, latest_first)
+
+    memo = browse._Memo(Counting({("s", "t"): [{"a": 1}, {"a": 2}]}))  # pyright: ignore[reportPrivateUsage]
+    count = [Measure("count", None)]
+    one = memo.aggregate("s", "t", Equals({"a": 1}), None, count, 1)
+    again = memo.aggregate("s", "t", Equals({"a": 1}), None, count, 1)
+    two = memo.aggregate("s", "t", Equals({"a": 2}), None, count, 1)
+    every = memo.aggregate("s", "t", None, None, count, 1)
+    assert len(calls) == 3 and one == again and one.groups[0].values == (1,) and two.groups[0].values == (1,)
+    assert every.groups[0].values == (2,)

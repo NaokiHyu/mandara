@@ -2,14 +2,21 @@
 import { type DomainSummary, type InstanceLink, type RelatedGroup, RelatedKind } from "./om/model";
 import { shortName } from "./graph";
 
-/** 見ているもの：ドメイン（集合。key が無い）か、そのインスタンス（個）。 */
-export type Place = { table: string; key: readonly string[] | null };
+/** 集合を絞る親のインスタンス（table の key の行）と、子の表からその親への関係。 */
+export type Within = { table: string; key: readonly string[]; relation: string };
+
+/** 見ているもの：ドメイン（集合。key が無い）か、そのインスタンス（個）。集合は within で親のインスタンスにつながる部分集合にできる。 */
+export type Place = { table: string; key: readonly string[] | null; within?: Within };
 
 export const TRAIL_LIMIT = 12;
 
 export function samePlace(a: Place, b: Place): boolean {
   return a.table === b.table && (a.key ?? []).join("\u0000") === (b.key ?? []).join("\u0000") &&
-    (a.key === null) === (b.key === null);
+    (a.key === null) === (b.key === null) && withinKey(a.within) === withinKey(b.within);
+}
+
+function withinKey(w: Within | undefined): string {
+  return w === undefined ? "" : [w.table, w.relation, ...w.key].join("\u0000");
 }
 
 /** たどった道に足す。同じ場所に戻ったら、そこから先を切る（行き来で道が伸び続けない）。長さは TRAIL_LIMIT まで。 */

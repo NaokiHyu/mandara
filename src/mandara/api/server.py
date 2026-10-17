@@ -19,7 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Query, Request
@@ -239,8 +239,14 @@ def create_app(sources: list[OntologySource], readers: dict[str, ColumnReader] |
             return JSONResponse({"error": str(e)}, status_code=500)
         return JSONResponse(index.model_dump(mode="json", exclude_none=True))
 
-    def get_rows(ontology_id: str, table_id: str, q: str | None = None,
-                 limit: int = browse.SEARCH_LIMIT) -> JSONResponse:
+    def get_rows(ontology_id: str, table_id: str, q: str | None = None, limit: int = browse.SEARCH_LIMIT,
+                 within_table: str | None = None, within_key: Annotated[list[str] | None, Query()] = None,
+                 within_relation: str | None = None) -> JSONResponse:
+        given = [within_table is not None, within_key is not None, within_relation is not None]
+        if any(given) and not all(given):
+            return JSONResponse({"error": "within_table・within_key・within_relation はそろえて渡す"}, status_code=422)
+        within = (browse.WithinParent(cast(str, within_table), tuple(within_key or []), cast(str, within_relation))
+                  if all(given) else None)
         if not 1 <= limit <= browse.SEARCH_LIMIT:
             return JSONResponse({"error": f"limit は 1 以上 {browse.SEARCH_LIMIT} 以下"}, status_code=422)
         try:
@@ -248,7 +254,7 @@ def create_app(sources: list[OntologySource], readers: dict[str, ColumnReader] |
             if isinstance(found, JSONResponse):
                 return found
             ontology, reader = found
-            rows = browse.search(ontology, table_id, reader, q, limit)
+            rows = browse.collection(ontology, table_id, reader, today(), q, within, limit)
         except browse.InvalidOntologyError as e:
             return JSONResponse({"error": str(e)}, status_code=500)
         except browse.NotFoundError as e:

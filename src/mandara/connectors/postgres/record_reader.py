@@ -18,6 +18,7 @@ from psycopg import sql
 from mandara.source.catalog import SourceError
 from mandara.source.records import (
     Aggregated,
+    All,
     Contains,
     Equals,
     Group,
@@ -25,6 +26,7 @@ from mandara.source.records import (
     Measure,
     Records,
     TimeBucket,
+    Where,
 )
 
 
@@ -33,7 +35,7 @@ class PostgresRecordReader:
         self._conninfo = conninfo
 
     def find(self, schema: str, table: str, columns: Sequence[str], order_by: Sequence[str],
-             where: Contains | Equals | None, limit: int, descending: bool = False) -> Records:
+             where: Where | None, limit: int, descending: bool = False) -> Records:
         if limit < 1:
             raise ValueError(f"上限は 1 以上: {limit}")
         if not columns:
@@ -50,27 +52,28 @@ class PostgresRecordReader:
         rows = self._run(schema, table, query, params)
         return Records(tuple(dict(zip(columns, row, strict=True)) for row in rows[:limit]), truncated=len(rows) > limit)
 
-    def aggregate(self, schema: str, table: str, where: Equals, by: str | TimeBucket | None,
+    def aggregate(self, schema: str, table: str, where: Equals | None, by: str | TimeBucket | None,
                   measures: Sequence[Measure], limit: int, latest_first: bool = False) -> Aggregated:
         if limit < 1:
             raise ValueError(f"上限は 1 以上: {limit}")
         if not measures:
             raise ValueError("集計が要る")
-        condition, params = _condition(where)
         values = sql.SQL(", ").join(_measure(m) for m in measures)
         if by is None:
+            condition, params = _condition(where)
             query = sql.SQL("select null, {values} from {table}{where}").format(
                 values=values, table=sql.Identifier(schema, table), where=condition)
         else:
             if isinstance(by, TimeBucket):
                 key = sql.SQL("date_trunc({unit}, {c})::date").format(unit=_UNITS[by.unit], c=sql.Identifier(by.column))
-                not_null = sql.SQL(" and {} is not null").format(sql.Identifier(by.column))
+                condition, params = _condition(where, [sql.SQL("{} is not null").format(sql.Identifier(by.column))])
                 order = sql.SQL("1 desc" if latest_first else "1")
             else:
-                key, not_null, order = sql.Identifier(by), sql.SQL(""), sql.SQL("count(*) desc, 1")
-            query = sql.SQL("select {key}, {values} from {table}{where}{not_null} group by 1 order by {order} "
+                key, order = sql.Identifier(by), sql.SQL("count(*) desc, 1")
+                condition, params = _condition(where)
+            query = sql.SQL("select {key}, {values} from {table}{where} group by 1 order by {order} "
                             "limit {limit}").format(key=key, values=values, table=sql.Identifier(schema, table),
-                                                    where=condition, not_null=not_null, order=order,
+                                                    where=condition, order=order,
                                                     limit=sql.Literal(limit + 1))
         rows = self._run(schema, table, query, params)
         return Aggregated(tuple(Group(r[0], tuple(r[1:])) for r in rows[:limit]), truncated=len(rows) > limit)
@@ -87,21 +90,32 @@ class PostgresRecordReader:
             raise SourceError(f"PostgreSQL から {schema}.{table} の行を読めなかった: {e}", e) from e
 
 
-def _condition(where: Contains | Equals | None) -> tuple[sql.Composable, list[Any]]:
+def _condition(where: Where | None, extra: Sequence[sql.Composable] = ()) -> tuple[sql.Composable, list[Any]]:
+    """where（と、値を持たない追加の節 extra）を1つの where 句にする。節が無ければ空。"""
+    parts = () if where is None else where.parts if isinstance(where, All) else (where,)
+    clauses: list[sql.Composable] = []
+    params: list[Any] = []
+    for part in parts:
+        clause, values = _part(part)
+        clauses.append(sql.SQL("(") + clause + sql.SQL(")"))
+        params += values
+    clauses += extra
+    if not clauses:
+        return sql.SQL(""), params
+    return sql.SQL(" where ") + sql.SQL(" and ").join(clauses), params
+
+
+def _part(where: Contains | Equals) -> tuple[sql.Composable, list[Any]]:
     match where:
-        case None:
-            return sql.SQL(""), []
         case Contains(columns=columns, text=text):
             if not columns:
                 raise ValueError("部分一致を探す列が要る")
             pattern = "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
             parts = [sql.SQL("{}::text ilike %s").format(sql.Identifier(c)) for c in columns]
-            return sql.SQL(" where ") + sql.SQL(" or ").join(parts), [pattern] * len(columns)
+            return sql.SQL(" or ").join(parts), [pattern] * len(columns)
         case Equals(values=values):
-            if not values:
-                raise ValueError("一致させる列が要る")
             parts = [sql.SQL("{} = %s").format(sql.Identifier(c)) for c in values]
-            return sql.SQL(" where ") + sql.SQL(" and ").join(parts), list(values.values())
+            return sql.SQL(" and ").join(parts), list(values.values())
 
 
 _FUNCTIONS = {"count": sql.SQL("count"), "sum": sql.SQL("sum"), "avg": sql.SQL("avg"), "min": sql.SQL("min"),

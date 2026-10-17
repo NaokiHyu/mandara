@@ -317,3 +317,5 @@ button.chip { display: inline-flex; align-items: center; gap: var(--gap-small); 
 .hero { margin-top: var(--gap); }
 .hero .group > ul { columns: 2; column-gap: calc(var(--gap) * 4); }
 .count-badge { margin-right: auto; }
+.collection-profile { margin: var(--gap) 0; }
+button.chip.within { font-size: 14px; padding: 2px var(--gap); }

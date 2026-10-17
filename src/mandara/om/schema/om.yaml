@@ -918,12 +918,19 @@ classes:
   DomainRows:
     tree_root: true
     description: >-
-      ドメインの検索結果（集合のビュー。表のイメージ）。query が無ければ先頭から。プロセス境界（HTTP API → UI）で受け渡す形
+      ドメインの集合のビュー（表のイメージ）。within があれば、そのインスタンスにつながる行だけの部分集合（八百屋 X の野菜）。
+      集合の見せ方と集計（GroupProfile。インスタンスの近隣の集まりと同じ規則・同じ形）は集合全体について、rows は検索（query）で
+      絞った先頭・新しいものから。プロセス境界（HTTP API → UI）で受け渡す形
+    mixins:
+      - GroupProfile
     attributes:
       table:
         required: true
       name:
         required: true
+      within:
+        range: Within
+        inlined: true
       query:
       columns:
         description: 一覧に出す列（技術列を除く。cells の列はこの中から）
@@ -940,6 +947,25 @@ classes:
         required: true
       truncated:
         range: boolean
+        required: true
+
+  Within:
+    description: 集合を絞るインスタンス（親）と、子の表からその親への関係（1:n の子の集まり）
+    attributes:
+      table:
+        description: 親のドメイン（表の安定 ID）
+        required: true
+      key:
+        multivalued: true
+        required: true
+      relation:
+        description: 子の表から親への関係の安定 ID
+        required: true
+      label:
+        description: 親のインスタンスの見出し
+        required: true
+      name:
+        description: 親の表の名前
         required: true
 
   InstanceSummary:
@@ -1058,56 +1084,17 @@ classes:
         range: InstanceSummary
         inlined: true
 
-  RelatedGroup:
+  GroupProfile:
+    mixin: true
+    description: >-
+      集まり・集合の見せ方と集計（browse.group_view と _profile）。インスタンスの近隣の集まり（RelatedGroup）と、
+      ドメインの集合（DomainRows）が同じ形で持つ（部分集合も全体も同じ規則で見せる）
     attributes:
-      kind:
-        range: RelatedKind
-        required: true
-      relation:
-        description: たどった関係の安定 ID（via なら、relation の表から先への関係）
-        required: true
-      relation_type:
-        range: RelationType
-        required: true
-      table:
-        description: 集まりの行のドメイン
-        required: true
-      name:
-        required: true
-      columns:
-        description: >-
-          参照に使う列。children なら集まりの表の列（このインスタンスを指す列）、via なら relation の表の列（先を指す列）
-        multivalued: true
-        required: true
-      via_table:
-        description: 挟んだ relation の表（via のとき）
-      via_relation:
-        description: >-
-          relation の表から、このインスタンスへの関係の安定 ID（via のとき）。relation の表が同じ表へ2本の参照を持つと
-          （部品表の組立品と部品）、どちら側から見た集まりかを区別する
-      via_columns:
-        description: relation の表の、このインスタンスを指す列（via のとき）
-        multivalued: true
-      via_name:
-      rows:
-        range: InstanceSummary
-        multivalued: true
-        required: true
-        inlined: true
-        inlined_as_list: true
-      truncated:
-        range: boolean
-        required: true
-      missing:
-        description: relation の表の行が指す先の行が無かった数（via のとき。壊れた参照）
-        range: integer
-        required: true
-        minimum_value: 0
       view:
         range: GroupView
         required: true
       count:
-        description: 集まりの行の数（via なら relation の表の行の数）。rows は先頭・新しいものからの一部
+        description: 集まり・集合の行の数（via なら relation の表の行の数。集合なら検索で絞る前）。rows は先頭・新しいものからの一部
         range: integer
         required: true
         minimum_value: 0
@@ -1156,6 +1143,53 @@ classes:
         range: LatestDay
         inlined: true
 
+  RelatedGroup:
+    mixins:
+      - GroupProfile
+    attributes:
+      kind:
+        range: RelatedKind
+        required: true
+      relation:
+        description: たどった関係の安定 ID（via なら、relation の表から先への関係）
+        required: true
+      relation_type:
+        range: RelationType
+        required: true
+      table:
+        description: 集まりの行のドメイン
+        required: true
+      name:
+        required: true
+      columns:
+        description: >-
+          参照に使う列。children なら集まりの表の列（このインスタンスを指す列）、via なら relation の表の列（先を指す列）
+        multivalued: true
+        required: true
+      via_table:
+        description: 挟んだ relation の表（via のとき）
+      via_relation:
+        description: >-
+          relation の表から、このインスタンスへの関係の安定 ID（via のとき）。relation の表が同じ表へ2本の参照を持つと
+          （部品表の組立品と部品）、どちら側から見た集まりかを区別する
+      via_columns:
+        description: relation の表の、このインスタンスを指す列（via のとき）
+        multivalued: true
+      via_name:
+      rows:
+        range: InstanceSummary
+        multivalued: true
+        required: true
+        inlined: true
+        inlined_as_list: true
+      truncated:
+        range: boolean
+        required: true
+      missing:
+        description: relation の表の行が指す先の行が無かった数（via のとき。壊れた参照）
+        range: integer
+        required: true
+        minimum_value: 0
   MeasureValue:
     attributes:
       column:

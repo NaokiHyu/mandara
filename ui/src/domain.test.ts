@@ -45,3 +45,15 @@ describe("groupKey / relatedTitle", () => {
     expect(relatedTitle(a).detail).toBe("via billofmaterials（productassemblyid から）");
   });
 });
+
+describe("within", () => {
+  it("同じ表の集合でも、絞る親が違えば別の場所", () => {
+    const all: Place = { table: "t", key: null };
+    const mine: Place = { table: "t", key: null, within: { table: "p", key: ["1"], relation: "r" } };
+    const yours: Place = { table: "t", key: null, within: { table: "p", key: ["2"], relation: "r" } };
+    expect(samePlace(all, mine)).toBe(false);
+    expect(samePlace(mine, yours)).toBe(false);
+    expect(samePlace(mine, { ...mine })).toBe(true);
+    expect(extendTrail([all, mine], yours)).toEqual([all, mine, yours]);
+  });
+});
