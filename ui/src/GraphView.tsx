@@ -2,16 +2,10 @@
 // 線の形と色は vocabulary.ts の表（関係型ごと、網羅は型で強制）から、色の値は theme.css のトークンから読む。
 import cytoscape, { type Core, type ElementDefinition, type StylesheetJson } from "cytoscape";
 import { useEffect, useRef } from "react";
-import type { GraphEdge, GraphNode } from "./graph";
+import { CONTEXT_COLORS, contextColor, type GraphEdge, type GraphNode } from "./graph";
 import type { RelationType } from "./om/model";
 import { RELATION } from "./vocabulary";
 
-/** コンテキストの色のトークンの数。これより多いコンテキストは色が巡回する（凡例に出すので、見えない衝突にはしない）。 */
-export const CONTEXT_COLORS = 6;
-
-export function contextColor(index: number): string {
-  return `--ctx-${index % CONTEXT_COLORS}`;
-}
 
 function token(style: CSSStyleDeclaration, name: string): string {
   const value = style.getPropertyValue(name).trim();

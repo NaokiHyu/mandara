@@ -231,7 +231,10 @@ def create_app(sources: list[OntologySource], readers: dict[str, ColumnReader] |
             ontology = pipeline.read_ontology(source.root)
         except OmLoadError as e:
             return JSONResponse({"error": f"OM を読めなかった: {e}"}, status_code=500)
-        index = browse.domain_index(ontology, ontology_id, set(records))
+        try:
+            index = browse.domain_index(ontology, ontology_id, set(records))
+        except browse.InvalidOntologyError as e:
+            return JSONResponse({"error": str(e)}, status_code=500)
         return JSONResponse(index.model_dump(mode="json", exclude_none=True))
 
     def get_rows(ontology_id: str, table_id: str, q: str | None = None,
@@ -244,6 +247,8 @@ def create_app(sources: list[OntologySource], readers: dict[str, ColumnReader] |
                 return found
             ontology, reader = found
             rows = browse.search(ontology, table_id, reader, q, limit)
+        except browse.InvalidOntologyError as e:
+            return JSONResponse({"error": str(e)}, status_code=500)
         except browse.NotFoundError as e:
             return JSONResponse({"error": str(e)}, status_code=404)
         except browse.BrowseError as e:
@@ -261,6 +266,8 @@ def create_app(sources: list[OntologySource], readers: dict[str, ColumnReader] |
                 return found
             ontology, reader = found
             shown = browse.instance(ontology, table_id, key, reader)
+        except browse.InvalidOntologyError as e:
+            return JSONResponse({"error": str(e)}, status_code=500)
         except browse.NotFoundError as e:
             return JSONResponse({"error": str(e)}, status_code=404)
         except browse.BrowseError as e:

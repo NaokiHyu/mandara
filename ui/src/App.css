@@ -242,3 +242,20 @@ button.chip:hover { border-color: var(--accent); color: var(--text-strong); }
 .row-link .cells { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .omitted { font-size: var(--size-small); }
 .omitted ul { list-style: none; margin: var(--gap-small) 0 0; padding: 0; }
+
+/* ドメインのカテゴリ（コンテキスト）の色と、識別の列の強調 */
+.icon { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 1.6em; height: 1.6em;
+        border-radius: 3px; color: var(--bg); font-weight: 700; font-size: var(--size-small); line-height: 1; }
+.icon.big { width: 26px; height: 26px; font-size: 14px; align-self: center; }
+.domain-groups section { border-left: 3px solid transparent; margin-top: var(--gap); }
+.domain-groups .table { gap: var(--gap); }
+.context-tag { font-size: var(--size-small); letter-spacing: 0.08em; text-transform: uppercase; }
+.trail .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+.key, table.rows td.key, table.rows .key.label, .row-link .key.label { color: var(--text-key); }
+.domain-head h1.key { color: var(--text-key); }
+.fields tr.key th, .fields tr.key td { color: var(--text-key); font-weight: 600; }
+.fields tr.key th { box-shadow: inset 2px 0 0 var(--text-key); padding-left: var(--gap); }
+.link-cells { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+button.chip { display: inline-flex; align-items: center; gap: var(--gap-small); }
+.group { border-left-width: 3px; }
+.neighbors h2 { align-items: center; }

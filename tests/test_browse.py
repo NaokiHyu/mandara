@@ -9,13 +9,14 @@
 
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
+from datetime import date
 from pathlib import Path
 
 import pytest
 
 from mandara.app import browse
 from mandara.connectors.postgres.record_reader import PostgresRecordReader
-from mandara.om.model import RelatedKind, Table
+from mandara.om.model import LabelSource, RelatedKind, Table
 from mandara.om.ontology import Ontology
 from mandara.omstore.yaml_store import load_ontology
 from mandara.source.records import Contains, Equals, Records
@@ -25,7 +26,8 @@ READER = PostgresRecordReader("dbname=adventureworks")
 
 
 def _approved(ontology: Ontology) -> Ontology:
-    return replace(ontology, tables=tuple(t.model_copy(update={"status": "approved"}) for t in ontology.tables))
+    approved = {"status": "approved", "reviewed_by": "test", "reviewed_at": date(2026, 10, 18)}
+    return replace(ontology, tables=tuple(t.model_copy(update=approved) for t in ontology.tables))
 
 
 GOLD_OM = load_ontology(GOLD)
@@ -199,3 +201,55 @@ def test_links_tell_null_from_missing_targets() -> None:
         link = next(l for l in it.links if l.relation == store_rel.id)
         assert link.state == state and link.target is None
 
+
+
+# ---------------------------------------------------------------- 見出しの借用、つながりの属性
+
+
+def test_tables_without_label_columns_borrow_the_label_of_their_is_a_parent() -> None:
+    employee, person = _table("humanresources.employee"), _table("person.person")
+    assert browse.label_columns(OM, employee) == []
+    parent = browse.label_parent(OM, employee)
+    assert parent is not None and parent[1].id == person.id
+    index = {d.table: d for d in browse.domain_index(OM, "gold", {"adventureworks"}).domains}
+    assert index[employee.id].label_from == person.id and index[person.id].label_from is None
+    for row in browse.search(OM, employee.id, READER, None, 5).rows:
+        assert row.label == browse.instance(OM, person.id, row.key, READER).label  # 同じキーの人の見出し
+        assert row.label_source == LabelSource.borrowed
+
+
+def test_a_missing_parent_row_is_told_as_a_broken_borrow() -> None:
+    """上位（人）に同じキーの行が無い従業員は、キーを見出しにして borrowed_missing と伝える（黙って借りたことにしない）。"""
+    employee = _table("humanresources.employee")
+    row = {c: None for c in (employee.columns or {})} | {"businessentityid": 7}
+    reader = DictReader({("humanresources", "employee"): [row]})
+    [found] = browse.search(OM, employee.id, reader, None, 5).rows
+    assert (found.label, found.label_source) == ("7", LabelSource.borrowed_missing)
+
+
+def test_an_ontology_that_fails_validation_is_not_browsed() -> None:
+    """is-a の循環（検証の CYCLE）がある OM は見せない。見出しの借用が終わらなくなるため。"""
+    employee, person = _table("humanresources.employee"), _table("person.person")
+    back = next(r for r in employee.relations or [] if r.type == "is-a").model_copy(
+        update={"id": "rel_cycle", "target": employee.id})
+    cyclic = replace(OM, tables=tuple(t.model_copy(update={"relations": [*(t.relations or []), back]})
+                                      if t.id == person.id else t for t in OM.tables))
+    with pytest.raises(browse.InvalidOntologyError, match="検証を通らない"):
+        browse.domain_index(cyclic, "gold", {"adventureworks"})
+    with pytest.raises(browse.InvalidOntologyError):
+        browse.search(cyclic, employee.id, READER, None)
+
+
+def test_via_rows_carry_the_attributes_of_each_link_row() -> None:
+    """部品表（relation）を挟んだ先の製品には、部品表の行ごとの属性（期間、数量）が添う。参照の列と代理キーは添えない。"""
+    product, bom = _table("production.product"), _table("production.billofmaterials")
+    groups = [g for g in browse.instance(OM, product.id, ["3"], READER).related if g.kind == RelatedKind.via]
+    assert groups and all(g.via_table == bom.id for g in groups)
+    referencing = {p.from_ for r in bom.relations or [] for p in r.via or []}
+    for g in groups:
+        for row in g.rows:
+            columns = [c.column for c in row.link_cells or []]
+            assert "startdate" in columns and "perassemblyqty" in columns
+            assert not set(columns) & (referencing | {"billofmaterialsid"})
+    plain = browse.instance(OM, _table("person.person").id, ["1"], READER)
+    assert all(r.link_cells is None for g in plain.related if g.kind == RelatedKind.children for r in g.rows)

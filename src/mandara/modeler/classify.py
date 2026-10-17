@@ -61,10 +61,13 @@ NONE = "none"
 _KIND = {
     TableKind.domain.value: "One row is a thing that exists over time and is maintained: an entity or master data "
                             "(a product, a person, an address, a category). A view listing such things is also this.",
-    TableKind.relation.value: "One row only links two other things many-to-many (product x vendor). Its primary key "
-                              "is made of the foreign keys to the two things.",
+    TableKind.relation.value: "One row links other things many-to-many (product x vendor, employee x department). "
+                              "Its primary key is made of the foreign keys to those things, possibly with a date "
+                              "when the link started; other columns describe the link (a quantity, the period of the "
+                              "link).",
     TableKind.event.value: "One row records something that happened at a point in time and is not changed later "
-                           "(an order line, a transaction, a log entry, a history row).",
+                           "(an order line, a transaction, a log entry, a change of a single value such as a new "
+                           "pay rate).",
     UNCLEAR: "The facts do not decide it.",
 }
 _UNCLEAR = "The facts do not decide it."
@@ -243,6 +246,22 @@ def _fk_facts(fk: Claim, table_claims: Sequence[Claim], shared: bool) -> tuple[l
     return facts, evidence, data
 
 
+def _key_facts(table_claims: Sequence[Claim]) -> list[str]:
+    """表の種類の手がかり：主キーが、どの表への外部キーと、ほかのどの列でできているか。"""
+    primary = next(iter(_by(table_claims, ClaimPredicate.identified_by)), None)
+    if primary is None:
+        return ["The `table` has no declared primary key."]
+    key = list(primary.columns or [])
+    inside = [fk for fk in _by(table_claims, ClaimPredicate.references) if set(fk.columns or []) <= set(key)]
+    covered = {c for fk in inside for c in fk.columns or []}
+    rest = [c for c in key if c not in covered]
+    if not inside:
+        return ["No foreign key is a part of the primary key."]
+    parts = [f"({', '.join(fk.columns or [])}) -> {_target(fk)}" for fk in sorted(inside, key=lambda f: f.columns or [])]
+    return [f"The primary key is made of the foreign key{'s' if len(inside) > 1 else ''} {'; '.join(parts)}"
+            + (f" and the columns {', '.join(rest)}." if rest else ".")]
+
+
 def _coverage(fk: Claim, table_claims: Sequence[Claim]) -> list[Claim]:
     """外部キーと同じ参照についての、データの被覆の主張（covers_all、discriminated_by）。"""
     return [c for c in table_claims if c.predicate in (ClaimPredicate.covers_all.value,
@@ -300,7 +319,9 @@ def classify(table: Table, table_claims: Sequence[Claim], vocabulary: Mapping[st
     not_asked: list[Dropped] = []
     table_evidence = _table_evidence(table_claims)
     if table.kind is None:
-        questions["kind"] = Choice("What does one row of the `table` represent?", _KIND)
+        key_facts = _key_facts(table_claims)
+        questions["kind"] = Choice({"question": "What does one row of the `table` represent?",
+                                    **({"facts": key_facts} if key_facts else {})}, _KIND)
         evidence["kind"] = table_evidence
     fks = _by(table_claims, ClaimPredicate.references)
     for fk in fks:

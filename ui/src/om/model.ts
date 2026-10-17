@@ -198,6 +198,20 @@ export enum ClaimPredicate {
     discriminated_by = "discriminated_by",
 };
 /**
+* インスタンスの見出しの出どころ
+*/
+export enum LabelSource {
+    
+    /** その表の見出しの列 */
+    own = "own",
+    /** is-a の上位（主キーを共有する）の同じキーの行の見出し */
+    borrowed = "borrowed",
+    /** 上位から借りるはずが、上位に同じキーの行が無い（壊れた参照）。見出しはキー */
+    borrowed_missing = "borrowed_missing",
+    /** 見出しの列も借りる先も無いので、キー */
+    key = "key",
+};
+/**
 * 主張の出所の種類（6.6.2）
 */
 export enum ClaimSourceKind {
@@ -622,6 +636,8 @@ export interface TableApproval {
  */
 export interface DomainIndex {
     ontology: string,
+    /** OM のすべてのコンテキスト（名前の順。UI はこの並びでコンテキストの色を決める。グラフと同じ並び） */
+    contexts: string[],
     domains: DomainSummary[],
     hidden: HiddenTable[],
     /** 行を読めるか（ソースへの接続がある） */
@@ -637,8 +653,14 @@ export interface DomainSummary {
     context: string,
     kind: string,
     grain?: string,
-    /** 見出しに使う列（推定：name という列、無ければ名前が name で終わる文字の列を3つまで）。空ならキーが見出し */
+    /** 見出しに使う列（推定：name という列、無ければ名前が name で終わる文字の列を3つまで）。 空なら label_from の見出し、それも無ければキーが見出し */
     label_columns: string[],
+    /** 見出しの列が無いとき、見出しを借りる is-a の上位のドメイン（表の安定 ID。主キーを共有するので同じキーの行の見出し） */
+    label_from?: string,
+    /** 主キーの列 */
+    key_columns: string[],
+    /** 代替キー（自然キー）の列（どれかの代替キーに含まれる列） */
+    natural_keys: string[],
     /** 検索に使う列（文字の部分一致） */
     searchable: string[],
 }
@@ -674,9 +696,12 @@ export interface InstanceSummary {
     table: string,
     /** 主キーの値（文字列の表現、主キーの列の順） */
     key: string[],
-    /** 見出し（名前らしい列。無ければキー） */
+    /** 見出し（出どころは label_source） */
     label: string,
+    label_source: string,
     cells: Cell[],
+    /** via の集まりの行で、この行と結んだ relation の表の行の値（参照の列、技術列、代理キーを除く。期間や数量など、 つながりの属性）。代理キーは、1列で参照でない relation の表の主キー（行の番号でしかない。構造からの推定）。 via の集まりは relation の表の行ごとに1つ（同じ先が別の期間で2回出ることがある） */
+    link_cells?: Cell[],
 }
 
 

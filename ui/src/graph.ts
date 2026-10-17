@@ -97,3 +97,11 @@ export function toGraph(doc: OntologyDocument): { nodes: GraphNode[]; edges: Gra
   }
   return { nodes, edges };
 }
+
+/** コンテキストの色のトークンの数。これより多いコンテキストは色が巡回する（凡例に出すので、見えない衝突にはしない）。 */
+export const CONTEXT_COLORS = 6;
+
+/** コンテキスト（名前の順の位置）の色のトークン。グラフ、一覧、ドメインビューワで同じ割り当て。 */
+export function contextColor(index: number): string {
+  return `--ctx-${index % CONTEXT_COLORS}`;
+}

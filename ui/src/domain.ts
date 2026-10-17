@@ -1,5 +1,5 @@
 // ドメインビューワの純粋な部分：たどった道（パンくず）と、近隣の集まりの見出し。
-import { type InstanceLink, type RelatedGroup, RelatedKind } from "./om/model";
+import { type DomainSummary, type InstanceLink, type RelatedGroup, RelatedKind } from "./om/model";
 import { shortName } from "./graph";
 
 /** 見ているもの：ドメイン（集合。key が無い）か、そのインスタンス（個）。 */
@@ -30,4 +30,11 @@ export function relatedTitle(group: RelatedGroup): { mark: string; name: string;
 /** 参照先へのリンクの見出し：役割があれば役割、無ければ参照の列。 */
 export function linkTitle(link: InstanceLink): string {
   return link.role ?? link.columns.join(", ");
+}
+
+/** 識別の列（主キー、見出し、自然キー）か。高コントラストで見せる。 */
+export function emphasized(domain: Pick<DomainSummary, "key_columns" | "label_columns" | "natural_keys">,
+                           column: string): boolean {
+  return domain.key_columns.includes(column) || domain.label_columns.includes(column)
+    || domain.natural_keys.includes(column);
 }

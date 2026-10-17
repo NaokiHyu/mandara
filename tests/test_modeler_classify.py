@@ -301,3 +301,19 @@ def test_coverage_in_the_data_is_told_to_the_decision_model() -> None:
     assert "every target row" in _facts(instructions)
     assert "is-a" not in options  # すべての人にあるのは下位の型ではなく拡張
     assert "is-a" in _relation_question("person.password", "person.person")[1]  # 被覆を知らなければ出す
+
+
+def test_kind_questions_tell_what_the_primary_key_is_made_of() -> None:
+    def facts(name: str) -> str:
+        asked = c.classify(_table(name).model_copy(update={"kind": None}), _claims(name), VOCABULARY, {}, (),
+                           MAX_OPTIONS, "classify")
+        assert asked.request is not None
+        instructions = asked.request.questions["kind"].instructions
+        assert isinstance(instructions, dict)
+        return _facts(instructions)
+
+    history = facts("humanresources.employeedepartmenthistory")
+    assert "foreign keys" in history and "humanresources.department" in history and "the columns startdate" in history
+    assert "the foreign key (salesorderid) -> sales.salesorderheader and the columns salesorderdetailid" in facts(
+        "sales.salesorderdetail")
+    assert facts("production.product") == "No foreign key is a part of the primary key."

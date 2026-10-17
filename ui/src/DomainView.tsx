@@ -2,10 +2,10 @@
 // relation の表は出さずにリンクとしてたどる。値はソースをその場で読む（ゼロコピー）。読めなかったら理由をそのまま見せる。
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, getDomainRows, getDomains, getInstance } from "./api";
-import { extendTrail, linkTitle, type Place, relatedTitle, samePlace } from "./domain";
-import { shortName } from "./graph";
+import { emphasized, extendTrail, linkTitle, type Place, relatedTitle, samePlace } from "./domain";
+import { contextColor, shortName } from "./graph";
 import { type DomainIndex, type DomainRows, type DomainSummary, type Instance, type InstanceSummary,
-         LinkState } from "./om/model";
+         LabelSource, LinkState } from "./om/model";
 import { asKind, KIND } from "./vocabulary";
 
 type Load<T> = { state: "loading" } | { state: "ok"; value: T } | { state: "error"; error: unknown };
@@ -34,6 +34,14 @@ export function DomainView({ ontologyId, place, onPlace }: {
   const domains = index.value.domains;
   const byTable = new Map(domains.map((d) => [d.table, d]));
   const current = place === null ? undefined : byTable.get(place.table);
+  const colors = new Map(index.value.contexts.map((c, i) => [c, contextColor(i)]));
+  const color = (table: string) => { // ドメインのカテゴリ（コンテキスト）の色。ドメインでない表は地味な色
+    const d = byTable.get(table);
+    if (d === undefined) return "--text-dim";
+    const found = colors.get(d.context);
+    if (found === undefined) throw new Error(`ドメインのコンテキスト ${d.context} が DomainIndex.contexts に無い（契約の誤り）`);
+    return found;
+  };
 
   return (
     <div className="domains">
@@ -44,7 +52,7 @@ export function DomainView({ ontologyId, place, onPlace }: {
         </header>
         <input className="domain-filter" placeholder="ドメインを絞る…" value={filter}
                onChange={(e) => setFilter(e.target.value)} />
-        <DomainList domains={domains} filter={filter} selected={place?.table ?? null}
+        <DomainList domains={domains} filter={filter} selected={place?.table ?? null} color={color}
                     onOpen={(table) => go({ table, key: null })} />
         {index.value.hidden.length > 0 && (
           <details className="hidden-tables">
@@ -57,7 +65,7 @@ export function DomainView({ ontologyId, place, onPlace }: {
         {!index.value.readable && (
           <p className="banner warn">ソースに接続していないドメインがある（mandara serve --connect SOURCE CONNINFO）</p>
         )}
-        <Trail trail={trail} byTable={byTable} current={place} onGo={go} />
+        <Trail trail={trail} byTable={byTable} current={place} color={color} onGo={go} />
         {place === null || current === undefined ? (
           <div className="done">
             <div className="done-mark">◆</div>
@@ -65,20 +73,28 @@ export function DomainView({ ontologyId, place, onPlace }: {
             <p className="dim">承認済みの domain / event の表がドメイン。relation の表はリンクとしてたどる</p>
           </div>
         ) : place.key === null ? (
-          <Collection key={current.table} ontologyId={ontologyId} domain={current} onOpen={go} />
+          <Collection key={current.table} ontologyId={ontologyId} domain={current} color={color} onOpen={go} />
         ) : (
           <InstancePane key={`${current.table}/${place.key.join("/")}`} ontologyId={ontologyId} domain={current}
-                        instanceKey={place.key} known={byTable} onOpen={go} />
+                        instanceKey={place.key} known={byTable} color={color} onOpen={go} />
         )}
       </section>
     </div>
   );
 }
 
-function DomainList({ domains, filter, selected, onOpen }: {
+/** ドメインのアイコン：形（文字）は種類、色はカテゴリ（コンテキスト）。 */
+function DomainIcon({ kind, color, big = false }: { kind: string; color: string; big?: boolean }) {
+  const k = KIND[asKind(kind)];
+  return <span className={`icon${big ? " big" : ""}`} style={{ background: `var(${color})` }}
+               title={k.text}>{k.mark}</span>;
+}
+
+function DomainList({ domains, filter, selected, color, onOpen }: {
   domains: DomainSummary[];
   filter: string;
   selected: string | null;
+  color: (table: string) => string;
   onOpen: (table: string) => void;
 }) {
   const groups = useMemo(() => {
@@ -90,14 +106,14 @@ function DomainList({ domains, filter, selected, onOpen }: {
   return (
     <div className="domain-groups">
       {groups.map(([context, group]) => (
-        <section key={context}>
-          <h2>{context}</h2>
+        <section key={context} style={{ borderLeftColor: `var(${color(group[0]?.table ?? "")})` }}>
+          <h2 style={{ color: `var(${color(group[0]?.table ?? "")})` }}>{context}</h2>
           <ul>
             {group.map((d) => (
               <li key={d.table}>
                 <button className={`table${d.table === selected ? " selected" : ""}`} aria-pressed={d.table === selected}
                         onClick={() => onOpen(d.table)}>
-                  <span className={`kind kind-${d.kind}`} title={KIND[asKind(d.kind)].text}>{KIND[asKind(d.kind)].mark}</span>
+                  <DomainIcon kind={d.kind} color={color(d.table)} />
                   <span className="name">{shortName(d.name)}</span>
                 </button>
               </li>
@@ -109,10 +125,11 @@ function DomainList({ domains, filter, selected, onOpen }: {
   );
 }
 
-function Trail({ trail, byTable, current, onGo }: {
+function Trail({ trail, byTable, current, color, onGo }: {
   trail: Place[];
   byTable: Map<string, DomainSummary>;
   current: Place | null;
+  color: (table: string) => string;
   onGo: (p: Place) => void;
 }) {
   if (trail.length === 0) return null;
@@ -122,6 +139,7 @@ function Trail({ trail, byTable, current, onGo }: {
         <span key={`${p.table}/${(p.key ?? []).join("/")}/${i}`}>
           {i > 0 && <span className="dim sep">›</span>}
           <button className={`link${current !== null && samePlace(p, current) ? " on" : ""}`} onClick={() => onGo(p)}>
+            <span className="dot" style={{ background: `var(${color(p.table)})` }} />
             {shortName(byTable.get(p.table)?.name ?? p.table)}{p.key === null ? "" : ` #${p.key.join("·")}`}
           </button>
         </span>
@@ -131,9 +149,10 @@ function Trail({ trail, byTable, current, onGo }: {
 }
 
 /** 集合（表のイメージ）：検索窓と結果。結果の行を開くとインスタンス。 */
-function Collection({ ontologyId, domain, onOpen }: {
+function Collection({ ontologyId, domain, color, onOpen }: {
   ontologyId: string;
   domain: DomainSummary;
+  color: (table: string) => string;
   onOpen: (p: Place) => void;
 }) {
   const [query, setQuery] = useState("");
@@ -152,8 +171,9 @@ function Collection({ ontologyId, domain, onOpen }: {
   return (
     <article className="collection" aria-label="ドメイン">
       <header className="domain-head">
-        <span className={`kind kind-${domain.kind}`}>{KIND[asKind(domain.kind)].mark}</span>
+        <DomainIcon kind={domain.kind} color={color(domain.table)} big />
         <h1>{shortName(domain.name)}</h1>
+        <span className="context-tag" style={{ color: `var(${color(domain.table)})` }}>{domain.context}</span>
         <span className="dim">{domain.name}</span>
       </header>
       {domain.grain !== undefined && <p className="grain dim">{domain.grain}</p>}
@@ -175,9 +195,10 @@ function Collection({ ontologyId, domain, onOpen }: {
               {rows.value.rows.map((r) => (
                 <tr key={r.key.join("/")} onClick={() => onOpen({ table: r.table, key: r.key })} tabIndex={0}
                     onKeyDown={(e) => { if (e.key === "Enter") onOpen({ table: r.table, key: r.key }); }}>
-                  <td className="dim">{r.key.join("·")}</td>
-                  <td className="label">{r.label}</td>
-                  {r.cells.map((c) => <td key={c.column}>{c.value ?? <span className="null">—</span>}</td>)}
+                  <td className="key">{r.key.join("·")}</td>
+                  <td><Label summary={r} /></td>
+                  {r.cells.map((c) => <td key={c.column} className={emphasized(domain, c.column) ? "key" : undefined}>
+                    {c.value ?? <span className="null">—</span>}</td>)}
                 </tr>
               ))}
             </tbody>
@@ -194,16 +215,20 @@ function cellColumns(rows: DomainRows, domain: DomainSummary): string[] {
 }
 
 function labelTitle(domain: DomainSummary): string {
+  if (domain.label_columns.length === 0 && domain.label_from !== undefined) {
+    return "見出しの列が無いので、is-a の上位の見出しを借りている";
+  }
   return domain.label_columns.length === 0 ? "見出しの列が無いので、キーを見出しにしている"
     : `見出しは ${domain.label_columns.join(" + ")}（列の名前からの推定）`;
 }
 
 /** 個（行のイメージ）：値、参照先へのリンク、近隣の集まり。 */
-function InstancePane({ ontologyId, domain, instanceKey, known, onOpen }: {
+function InstancePane({ ontologyId, domain, instanceKey, known, color, onOpen }: {
   ontologyId: string;
   domain: DomainSummary;
   instanceKey: readonly string[];
   known: Map<string, DomainSummary>;
+  color: (table: string) => string;
   onOpen: (p: Place) => void;
 }) {
   const [shown, setShown] = useState<Load<Instance>>({ state: "loading" });
@@ -222,17 +247,18 @@ function InstancePane({ ontologyId, domain, instanceKey, known, onOpen }: {
   return (
     <article className="instance" aria-label="インスタンス">
       <header className="domain-head">
-        <span className={`kind kind-${domain.kind}`}>{KIND[asKind(domain.kind)].mark}</span>
-        <h1>{it.label}</h1>
-        <button className="link" onClick={() => onOpen({ table: domain.table, key: null })}>{shortName(it.name)}</button>
-        <span className="dim">#{it.key.join("·")}</span>
+        <DomainIcon kind={domain.kind} color={color(domain.table)} big />
+        <h1 className="key">{it.label}</h1>
+        <button className="link" style={{ color: `var(${color(domain.table)})` }}
+                onClick={() => onOpen({ table: domain.table, key: null })}>{shortName(it.name)}</button>
+        <span className="key">#{it.key.join("·")}</span>
       </header>
       <div className="instance-body">
         <section className="fields" aria-label="値">
           <table className="grid">
             <tbody>
               {it.fields.map((f) => (
-                <tr key={f.column}>
+                <tr key={f.column} className={emphasized(domain, f.column) ? "key" : undefined}>
                   <th>{f.column}</th>
                   <td>{f.value ?? <span className="null">—</span>}</td>
                   <td className="dim small">{f.semantic_type ?? ""}</td>
@@ -258,7 +284,10 @@ function InstancePane({ ontologyId, domain, instanceKey, known, onOpen }: {
                     )}
                     {l.state === LinkState.found && l.target !== undefined && (
                       <button className="chip" onClick={() => l.target !== undefined && open(l.target)}>
-                        {l.target.label} <span className="dim">{shortName(l.target_name)}</span>
+                        {known.get(l.target_table) !== undefined && (
+                          <DomainIcon kind={known.get(l.target_table)?.kind ?? ""} color={color(l.target_table)} />
+                        )}
+                        <Label summary={l.target} /> <span className="dim">{shortName(l.target_name)}</span>
                       </button>
                     )}
                   </li>
@@ -270,9 +299,11 @@ function InstancePane({ ontologyId, domain, instanceKey, known, onOpen }: {
             const title = relatedTitle(g);
             const target = known.get(g.table);
             return (
-              <div key={`${g.kind}/${g.via_table ?? ""}/${g.relation}`} className="group">
+              <div key={`${g.kind}/${g.via_table ?? ""}/${g.relation}`} className="group"
+                   style={{ borderLeftColor: `var(${color(g.table)})` }}>
                 <h2>
-                  <span className="mark">{title.mark}</span> {title.name}
+                  {target !== undefined && <DomainIcon kind={target.kind} color={color(g.table)} />}
+                  <span className="mark" style={{ color: `var(${color(g.table)})` }}>{title.mark}</span> {title.name}
                   <span className="dim"> {title.detail} · {g.rows.length}{g.truncated ? "+" : ""}</span>
                   {g.missing > 0 && <span className="failure small"> 先の行が無い {g.missing}</span>}
                   {target !== undefined && (
@@ -280,10 +311,15 @@ function InstancePane({ ontologyId, domain, instanceKey, known, onOpen }: {
                   )}
                 </h2>
                 <ul>
-                  {g.rows.map((r) => (
-                    <li key={r.key.join("/")}>
+                  {g.rows.map((r, i) => ( // via の集まりは relation の行ごと（同じ先が2回出ることがある）ので位置も鍵にする
+                    <li key={`${r.key.join("/")}#${i}`}>
                       <button className="row-link" onClick={() => open(r)}>
-                        <span className="label">{r.label}</span>
+                        <Label summary={r} />
+                        {r.link_cells !== undefined && r.link_cells.length > 0 && (
+                          <span className="link-cells" title="つながり（relation の行）の値。— は NULL">
+                            {r.link_cells.map((c) => `${c.column} ${c.value ?? "—"}`).join(" · ")}
+                          </span>
+                        )}
                         <span className="dim cells">
                           {r.cells.filter((c) => c.value !== undefined).slice(0, 3)
                             .map((c) => `${c.column} ${c.value ?? ""}`).join(" · ")}
@@ -307,6 +343,19 @@ function InstancePane({ ontologyId, domain, instanceKey, known, onOpen }: {
         </section>
       </div>
     </article>
+  );
+}
+
+/** インスタンスの見出し。借りた見出しは印を付け、借りる先の行が無ければ壊れた参照として見せる。 */
+function Label({ summary }: { summary: InstanceSummary }) {
+  return (
+    <span className="key label">
+      {summary.label}
+      {summary.label_source === LabelSource.borrowed && <span className="dim small" title="is-a の上位の見出しを借りた"> ↑</span>}
+      {summary.label_source === LabelSource.borrowed_missing && (
+        <span className="failure small" title="is-a の上位に同じキーの行が無い（壊れた参照）。キーを見出しにした"> 上位の行が無い</span>
+      )}
+    </span>
   );
 }
 

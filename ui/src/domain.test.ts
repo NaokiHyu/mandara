@@ -1,6 +1,6 @@
 // ドメインビューワの純粋な部分の性質：たどった道は同じ場所に戻ると切れ、長さは上限まで。
 import { describe, expect, it } from "vitest";
-import { extendTrail, type Place, samePlace, TRAIL_LIMIT } from "./domain";
+import { emphasized, extendTrail, type Place, samePlace, TRAIL_LIMIT } from "./domain";
 
 const p = (table: string, key: string[] | null = null): Place => ({ table, key });
 
@@ -20,5 +20,16 @@ describe("たどった道", () => {
     for (let i = 0; i < TRAIL_LIMIT + 5; i++) trail = extendTrail(trail, p("t", [String(i)]));
     expect(trail).toHaveLength(TRAIL_LIMIT);
     expect(trail.at(-1)).toEqual(p("t", [String(TRAIL_LIMIT + 4)]));
+  });
+});
+
+describe("emphasized", () => {
+  const domain = { key_columns: ["id"], label_columns: ["name"], natural_keys: ["code"] };
+  it("主キー、見出し、自然キーの列だけを強調する", () => {
+    expect(["id", "name", "code", "price"].filter((c) => emphasized(domain, c))).toEqual(["id", "name", "code"]);
+  });
+  it("識別の列が無いドメインでは何も強調しない", () => {
+    const none = { key_columns: [], label_columns: [], natural_keys: [] };
+    expect(["id", "name"].some((c) => emphasized(none, c))).toBe(false);
   });
 });

@@ -6,6 +6,8 @@ Application 層。どのソースかは知らない（RecordReader を外から�
 - 集合：検索（文字の部分一致）の結果。表のイメージ
 - 個：1行の値（技術列を除く）、参照先へのリンク（n:1）、近隣の集まり（参照してくる行 1:n、relation の表を挟んだ先 n:m）
 - 列の等値で結べない関係（via_function）はたどらない
+- 見出しの列が無い表は、is-a の上位（主キーを共有する）の同じキーの行の見出しを借りる（label_parent）
+- n:m の集まりの行には、結んだ relation の表の行の値（期間、数量など。link_cells）を添える。relation の行ごとに1つ
 """
 
 from collections.abc import Mapping, Sequence
@@ -16,6 +18,8 @@ from uuid import UUID
 
 from mandara.om.model import (
     Cell,
+    IsARealization,
+    LabelSource,
     DomainIndex,
     DomainRows,
     DomainSummary,
@@ -28,6 +32,7 @@ from mandara.om.model import (
     RelatedGroup,
     RelatedKind,
     Relation,
+    RelationType,
     ReviewStatus,
     SemanticRole,
     SemanticType,
@@ -35,10 +40,19 @@ from mandara.om.model import (
     TableKind,
     ValueType,
 )
+from mandara.om.invariants import check
 from mandara.om.names import split_qualified
 from mandara.om.ontology import SELF, Ontology
 from mandara.codecs.registry import BY_ENCODING, CodecError
-from mandara.source.records import Contains, Equals, InvalidKeyError, NotKeyableError, RecordReader, key_text
+from mandara.source.records import (
+    Contains,
+    Equals,
+    InvalidKeyError,
+    NotKeyableError,
+    RecordReader,
+    Records,
+    key_text,
+)
 from mandara.source.values import GeoPoint
 
 DOMAIN_KINDS = (TableKind.domain.value, TableKind.event.value)
@@ -53,6 +67,17 @@ _SEARCH_TYPES = {ValueType.text.value, ValueType.code.value, ValueType.identifie
 
 class BrowseError(Exception):
     """ドメインとして見せられない。"""
+
+
+class InvalidOntologyError(BrowseError):
+    """OM が検証（仕様 4.5）を通らない。ドメインビューワは検証済みの OM の性質（is-a は循環しない、共有主キーの via は
+    主キーの列）に頼るので、通らない OM は見せない。"""
+
+
+def _require_valid(ontology: Ontology) -> None:
+    if violations := check(ontology):
+        raise InvalidOntologyError(f"OM が検証を通らない（{len(violations)} 件。例 "
+                                   f"{[f'{v.location}: {v.rule.name}' for v in violations[:3]]}）")
 
 
 class NotFoundError(BrowseError):
@@ -112,6 +137,22 @@ def label_columns(ontology: Ontology, table: Table) -> list[str]:
         return ["name"]
     return [c for c in columns if c not in key and c.endswith("name")
             and ((d := _semantic(ontology, table, c)) is None or d.type == ValueType.text.value)][:LABEL_COLUMNS]
+
+
+def label_parent(ontology: Ontology, table: Table) -> tuple[Relation, Table] | None:
+    """見出しを借りる is-a の上位：見出しの列が無い表の、主キーを共有する is-a の先のドメインで、見出しを持つか、
+    さらに上から借りられるもの。上位が複数あれば関係の ID の順で最初のもの。
+    OM は検証済み（is-a は循環しない、仕様 4.5）であること（_require_valid）。借りる連なりはそれで終わる。"""
+    if label_columns(ontology, table):
+        return None
+    for rel in sorted(table.relations or [], key=lambda r: r.id):
+        if rel.type != RelationType.is_a.value or rel.realized_by != IsARealization.shared_key.value or not rel.via:
+            continue
+        target = _target(ontology, table, rel)
+        if (target is not None and target.id != table.id and hidden_reason(target) is None
+                and (label_columns(ontology, target) or label_parent(ontology, target) is not None)):
+            return rel, target
+    return None
 
 
 def searchable(ontology: Ontology, table: Table) -> list[str]:
@@ -182,6 +223,7 @@ def _cut(text: str | None) -> str | None:
 
 def domain_index(ontology: Ontology, ontology_id: str, connected: set[str]) -> DomainIndex:
     """connected：行を読めるソースの名前。すべてのドメインのソースに接続があれば readable。"""
+    _require_valid(ontology)
     domains: list[DomainSummary] = []
     hidden: list[HiddenTable] = []
     for t in sorted(ontology.tables, key=lambda t: (t.context, t.name)):
@@ -189,11 +231,17 @@ def domain_index(ontology: Ontology, ontology_id: str, connected: set[str]) -> D
         if reason is not None:
             hidden.append(HiddenTable(table=t.id, name=t.name, reason=reason))
             continue
+        parent = label_parent(ontology, t)
+        alternates = [c for k in (t.identity.alternates or [] if t.identity else []) for c in k.columns]
         domains.append(DomainSummary(table=t.id, name=t.name, context=t.context, kind=t.kind,  # pyright: ignore[reportArgumentType]
                                      grain=t.grain, label_columns=label_columns(ontology, t),
+                                     label_from=parent[1].id if parent else None,
+                                     key_columns=list(t.identity.primary) if t.identity else [],
+                                     natural_keys=list(dict.fromkeys(alternates)),
                                      searchable=searchable(ontology, t)))
     sources = {t.source for t in ontology.tables if hidden_reason(t) is None}
-    return DomainIndex(ontology=ontology_id, domains=domains, hidden=hidden, readable=sources <= connected)
+    return DomainIndex(ontology=ontology_id, contexts=sorted({t.context for t in ontology.tables}), domains=domains,
+                       hidden=hidden, readable=sources <= connected)
 
 
 def _domain(ontology: Ontology, table_id: str) -> Table:
@@ -238,19 +286,58 @@ def _key(r: _Reading, row: Mapping[str, object]) -> list[str]:
         raise UnsupportedKeyError(f"{r.table.name} の主キー {r.key} をたどれる文字列にできない: {e}") from e
 
 
-def _summary(ontology: Ontology, r: _Reading, row: Mapping[str, object], cut: bool = True,
+def _summary(ontology: Ontology, r: _Reading, row: Mapping[str, object], reader: RecordReader, cut: bool = True,
              skip: Sequence[str] = ()) -> InstanceSummary:
     """skip：添える列から外す列（近隣の集まりで、このインスタンスを指す列。どの行も同じ値になる）。
     key は往復できるキーの文字列（key_text）。表示の文字列（display）とは別。"""
     key = _key(r, row)
-    parts = [text for c in r.labels if (text := _cell(ontology, r.table, c, row[c], cut=False).value)]
     cells = [_cell(ontology, r.table, c, row[c], cut) for c in r.cells if c not in skip]
-    return InstanceSummary(table=r.table.id, key=key, label=" ".join(parts) if parts else " · ".join(key), cells=cells)
+    label, source = _label(ontology, r, row, reader, key)
+    return InstanceSummary(table=r.table.id, key=key, label=label, label_source=source, cells=cells)
+
+
+def _label(ontology: Ontology, r: _Reading, row: Mapping[str, object], reader: RecordReader,
+           key: list[str]) -> tuple[str, LabelSource]:
+    """見出しの列の値。無ければ is-a の上位の同じキーの行の見出し。上位の行が無ければ、壊れた参照としてキーを見出しにする。"""
+    parts = [text for c in r.labels if (text := _cell(ontology, r.table, c, row[c], cut=False).value)]
+    if r.labels:
+        return (" ".join(parts), LabelSource.own) if parts else (" · ".join(key), LabelSource.key)
+    parent = label_parent(ontology, r.table)
+    if parent is None:
+        return " · ".join(key), LabelSource.key
+    rel, target = parent
+    pr = _reading(ontology, target)
+    schema, name = _schema_table(target)
+    # 共有主キーの via の元の列は主キーの列（検証済み）なので、row にある
+    found = reader.find(schema, name, pr.columns, pr.key, Equals({p.to: row[p.from_] for p in rel.via or []}), 1)
+    if not found.rows:
+        return " · ".join(key), LabelSource.borrowed_missing
+    label, source = _label(ontology, pr, found.rows[0], reader, _key(pr, found.rows[0]))
+    return label, (LabelSource.borrowed if source in (LabelSource.own, LabelSource.borrowed) else source)
+
+
+class _Memo:
+    """1つの要求の中で、同じ読みを1回にする（n:m の先や見出しの借用で、同じ行を何度も読まないため）。"""
+
+    def __init__(self, inner: RecordReader) -> None:
+        self._inner = inner
+        self._seen: dict[tuple[object, ...], Records] = {}
+
+    def find(self, schema: str, table: str, columns: Sequence[str], order_by: Sequence[str],
+             where: Contains | Equals | None, limit: int) -> Records:
+        condition = (None if where is None else ("contains", where.columns, where.text) if isinstance(where, Contains)
+                     else ("equals", tuple(sorted((k, repr(v)) for k, v in where.values.items()))))
+        key = (schema, table, tuple(columns), tuple(order_by), condition, limit)
+        if key not in self._seen:
+            self._seen[key] = self._inner.find(schema, table, columns, order_by, where, limit)
+        return self._seen[key]
 
 
 def search(ontology: Ontology, table_id: str, reader: RecordReader, query: str | None,
            limit: int = SEARCH_LIMIT) -> DomainRows:
     """ドメインの集合：query があれば検索の列とキーの部分一致、無ければ先頭から。"""
+    _require_valid(ontology)
+    reader = _Memo(reader)
     table = _domain(ontology, table_id)
     r = _reading(ontology, table)
     text = (query or "").strip()
@@ -260,7 +347,7 @@ def search(ontology: Ontology, table_id: str, reader: RecordReader, query: str |
     records = reader.find(schema, name, r.columns, r.key, where, limit)
     return DomainRows(table=table.id, name=table.name, query=text or None,
                       columns=[*r.labels, *r.cells],
-                      rows=[_summary(ontology, r, row) for row in records.rows], limit=limit,
+                      rows=[_summary(ontology, r, row, reader) for row in records.rows], limit=limit,
                       truncated=records.truncated)
 
 
@@ -268,6 +355,8 @@ def instance(ontology: Ontology, table_id: str, key: Sequence[str], reader: Reco
              related_limit: int = RELATED_LIMIT) -> Instance:
     """インスタンスの個のビュー：値、参照先へのリンク（n:1）、近隣の集まり（1:n の子、relation の表を挟んだ n:m）。
     key はキーの文字列（key_text）。たどらなかった関係は理由とともに omitted に返す。"""
+    _require_valid(ontology)
+    reader = _Memo(reader)
     table = _domain(ontology, table_id)
     r = _reading(ontology, table)
     if len(key) != len(r.key):
@@ -291,7 +380,7 @@ def instance(ontology: Ontology, table_id: str, key: Sequence[str], reader: Reco
     if not found.rows:
         raise NotFoundError(f"{table.name} に行が無い: {list(key)}")
     row = found.rows[0]
-    me = _summary(ontology, r, row, cut=False)
+    me = _summary(ontology, r, row, reader, cut=False)
     fields = [_cell(ontology, table, c, row[c], cut=False) for c in shown]
     links: list[InstanceLink] = []
     for rel in relations:
@@ -322,7 +411,7 @@ def _link(ontology: Ontology, table: Table, target: Table, rel: Relation, row: M
         tr = _reading(ontology, target)
         schema, name = _schema_table(target)
         found = reader.find(schema, name, tr.columns, tr.key, Equals(values), 1)
-        summary = _summary(ontology, tr, found.rows[0]) if found.rows else None
+        summary = _summary(ontology, tr, found.rows[0], reader) if found.rows else None
         state = LinkState.found if found.rows else LinkState.missing
     return InstanceLink(relation=rel.id, relation_type=rel.type, role=rel.role, columns=[p.from_ for p in pairs],
                         target_table=target.id, target_name=target.name, state=state, target=summary)
@@ -354,7 +443,7 @@ def _children(ontology: Ontology, table: Table, row: Mapping[str, object], reade
                 columns = [p.from_ for p in rel.via or []]
                 groups.append(RelatedGroup(kind=RelatedKind.children, relation=rel.id, relation_type=rel.type,
                                            table=other.id, name=other.name, columns=columns,
-                                           rows=[_summary(ontology, cr, x, skip=columns) for x in found.rows],
+                                           rows=[_summary(ontology, cr, x, reader, skip=columns) for x in found.rows],
                                            truncated=found.truncated, missing=0))
     return groups
 
@@ -385,24 +474,29 @@ def _through_relations(ontology: Ontology, table: Table, row: Mapping[str, objec
             if not others:
                 continue
             columns = list(dict.fromkeys(p.from_ for rel, _ in others for p in rel.via or []))
+            referencing = {p.from_ for rel in rels for p in rel.via or []}
+            surrogate = (set(middle.identity.primary) if middle.identity and len(middle.identity.primary) == 1
+                         and not set(middle.identity.primary) & referencing else set[str]())
+            # つながりの属性：参照の列と、relation の行の代理キー（1列で参照でない主キー。行の番号でしかない）を除く
+            attributes = [c for c in visible_columns(ontology, middle) if c not in referencing | surrogate]
             schema, name = _schema_table(middle)
             order = list(middle.identity.primary) if middle.identity else columns
-            links = reader.find(schema, name, list(dict.fromkeys([*columns, *order])), order,
+            links = reader.find(schema, name, list(dict.fromkeys([*columns, *order, *attributes])), order,
                                 Equals({p.from_: row[p.to] for p in mine.via or []}), limit)
             for rel, target in others:
                 tr = _reading(ontology, target)
                 tschema, tname = _schema_table(target)
                 rows: list[InstanceSummary] = []
                 missing = 0
-                seen: set[tuple[object, ...]] = set()
-                for link in links.rows:
+                for link in links.rows:  # relation の行ごとに1つ（同じ先が別の期間・属性で2回出ることがある）
                     values = {p.to: link[p.from_] for p in rel.via or []}
-                    if any(v is None for v in values.values()) or tuple(values.values()) in seen:
+                    if any(v is None for v in values.values()):
                         continue
-                    seen.add(tuple(values.values()))
                     found = reader.find(tschema, tname, tr.columns, tr.key, Equals(values), 1)
                     if found.rows:
-                        rows.append(_summary(ontology, tr, found.rows[0]))
+                        summary = _summary(ontology, tr, found.rows[0], reader)
+                        rows.append(summary.model_copy(update={"link_cells": [
+                            _cell(ontology, middle, c, link[c], cut=True) for c in attributes] or None}))
                     else:
                         missing += 1
                 if rows or missing:

@@ -2,7 +2,8 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react
 import { ApiError, getOntology, listOntologies } from "./api";
 import type { OntologyDocument, OntologyListing, Table } from "./om/model";
 import { geoColumns, type GeoColumn } from "./geo";
-import { contextColor, GraphView } from "./GraphView";
+import { GraphView } from "./GraphView";
+import { contextColor } from "./graph";
 import { shortName, toGraph } from "./graph";
 import { DomainView } from "./DomainView";
 import { ReviewView } from "./ReviewView";

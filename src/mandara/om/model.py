@@ -337,6 +337,28 @@ class ClaimPredicate(str, Enum):
     """
 
 
+class LabelSource(str, Enum):
+    """
+    インスタンスの見出しの出どころ
+    """
+    own = "own"
+    """
+    その表の見出しの列
+    """
+    borrowed = "borrowed"
+    """
+    is-a の上位（主キーを共有する）の同じキーの行の見出し
+    """
+    borrowed_missing = "borrowed_missing"
+    """
+    上位から借りるはずが、上位に同じキーの行が無い（壊れた参照）。見出しはキー
+    """
+    key = "key"
+    """
+    見出しの列も借りる先も無いので、キー
+    """
+
+
 class ClaimSourceKind(str, Enum):
     """
     主張の出所の種類（6.6.2）
@@ -922,6 +944,7 @@ class DomainIndex(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'tree_root': True})
 
     ontology: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ReviewQueue', 'DomainIndex']} })
+    contexts: list[str] = Field(default=..., description="""OM のすべてのコンテキスト（名前の順。UI はこの並びでコンテキストの色を決める。グラフと同じ並び）""", json_schema_extra = { "linkml_meta": {'domain_of': ['DomainIndex']} })
     domains: list[DomainSummary] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['DomainIndex']} })
     hidden: list[HiddenTable] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['DomainIndex']} })
     readable: bool = Field(default=..., description="""行を読めるか（ソースへの接続がある）""", json_schema_extra = { "linkml_meta": {'domain_of': ['DomainIndex']} })
@@ -958,7 +981,10 @@ class DomainSummary(ConfiguredBaseModel):
                        'DomainSummary',
                        'RelatedGroup']} })
     grain: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'DomainSummary']} })
-    label_columns: list[str] = Field(default=..., description="""見出しに使う列（推定：name という列、無ければ名前が name で終わる文字の列を3つまで）。空ならキーが見出し""", json_schema_extra = { "linkml_meta": {'domain_of': ['DomainSummary']} })
+    label_columns: list[str] = Field(default=..., description="""見出しに使う列（推定：name という列、無ければ名前が name で終わる文字の列を3つまで）。 空なら label_from の見出し、それも無ければキーが見出し""", json_schema_extra = { "linkml_meta": {'domain_of': ['DomainSummary']} })
+    label_from: Optional[str] = Field(default=None, description="""見出しの列が無いとき、見出しを借りる is-a の上位のドメイン（表の安定 ID。主キーを共有するので同じキーの行の見出し）""", json_schema_extra = { "linkml_meta": {'domain_of': ['DomainSummary']} })
+    key_columns: list[str] = Field(default=..., description="""主キーの列""", json_schema_extra = { "linkml_meta": {'domain_of': ['DomainSummary']} })
+    natural_keys: list[str] = Field(default=..., description="""代替キー（自然キー）の列（どれかの代替キーに含まれる列）""", json_schema_extra = { "linkml_meta": {'domain_of': ['DomainSummary']} })
     searchable: list[str] = Field(default=..., description="""検索に使う列（文字の部分一致）""", json_schema_extra = { "linkml_meta": {'domain_of': ['DomainSummary']} })
 
 
@@ -1045,8 +1071,10 @@ class InstanceSummary(ConfiguredBaseModel):
                        'RelatedGroup',
                        'PointSet']} })
     key: list[str] = Field(default=..., description="""主キーの値（文字列の表現、主キーの列の順）""", json_schema_extra = { "linkml_meta": {'domain_of': ['InstanceSummary', 'Instance', 'GeoPointRow', 'PointFailure']} })
-    label: str = Field(default=..., description="""見出し（名前らしい列。無ければキー）""", json_schema_extra = { "linkml_meta": {'domain_of': ['EnumValue', 'OntologyListing', 'InstanceSummary', 'Instance']} })
+    label: str = Field(default=..., description="""見出し（出どころは label_source）""", json_schema_extra = { "linkml_meta": {'domain_of': ['EnumValue', 'OntologyListing', 'InstanceSummary', 'Instance']} })
+    label_source: LabelSource = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['InstanceSummary']} })
     cells: list[Cell] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['InstanceSummary']} })
+    link_cells: Optional[list[Cell]] = Field(default=None, description="""via の集まりの行で、この行と結んだ relation の表の行の値（参照の列、技術列、代理キーを除く。期間や数量など、 つながりの属性）。代理キーは、1列で参照でない relation の表の主キー（行の番号でしかない。構造からの推定）。 via の集まりは relation の表の行ごとに1つ（同じ先が別の期間で2回出ることがある）""", json_schema_extra = { "linkml_meta": {'domain_of': ['InstanceSummary']} })
 
 
 class Cell(ConfiguredBaseModel):
