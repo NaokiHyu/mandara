@@ -1276,6 +1276,8 @@ class RelatedGroup(ConfiguredBaseModel):
                        'InstanceLink',
                        'RelatedGroup']} })
     via_table: Optional[str] = Field(default=None, description="""挟んだ relation の表（via のとき）""", json_schema_extra = { "linkml_meta": {'domain_of': ['RelatedGroup']} })
+    via_relation: Optional[str] = Field(default=None, description="""relation の表から、このインスタンスへの関係の安定 ID（via のとき）。relation の表が同じ表へ2本の参照を持つと （部品表の組立品と部品）、どちら側から見た集まりかを区別する""", json_schema_extra = { "linkml_meta": {'domain_of': ['RelatedGroup']} })
+    via_columns: Optional[list[str]] = Field(default=None, description="""relation の表の、このインスタンスを指す列（via のとき）""", json_schema_extra = { "linkml_meta": {'domain_of': ['RelatedGroup']} })
     via_name: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['RelatedGroup']} })
     rows: list[InstanceSummary] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['DomainRows', 'RelatedGroup']} })
     truncated: bool = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['DomainRows', 'RelatedGroup', 'PointSet']} })

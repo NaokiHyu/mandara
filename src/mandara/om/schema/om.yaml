@@ -1081,6 +1081,13 @@ classes:
         required: true
       via_table:
         description: 挟んだ relation の表（via のとき）
+      via_relation:
+        description: >-
+          relation の表から、このインスタンスへの関係の安定 ID（via のとき）。relation の表が同じ表へ2本の参照を持つと
+          （部品表の組立品と部品）、どちら側から見た集まりかを区別する
+      via_columns:
+        description: relation の表の、このインスタンスを指す列（via のとき）
+        multivalued: true
       via_name:
       rows:
         range: InstanceSummary

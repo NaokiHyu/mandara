@@ -423,8 +423,11 @@ def _ask_table(table: Table, table_claims: Sequence[Claim], ontology: Ontology,
         return detail
 
     shared = llm_modeler.shared_key_foreign_keys(table, table_claims, ontology)
+    mine = {c.semantic_type for c in (table.columns or {}).values() if c.semantic_type is not None}
+    used = {c.semantic_type for t in ontology.tables if t.id != table.id for c in (t.columns or {}).values()
+            if c.semantic_type is not None}
     asked = classify.classify(table, table_claims, vocabulary, hints, shared, decider.max_options,
-                              f"classify {table.name}")
+                              f"classify {table.name}", elsewhere_only=used - mine)
     response = None
     if asked.request is not None:
         try:

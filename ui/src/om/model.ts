@@ -816,6 +816,10 @@ export interface RelatedGroup {
     columns: string[],
     /** 挟んだ relation の表（via のとき） */
     via_table?: string,
+    /** relation の表から、このインスタンスへの関係の安定 ID（via のとき）。relation の表が同じ表へ2本の参照を持つと （部品表の組立品と部品）、どちら側から見た集まりかを区別する */
+    via_relation?: string,
+    /** relation の表の、このインスタンスを指す列（via のとき） */
+    via_columns?: string[],
     via_name?: string,
     rows: InstanceSummary[],
     truncated: boolean,

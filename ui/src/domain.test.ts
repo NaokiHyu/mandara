@@ -1,6 +1,6 @@
 // ドメインビューワの純粋な部分の性質：たどった道は同じ場所に戻ると切れ、長さは上限まで。
 import { describe, expect, it } from "vitest";
-import { emphasized, extendTrail, type Place, samePlace, TRAIL_LIMIT } from "./domain";
+import { emphasized, extendTrail, groupKey, type Place, relatedTitle, samePlace, TRAIL_LIMIT } from "./domain";
 
 const p = (table: string, key: string[] | null = null): Place => ({ table, key });
 
@@ -31,5 +31,17 @@ describe("emphasized", () => {
   it("識別の列が無いドメインでは何も強調しない", () => {
     const none = { key_columns: [], label_columns: [], natural_keys: [] };
     expect(["id", "name"].some((c) => emphasized(none, c))).toBe(false);
+  });
+});
+
+describe("groupKey / relatedTitle", () => {
+  const base = { kind: "via", relation: "rel_um", relation_type: "has", table: "t_um", name: "production.unitmeasure",
+                 columns: ["unitmeasurecode"], via_table: "t_bom", via_name: "production.billofmaterials", rows: [],
+                 truncated: false, missing: 0, view: "list", count: 1 };
+  it("同じ relation の表を別の側から見た集まりは、鍵も見出しも別", () => {
+    const a = { ...base, via_relation: "rel_assembly", via_columns: ["productassemblyid"] };
+    const b = { ...base, via_relation: "rel_component", via_columns: ["componentid"] };
+    expect(groupKey(a)).not.toBe(groupKey(b));
+    expect(relatedTitle(a).detail).toBe("via billofmaterials（productassemblyid から）");
   });
 });

@@ -50,7 +50,7 @@ export function periodBars(rows: readonly InstanceSummary[], from: string, to: s
   const bars = ok.map((p) => ({
     row: p.row, from: ((p.start as number) - lo) / span, to: p.end === null ? 1 : ((p.end as number) - lo) / span,
     open: p.end === null, label: p.row.label,
-  }));
+  })).sort((a, b) => a.from - b.from || a.to - b.to); // 始まりの順（古いものから）
   return { bars, unreadable, first: iso(lo), last: iso(hi) };
 }
 

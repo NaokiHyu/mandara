@@ -537,7 +537,8 @@ def _through_relations(ontology: Ontology, table: Table, row: Mapping[str, objec
                         missing += 1
                 groups.append(RelatedGroup.model_validate(dict(
                     kind=RelatedKind.via, relation=rel.id, relation_type=rel.type, table=target.id, name=target.name,
-                    columns=[p.from_ for p in rel.via or []], via_table=middle.id, via_name=middle.name, rows=rows,
+                    columns=[p.from_ for p in rel.via or []], via_table=middle.id, via_name=middle.name,
+                    via_relation=mine.id, via_columns=[p.from_ for p in mine.via or []], rows=rows,
                     truncated=links.truncated, missing=missing, **profile.fields)))
     return groups
 

@@ -22,9 +22,16 @@ export function extendTrail(trail: readonly Place[], next: Place): Place[] {
 /** 近隣の集まりの見出し：1:n なら「← 表（参照の列）」、n:m なら「⇄ 表 via 中間の表」。 */
 export function relatedTitle(group: RelatedGroup): { mark: string; name: string; detail: string } {
   if (group.kind === RelatedKind.via) {
-    return { mark: "⇄", name: shortName(group.name), detail: `via ${shortName(group.via_name ?? "")}` };
+    const from = (group.via_columns ?? []).join(", ");
+    return { mark: "⇄", name: shortName(group.name),
+             detail: `via ${shortName(group.via_name ?? "")}${from === "" ? "" : `（${from} から）`}` };
   }
   return { mark: "←", name: shortName(group.name), detail: group.columns.join(", ") };
+}
+
+/** 近隣の集まりの鍵（同じ relation の表を別の側から見た集まりも区別する）。 */
+export function groupKey(group: RelatedGroup): string {
+  return `${group.kind}/${group.via_table ?? ""}/${group.via_relation ?? ""}/${group.relation}`;
 }
 
 /** 参照先へのリンクの見出し：役割があれば役割、無ければ参照の列。 */

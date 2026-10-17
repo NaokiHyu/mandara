@@ -2,7 +2,7 @@
 // relation の表は出さずにリンクとしてたどる。値はソースをその場で読む（ゼロコピー）。読めなかったら理由をそのまま見せる。
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, getDomainRows, getDomains, getInstance } from "./api";
-import { emphasized, extendTrail, linkTitle, type Place, samePlace } from "./domain";
+import { emphasized, extendTrail, groupKey, linkTitle, type Place, samePlace } from "./domain";
 import { GroupPanel } from "./GroupPanel";
 import { DomainIcon, Label } from "./parts";
 import { contextColor, shortName } from "./graph";
@@ -253,7 +253,7 @@ function InstancePane({ ontologyId, domain, instanceKey, known, color, onOpen }:
       {hero.length > 0 && (
         <section className="hero neighbors" aria-label="時系列">
           {hero.map((g) => (
-            <GroupPanel key={`${g.kind}/${g.via_table ?? ""}/${g.relation}`} group={g} target={known.get(g.table)}
+            <GroupPanel key={groupKey(g)} group={g} target={known.get(g.table)}
                         color={color(g.table)} onOpen={open} onList={() => onOpen({ table: g.table, key: null })} />
           ))}
         </section>
@@ -301,7 +301,7 @@ function InstancePane({ ontologyId, domain, instanceKey, known, color, onOpen }:
             </div>
           )}
           {rest.map((g) => (
-            <GroupPanel key={`${g.kind}/${g.via_table ?? ""}/${g.relation}`} group={g} target={known.get(g.table)}
+            <GroupPanel key={groupKey(g)} group={g} target={known.get(g.table)}
                         color={color(g.table)} onOpen={open} onList={() => onOpen({ table: g.table, key: null })} />
           ))}
           {it.links.length === 0 && it.related.length === 0 && <p className="dim">近隣は無い</p>}

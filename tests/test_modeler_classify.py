@@ -336,3 +336,23 @@ def test_declared_currency_is_told_for_money_columns_only() -> None:
     assert "USD" in _facts(money.instructions) and "facts" not in quantity.instructions
     assert declared[0].id in asked.evidence["unit unitprice"] and declared[0].id not in asked.evidence["unit orderqty"]
     assert declarations.extract("adventureworks", catalog, SourceDeclarations()) == []  # 宣言が無ければ主張も無い
+
+
+def test_time_role_types_of_other_tables_are_not_offered() -> None:
+    """別の表でしか使われていない、時刻の役割の意味型（入社日の event_time など）は選択肢に出さない。役割を持ち込まないため。"""
+    from mandara.om.model import SemanticRole
+
+    vocabulary = {**VOCABULARY,
+                  "hire_date": SemanticType(name="hire_date", type=ValueType.date, description="入社日",
+                                            role=SemanticRole.event_time),
+                  "birth_date": SemanticType(name="birth_date", type=ValueType.date, description="誕生日")}
+    name = "humanresources.employeedepartmenthistory"
+    table = _table(name)
+    hints = v1.meaning_hints(SEEDED, table, GROUPS)
+    plain = c.classify(table, _claims(name), vocabulary, hints, (), MAX_OPTIONS, "classify")
+    guarded = c.classify(table, _claims(name), vocabulary, hints, (), MAX_OPTIONS, "classify",
+                         elsewhere_only={"hire_date", "birth_date"})
+    assert plain.request is not None and guarded.request is not None
+    assert "hire_date" in plain.request.questions["column startdate"].options
+    options = guarded.request.questions["column startdate"].options
+    assert "hire_date" not in options and "birth_date" in options  # 役割の無い意味型はそのまま出す

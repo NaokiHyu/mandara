@@ -307,12 +307,16 @@ class Classify:
 
 
 def classify(table: Table, table_claims: Sequence[Claim], vocabulary: Mapping[str, SemanticType],
-             hints: Mapping[str, MeaningHint], shared_keys: Collection[str], max_options: int, purpose: str) -> Classify:
+             hints: Mapping[str, MeaningHint], shared_keys: Collection[str], max_options: int, purpose: str,
+             elsewhere_only: Collection[str] = ()) -> Classify:
     """分類の問い。表種別（v0 が決めていなければ）、外部キーごとの関係型、辺、列の意味型（組の意味型が決まっていなければ）。
 
     関係型の問いには、外部キーの構造とデータの事実（_fk_facts）を添える。is-a は主キーを共有する外部キー（shared_keys、
     外部キーの主張 ID）にだけ選択肢として出す（is-a は共有主キーでしか表さない。仕様 4.2 の realized_by）。
     ただし上位のすべての行に下位の行がある（covers_all）外部キーには出さない。全体を覆うのは下位の型ではなく拡張。
+    列の意味型の選択肢に、時刻の役割（event_time / valid_from / valid_to）を持ち、別の表でしか使われていない意味型
+    （elsewhere_only）は出さない。役割はその表の行にとっての意味（その行の出来事の時刻、その行の期間）なので、別の表の
+    時刻の意味型を当てると役割が持ち込まれる（所属の開始日に入社日の event_time など）。外部キーで同じ意味の列は伝播が付ける。
     """
     questions: dict[str, Choice] = {}
     evidence: dict[str, list[str]] = {}
@@ -375,7 +379,8 @@ def classify(table: Table, table_claims: Sequence[Claim], vocabulary: Mapping[st
             not_asked.append(Dropped(f"column {name}", "型の主張が無い"))
             continue
         allowed = assignable(family, column.encoding)
-        compatible = [d for d in vocabulary.values() if d.type in allowed]
+        compatible = [d for d in vocabulary.values() if d.type in allowed
+                      and not (d.role in _TIME_ROLES and d.name in elsewhere_only)]
         options: dict[str, str | None] = {d.name: _type_brief(d) for d in compatible}
         if not options:
             new_only.append(name)  # 当てうる既存の意味型が無い：問うまでもなく新しい意味型
