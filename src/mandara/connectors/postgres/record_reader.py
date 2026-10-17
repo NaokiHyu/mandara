@@ -5,6 +5,7 @@ Equals は列の型で比べる（キャストしないので主キーの索引�
 リテラルとして渡し、PostgreSQL が列の型として読む。読めなければ InvalidKeyError。
 Contains は列を text にキャストした ILIKE の部分一致（% と _ は逃がす。索引は効かない。検索の仕様として許容する）。
 接続は find ごとに開く（プールしていない。1 インスタンスを見るのに数十回開くことがある）。
+集計は SQL の集計関数に押し下げる。時間の区切りは date_trunc（区切りの始まりの日付）。
 上限を1件超えて読み、超えたら打ち切ったと伝える。
 """
 
@@ -15,7 +16,16 @@ import psycopg
 from psycopg import sql
 
 from mandara.source.catalog import SourceError
-from mandara.source.records import Contains, Equals, InvalidKeyError, Records
+from mandara.source.records import (
+    Aggregated,
+    Contains,
+    Equals,
+    Group,
+    InvalidKeyError,
+    Measure,
+    Records,
+    TimeBucket,
+)
 
 
 class PostgresRecordReader:
@@ -23,7 +33,7 @@ class PostgresRecordReader:
         self._conninfo = conninfo
 
     def find(self, schema: str, table: str, columns: Sequence[str], order_by: Sequence[str],
-             where: Contains | Equals | None, limit: int) -> Records:
+             where: Contains | Equals | None, limit: int, descending: bool = False) -> Records:
         if limit < 1:
             raise ValueError(f"上限は 1 以上: {limit}")
         if not columns:
@@ -33,19 +43,48 @@ class PostgresRecordReader:
             columns=sql.SQL(", ").join(sql.Identifier(c) for c in columns),
             table=sql.Identifier(schema, table),
             where=condition,
-            order=sql.SQL(", ").join(sql.Identifier(c) for c in order_by) if order_by else sql.SQL("1"),
+            order=sql.SQL(", ").join(sql.SQL("{} desc nulls last" if descending else "{}").format(sql.Identifier(c))
+                                     for c in order_by) if order_by else sql.SQL("1"),
             limit=sql.Literal(limit + 1),
         )
+        rows = self._run(schema, table, query, params)
+        return Records(tuple(dict(zip(columns, row, strict=True)) for row in rows[:limit]), truncated=len(rows) > limit)
+
+    def aggregate(self, schema: str, table: str, where: Equals, by: str | TimeBucket | None,
+                  measures: Sequence[Measure], limit: int, latest_first: bool = False) -> Aggregated:
+        if limit < 1:
+            raise ValueError(f"上限は 1 以上: {limit}")
+        if not measures:
+            raise ValueError("集計が要る")
+        condition, params = _condition(where)
+        values = sql.SQL(", ").join(_measure(m) for m in measures)
+        if by is None:
+            query = sql.SQL("select null, {values} from {table}{where}").format(
+                values=values, table=sql.Identifier(schema, table), where=condition)
+        else:
+            if isinstance(by, TimeBucket):
+                key = sql.SQL("date_trunc({unit}, {c})::date").format(unit=_UNITS[by.unit], c=sql.Identifier(by.column))
+                not_null = sql.SQL(" and {} is not null").format(sql.Identifier(by.column))
+                order = sql.SQL("1 desc" if latest_first else "1")
+            else:
+                key, not_null, order = sql.Identifier(by), sql.SQL(""), sql.SQL("count(*) desc, 1")
+            query = sql.SQL("select {key}, {values} from {table}{where}{not_null} group by 1 order by {order} "
+                            "limit {limit}").format(key=key, values=values, table=sql.Identifier(schema, table),
+                                                    where=condition, not_null=not_null, order=order,
+                                                    limit=sql.Literal(limit + 1))
+        rows = self._run(schema, table, query, params)
+        return Aggregated(tuple(Group(r[0], tuple(r[1:])) for r in rows[:limit]), truncated=len(rows) > limit)
+
+    def _run(self, schema: str, table: str, query: sql.Composed, params: list[Any]) -> list[tuple[Any, ...]]:
         try:
             with psycopg.connect(self._conninfo) as conn:
                 conn.read_only = True
                 with conn.transaction():
-                    rows = conn.execute(query, params).fetchall()
+                    return conn.execute(query, params).fetchall()
         except psycopg.DataError as e:
             raise InvalidKeyError(f"{schema}.{table} の一致の値を列の型として読めない: {e}", e) from e
         except psycopg.Error as e:
             raise SourceError(f"PostgreSQL から {schema}.{table} の行を読めなかった: {e}", e) from e
-        return Records(tuple(dict(zip(columns, row, strict=True)) for row in rows[:limit]), truncated=len(rows) > limit)
 
 
 def _condition(where: Contains | Equals | None) -> tuple[sql.Composable, list[Any]]:
@@ -63,3 +102,14 @@ def _condition(where: Contains | Equals | None) -> tuple[sql.Composable, list[An
                 raise ValueError("一致させる列が要る")
             parts = [sql.SQL("{} = %s").format(sql.Identifier(c)) for c in values]
             return sql.SQL(" where ") + sql.SQL(" and ").join(parts), list(values.values())
+
+
+_FUNCTIONS = {"count": sql.SQL("count"), "sum": sql.SQL("sum"), "avg": sql.SQL("avg"), "min": sql.SQL("min"),
+              "max": sql.SQL("max")}
+_UNITS = {"day": sql.Literal("day"), "month": sql.Literal("month"), "year": sql.Literal("year")}
+
+
+def _measure(m: Measure) -> sql.Composable:
+    if m.column is None:
+        return sql.SQL("count(*)")
+    return sql.SQL("{f}({c})").format(f=_FUNCTIONS[m.op], c=sql.Identifier(m.column))

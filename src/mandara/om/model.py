@@ -337,6 +337,45 @@ class ClaimPredicate(str, Enum):
     """
 
 
+class GroupView(str, Enum):
+    """
+    近隣の集まりの見せ方。OM（種類、意味型の役割と加法性）と件数から機械的に決める（browse.group_view）
+    """
+    list = "list"
+    """
+    個々のサマリを並べる（件数が少ない）
+    """
+    summary = "summary"
+    """
+    件数、尺度の集計、enum の内訳、新しい（または先頭の）数件
+    """
+    time_series = "time_series"
+    """
+    時系列の線グラフ（出来事の時刻の列があり、件数が多い）
+    """
+    timeline = "timeline"
+    """
+    期間の帯（valid_from と valid_to の列を持つ）
+    """
+
+
+class MeasureOp(str, Enum):
+    """
+    尺度の集計のしかた（加法性から決まる。additive は sum、non-additive は avg。semi-additive は集まり全体では集計しない （時間の軸が無いと OM から言えないため）。最新の時点の行だけで合計する（LatestDay.snapshot））
+    """
+    sum = "sum"
+    avg = "avg"
+
+
+class BucketUnit(str, Enum):
+    """
+    時系列の区切り（期間の幅から決まる）
+    """
+    day = "day"
+    month = "month"
+    year = "year"
+
+
 class LabelSource(str, Enum):
     """
     インスタンスの見出しの出どころ
@@ -661,7 +700,12 @@ class UnitSource(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
 
     fixed: Optional[Unit] = Field(default=None, description="""固定の単位""", json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource']} })
-    column: Optional[str] = Field(default=None, description="""同じ表で単位を持つ列""", json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource', 'SourceRef', 'Cell', 'PointSet']} })
+    column: Optional[str] = Field(default=None, description="""同じ表で単位を持つ列""", json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource',
+                       'SourceRef',
+                       'Cell',
+                       'MeasureValue',
+                       'SkippedMeasure',
+                       'PointSet']} })
 
 
 class Relation(Annotation):
@@ -788,7 +832,12 @@ class SourceRef(ConfiguredBaseModel):
                        'OmittedRelation',
                        'RelatedGroup',
                        'PointSet']} })
-    column: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource', 'SourceRef', 'Cell', 'PointSet']} })
+    column: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource',
+                       'SourceRef',
+                       'Cell',
+                       'MeasureValue',
+                       'SkippedMeasure',
+                       'PointSet']} })
 
 
 class ClaimSource(ConfiguredBaseModel):
@@ -1011,7 +1060,10 @@ class HiddenTable(ConfiguredBaseModel):
                        'DomainRows',
                        'Instance',
                        'RelatedGroup']} })
-    reason: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['HiddenTable', 'OmittedRelation', 'PointFailure']} })
+    reason: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['HiddenTable',
+                       'OmittedRelation',
+                       'SkippedMeasure',
+                       'PointFailure']} })
 
 
 class DomainRows(ConfiguredBaseModel):
@@ -1080,8 +1132,13 @@ class InstanceSummary(ConfiguredBaseModel):
 class Cell(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
 
-    column: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource', 'SourceRef', 'Cell', 'PointSet']} })
-    value: Optional[str] = Field(default=None, description="""表示の文字列。NULL は無し""", json_schema_extra = { "linkml_meta": {'domain_of': ['Cell']} })
+    column: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource',
+                       'SourceRef',
+                       'Cell',
+                       'MeasureValue',
+                       'SkippedMeasure',
+                       'PointSet']} })
+    value: Optional[str] = Field(default=None, description="""表示の文字列。NULL は無し""", json_schema_extra = { "linkml_meta": {'domain_of': ['Cell', 'MeasureValue', 'BreakdownValue', 'SeriesSum']} })
     semantic_type: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Column', 'Cell']} })
 
 
@@ -1134,7 +1191,10 @@ class OmittedRelation(ConfiguredBaseModel):
                        'OmittedRelation',
                        'RelatedGroup',
                        'PointSet']} })
-    reason: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['HiddenTable', 'OmittedRelation', 'PointFailure']} })
+    reason: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['HiddenTable',
+                       'OmittedRelation',
+                       'SkippedMeasure',
+                       'PointFailure']} })
 
 
 class InstanceLink(ConfiguredBaseModel):
@@ -1202,6 +1262,81 @@ class RelatedGroup(ConfiguredBaseModel):
     rows: list[InstanceSummary] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['DomainRows', 'RelatedGroup']} })
     truncated: bool = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['DomainRows', 'RelatedGroup', 'PointSet']} })
     missing: int = Field(default=..., description="""relation の表の行が指す先の行が無かった数（via のとき。壊れた参照）""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['RelatedGroup']} })
+    view: GroupView = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['RelatedGroup']} })
+    count: int = Field(default=..., description="""集まりの行の数（via なら relation の表の行の数）。rows は先頭・新しいものからの一部""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['RelatedGroup', 'BreakdownValue', 'SeriesPoint', 'LatestDay']} })
+    time_column: Optional[str] = Field(default=None, description="""出来事の時刻の列（role event_time。via なら relation の表の列）。rows はこの列の新しい順""", json_schema_extra = { "linkml_meta": {'domain_of': ['RelatedGroup']} })
+    period_from: Optional[str] = Field(default=None, description="""期間の始まりの列（role valid_from。via なら relation の表の列）""", json_schema_extra = { "linkml_meta": {'domain_of': ['RelatedGroup']} })
+    period_to: Optional[str] = Field(default=None, description="""期間の終わりの列（role valid_to）""", json_schema_extra = { "linkml_meta": {'domain_of': ['RelatedGroup']} })
+    measures: Optional[list[MeasureValue]] = Field(default=None, description="""尺度の集計（集まり全体）""", json_schema_extra = { "linkml_meta": {'domain_of': ['RelatedGroup', 'LatestDay']} })
+    skipped_measures: Optional[list[SkippedMeasure]] = Field(default=None, description="""集計しなかった尺度と理由（単位が混ざる、時間の軸で合計できない、など）""", json_schema_extra = { "linkml_meta": {'domain_of': ['RelatedGroup']} })
+    breakdown_column: Optional[str] = Field(default=None, description="""内訳の列（enum の意味型の列）""", json_schema_extra = { "linkml_meta": {'domain_of': ['RelatedGroup']} })
+    breakdown: Optional[list[BreakdownValue]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['RelatedGroup']} })
+    breakdown_truncated: Optional[bool] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['RelatedGroup']} })
+    series_unit: Optional[BucketUnit] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['RelatedGroup']} })
+    series_measures: Optional[list[str]] = Field(default=None, description="""series の各点の values に入る尺度の列（合計）""", json_schema_extra = { "linkml_meta": {'domain_of': ['RelatedGroup']} })
+    series: Optional[list[SeriesPoint]] = Field(default=None, description="""区切りの古い順。行の無い区切りも count 0 で入る（時間軸を詰めない）""", json_schema_extra = { "linkml_meta": {'domain_of': ['RelatedGroup']} })
+    latest: Optional[LatestDay] = Field(default=None, description="""最新の日（time_column の値の日付で最も新しい日）のまとめ。データが今日まで届いていれば今日（is_today）。 届いていなければ最新の日を基準日として明示する""", json_schema_extra = { "linkml_meta": {'domain_of': ['RelatedGroup']} })
+
+
+class MeasureValue(ConfiguredBaseModel):
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
+
+    column: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource',
+                       'SourceRef',
+                       'Cell',
+                       'MeasureValue',
+                       'SkippedMeasure',
+                       'PointSet']} })
+    op: MeasureOp = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['MeasureValue']} })
+    value: Optional[str] = Field(default=None, description="""表示の文字列。対象の値が無ければ無し""", json_schema_extra = { "linkml_meta": {'domain_of': ['Cell', 'MeasureValue', 'BreakdownValue', 'SeriesSum']} })
+    unit_text: Optional[str] = Field(default=None, description="""単位（固定の単位、または単位の列の値がすべて同じならその値）""", json_schema_extra = { "linkml_meta": {'domain_of': ['MeasureValue']} })
+
+
+class SkippedMeasure(ConfiguredBaseModel):
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
+
+    column: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource',
+                       'SourceRef',
+                       'Cell',
+                       'MeasureValue',
+                       'SkippedMeasure',
+                       'PointSet']} })
+    reason: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['HiddenTable',
+                       'OmittedRelation',
+                       'SkippedMeasure',
+                       'PointFailure']} })
+
+
+class BreakdownValue(ConfiguredBaseModel):
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
+
+    value: Optional[str] = Field(default=None, description="""表示の文字列（enum はラベルつき）。NULL は無し""", json_schema_extra = { "linkml_meta": {'domain_of': ['Cell', 'MeasureValue', 'BreakdownValue', 'SeriesSum']} })
+    count: int = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['RelatedGroup', 'BreakdownValue', 'SeriesPoint', 'LatestDay']} })
+
+
+class SeriesPoint(ConfiguredBaseModel):
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
+
+    start: date = Field(default=..., description="""区切りの始まりの日付（ISO 8601）""", json_schema_extra = { "linkml_meta": {'domain_of': ['SeriesPoint']} })
+    count: int = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['RelatedGroup', 'BreakdownValue', 'SeriesPoint', 'LatestDay']} })
+    sums: list[SeriesSum] = Field(default=..., description="""series_measures の順の合計。区切りに値が無ければ value 無し（0 とは区別する）""", json_schema_extra = { "linkml_meta": {'domain_of': ['SeriesPoint']} })
+
+
+class SeriesSum(ConfiguredBaseModel):
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
+
+    value: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Cell', 'MeasureValue', 'BreakdownValue', 'SeriesSum']} })
+
+
+class LatestDay(ConfiguredBaseModel):
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
+
+    day: date = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['LatestDay']} })
+    is_today: bool = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['LatestDay']} })
+    count: int = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['RelatedGroup', 'BreakdownValue', 'SeriesPoint', 'LatestDay']} })
+    measures: Optional[list[MeasureValue]] = Field(default=None, description="""加法の尺度の、最新の日の合計""", json_schema_extra = { "linkml_meta": {'domain_of': ['RelatedGroup', 'LatestDay']} })
+    snapshot_at: Optional[str] = Field(default=None, description="""半加法の尺度を合計した時点（time_column の最大の値。表示の文字列）""", json_schema_extra = { "linkml_meta": {'domain_of': ['LatestDay']} })
+    snapshot: Optional[list[MeasureValue]] = Field(default=None, description="""半加法の尺度（残高・在庫など）の、最新の時点（snapshot_at）の行だけの合計""", json_schema_extra = { "linkml_meta": {'domain_of': ['LatestDay']} })
 
 
 class PointSet(ConfiguredBaseModel):
@@ -1221,7 +1356,12 @@ class PointSet(ConfiguredBaseModel):
                        'OmittedRelation',
                        'RelatedGroup',
                        'PointSet']} })
-    column: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource', 'SourceRef', 'Cell', 'PointSet']} })
+    column: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['UnitSource',
+                       'SourceRef',
+                       'Cell',
+                       'MeasureValue',
+                       'SkippedMeasure',
+                       'PointSet']} })
     points: list[GeoPointRow] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['PointSet']} })
     nulls: int = Field(default=..., ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['PointSet']} })
     failed: list[PointFailure] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['PointSet']} })
@@ -1242,7 +1382,10 @@ class PointFailure(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
 
     key: list[str] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['InstanceSummary', 'Instance', 'GeoPointRow', 'PointFailure']} })
-    reason: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['HiddenTable', 'OmittedRelation', 'PointFailure']} })
+    reason: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['HiddenTable',
+                       'OmittedRelation',
+                       'SkippedMeasure',
+                       'PointFailure']} })
 
 
 # Model rebuild
@@ -1284,6 +1427,12 @@ Instance.model_rebuild()
 OmittedRelation.model_rebuild()
 InstanceLink.model_rebuild()
 RelatedGroup.model_rebuild()
+MeasureValue.model_rebuild()
+SkippedMeasure.model_rebuild()
+BreakdownValue.model_rebuild()
+SeriesPoint.model_rebuild()
+SeriesSum.model_rebuild()
+LatestDay.model_rebuild()
 PointSet.model_rebuild()
 GeoPointRow.model_rebuild()
 PointFailure.model_rebuild()

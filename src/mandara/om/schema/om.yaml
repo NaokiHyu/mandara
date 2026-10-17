@@ -202,6 +202,31 @@ enums:
         description: >-
           表の columns で target の target_columns を参照される target の行は、ちょうど target の列 discriminator が
           discriminator_values のどれかである行（実データ。区分の列。値の一部だけが参照され、残りは参照されない）
+  GroupView:
+    description: >-
+      近隣の集まりの見せ方。OM（種類、意味型の役割と加法性）と件数から機械的に決める（browse.group_view）
+    permissible_values:
+      list:
+        description: 個々のサマリを並べる（件数が少ない）
+      summary:
+        description: 件数、尺度の集計、enum の内訳、新しい（または先頭の）数件
+      time_series:
+        description: 時系列の線グラフ（出来事の時刻の列があり、件数が多い）
+      timeline:
+        description: 期間の帯（valid_from と valid_to の列を持つ）
+  MeasureOp:
+    description: >-
+      尺度の集計のしかた（加法性から決まる。additive は sum、non-additive は avg。semi-additive は集まり全体では集計しない
+      （時間の軸が無いと OM から言えないため）。最新の時点の行だけで合計する（LatestDay.snapshot））
+    permissible_values:
+      sum:
+      avg:
+  BucketUnit:
+    description: 時系列の区切り（期間の幅から決まる）
+    permissible_values:
+      day:
+      month:
+      year:
   LabelSource:
     description: インスタンスの見出しの出どころ
     permissible_values:
@@ -1053,6 +1078,133 @@ classes:
         range: integer
         required: true
         minimum_value: 0
+      view:
+        range: GroupView
+        required: true
+      count:
+        description: 集まりの行の数（via なら relation の表の行の数）。rows は先頭・新しいものからの一部
+        range: integer
+        required: true
+        minimum_value: 0
+      time_column:
+        description: 出来事の時刻の列（role event_time。via なら relation の表の列）。rows はこの列の新しい順
+      period_from:
+        description: 期間の始まりの列（role valid_from。via なら relation の表の列）
+      period_to:
+        description: 期間の終わりの列（role valid_to）
+      measures:
+        description: 尺度の集計（集まり全体）
+        range: MeasureValue
+        multivalued: true
+        inlined: true
+        inlined_as_list: true
+      skipped_measures:
+        description: 集計しなかった尺度と理由（単位が混ざる、時間の軸で合計できない、など）
+        range: SkippedMeasure
+        multivalued: true
+        inlined: true
+        inlined_as_list: true
+      breakdown_column:
+        description: 内訳の列（enum の意味型の列）
+      breakdown:
+        range: BreakdownValue
+        multivalued: true
+        inlined: true
+        inlined_as_list: true
+      breakdown_truncated:
+        range: boolean
+      series_unit:
+        range: BucketUnit
+      series_measures:
+        description: series の各点の values に入る尺度の列（合計）
+        multivalued: true
+      series:
+        description: 区切りの古い順。行の無い区切りも count 0 で入る（時間軸を詰めない）
+        range: SeriesPoint
+        multivalued: true
+        inlined: true
+        inlined_as_list: true
+      latest:
+        description: >-
+          最新の日（time_column の値の日付で最も新しい日）のまとめ。データが今日まで届いていれば今日（is_today）。
+          届いていなければ最新の日を基準日として明示する
+        range: LatestDay
+        inlined: true
+
+  MeasureValue:
+    attributes:
+      column:
+        required: true
+      op:
+        range: MeasureOp
+        required: true
+      value:
+        description: 表示の文字列。対象の値が無ければ無し
+      unit_text:
+        description: 単位（固定の単位、または単位の列の値がすべて同じならその値）
+
+  SkippedMeasure:
+    attributes:
+      column:
+        required: true
+      reason:
+        required: true
+
+  BreakdownValue:
+    attributes:
+      value:
+        description: 表示の文字列（enum はラベルつき）。NULL は無し
+      count:
+        range: integer
+        required: true
+
+  SeriesPoint:
+    attributes:
+      start:
+        description: 区切りの始まりの日付（ISO 8601）
+        range: date
+        required: true
+      count:
+        range: integer
+        required: true
+      sums:
+        description: series_measures の順の合計。区切りに値が無ければ value 無し（0 とは区別する）
+        range: SeriesSum
+        multivalued: true
+        required: true
+        inlined: true
+        inlined_as_list: true
+
+  SeriesSum:
+    attributes:
+      value:
+        range: float
+
+  LatestDay:
+    attributes:
+      day:
+        range: date
+        required: true
+      is_today:
+        range: boolean
+        required: true
+      count:
+        range: integer
+        required: true
+      measures:
+        description: 加法の尺度の、最新の日の合計
+        range: MeasureValue
+        multivalued: true
+        inlined: true
+        inlined_as_list: true
+      snapshot_at:
+        description: 半加法の尺度を合計した時点（time_column の最大の値。表示の文字列）
+      snapshot:
+        description: 半加法の尺度（残高・在庫など）の、最新の時点（snapshot_at）の行だけの合計
+        range: MeasureValue
+        multivalued: true
+        inlined: true
+        inlined_as_list: true
 
   PointSet:
     tree_root: true

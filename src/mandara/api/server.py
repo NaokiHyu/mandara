@@ -163,9 +163,11 @@ def _write_refused(request: Request) -> JSONResponse | None:
 
 
 def create_app(sources: list[OntologySource], readers: dict[str, ColumnReader] | None = None,
-               reviewing: Reviewing | None = None, records: dict[str, RecordReader] | None = None) -> FastAPI:
+               reviewing: Reviewing | None = None, records: dict[str, RecordReader] | None = None,
+               today: Callable[[], date] = date.today) -> FastAPI:
     """readers はソースの名前（表の source）→ 列を読むもの。無いソースの点は読めない。
     records はソースの名前 → 行を読むもの（ドメインビューワ）。無いソースのインスタンスは読めない。
+    today はドメインビューワの「今日」（近隣の集まりの最新の日が今日か）。
     reviewing が無ければ、レビューの問いは読めるが答えは書けない。"""
     readers = readers or {}
     records = records or {}
@@ -265,7 +267,7 @@ def create_app(sources: list[OntologySource], readers: dict[str, ColumnReader] |
             if isinstance(found, JSONResponse):
                 return found
             ontology, reader = found
-            shown = browse.instance(ontology, table_id, key, reader)
+            shown = browse.instance(ontology, table_id, key, reader, today())
         except browse.InvalidOntologyError as e:
             return JSONResponse({"error": str(e)}, status_code=500)
         except browse.NotFoundError as e:

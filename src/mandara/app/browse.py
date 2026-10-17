@@ -12,12 +12,23 @@ Application 層。どのソースかは知らない（RecordReader を外から�
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
+from typing import cast
 from uuid import UUID
 
 from mandara.om.model import (
+    Additivity,
+    BreakdownValue,
+    BucketUnit,
     Cell,
+    GroupView,
+    LatestDay,
+    MeasureOp,
+    MeasureValue,
+    SeriesPoint,
+    SeriesSum,
+    SkippedMeasure,
     IsARealization,
     LabelSource,
     DomainIndex,
@@ -50,7 +61,13 @@ from mandara.source.records import (
     InvalidKeyError,
     NotKeyableError,
     RecordReader,
+    Aggregated,
+    Group,
+    Measure,
+    Op,
     Records,
+    TimeBucket,
+    TimeUnit,
     key_text,
 )
 from mandara.source.values import GeoPoint
@@ -324,13 +341,17 @@ class _Memo:
         self._seen: dict[tuple[object, ...], Records] = {}
 
     def find(self, schema: str, table: str, columns: Sequence[str], order_by: Sequence[str],
-             where: Contains | Equals | None, limit: int) -> Records:
+             where: Contains | Equals | None, limit: int, descending: bool = False) -> Records:
         condition = (None if where is None else ("contains", where.columns, where.text) if isinstance(where, Contains)
                      else ("equals", tuple(sorted((k, repr(v)) for k, v in where.values.items()))))
-        key = (schema, table, tuple(columns), tuple(order_by), condition, limit)
+        key = (schema, table, tuple(columns), tuple(order_by), condition, limit, descending)
         if key not in self._seen:
-            self._seen[key] = self._inner.find(schema, table, columns, order_by, where, limit)
+            self._seen[key] = self._inner.find(schema, table, columns, order_by, where, limit, descending)
         return self._seen[key]
+
+    def aggregate(self, schema: str, table: str, where: Equals, by: str | TimeBucket | None,
+                  measures: Sequence[Measure], limit: int, latest_first: bool = False) -> Aggregated:
+        return self._inner.aggregate(schema, table, where, by, measures, limit, latest_first)
 
 
 def search(ontology: Ontology, table_id: str, reader: RecordReader, query: str | None,
@@ -351,7 +372,7 @@ def search(ontology: Ontology, table_id: str, reader: RecordReader, query: str |
                       truncated=records.truncated)
 
 
-def instance(ontology: Ontology, table_id: str, key: Sequence[str], reader: RecordReader,
+def instance(ontology: Ontology, table_id: str, key: Sequence[str], reader: RecordReader, today: date,
              related_limit: int = RELATED_LIMIT) -> Instance:
     """インスタンスの個のビュー：値、参照先へのリンク（n:1）、近隣の集まり（1:n の子、relation の表を挟んだ n:m）。
     key はキーの文字列（key_text）。たどらなかった関係は理由とともに omitted に返す。"""
@@ -390,8 +411,8 @@ def instance(ontology: Ontology, table_id: str, key: Sequence[str], reader: Reco
             omitted.append(OmittedRelation(relation=rel.id, table=table.name, reason=f"参照先がドメインでない: {reason}"))
             continue
         links.append(_link(ontology, table, target, rel, row, reader))
-    related = [*_children(ontology, table, row, reader, related_limit, omitted),
-               *_through_relations(ontology, table, row, reader, related_limit, omitted)]
+    related = [*_children(ontology, table, row, reader, related_limit, today, omitted),
+               *_through_relations(ontology, table, row, reader, related_limit, today, omitted)]
     return Instance(table=table.id, name=table.name, key=me.key, label=me.label, fields=fields, links=links,
                     related=related, omitted=omitted)
 
@@ -418,9 +439,9 @@ def _link(ontology: Ontology, table: Table, target: Table, rel: Relation, row: M
 
 
 def _children(ontology: Ontology, table: Table, row: Mapping[str, object], reader: RecordReader,
-              limit: int, omitted: list[OmittedRelation]) -> list[RelatedGroup]:
+              limit: int, today: date, omitted: list[OmittedRelation]) -> list[RelatedGroup]:
     """このインスタンスを参照してくる、他のドメインの行（1:n）。参照してくる表がドメインでなければ理由を omitted に足す
-    （relation の表は _through_relations が n:m としてたどる）。"""
+    （relation の表は _through_relations が n:m としてたどる）。見せ方は _profile が決める。"""
     groups: list[RelatedGroup] = []
     for other in sorted(ontology.tables, key=lambda t: t.name):
         incoming = [rel for rel in other.relations or [] if rel.via and _points_to(ontology, other, rel, table)]
@@ -435,23 +456,27 @@ def _children(ontology: Ontology, table: Table, row: Mapping[str, object], reade
         for rel in incoming:
             if any(row[p.to] is None for p in rel.via or []):
                 continue
+            where = Equals({p.from_: row[p.to] for p in rel.via or []})
+            profile = _profile(ontology, other, where, reader, today)
+            if profile.count == 0:
+                continue
+            columns = [p.from_ for p in rel.via or []]
             cr = _reading(ontology, other)
+            cr = _Reading(cr.table, cr.key, cr.labels, _with_first(profile.time_columns, cr.cells, cr.labels))
             schema, name = _schema_table(other)
-            found = reader.find(schema, name, cr.columns, cr.key, Equals({p.from_: row[p.to] for p in rel.via or []}),
-                                limit)
-            if found.rows:
-                columns = [p.from_ for p in rel.via or []]
-                groups.append(RelatedGroup(kind=RelatedKind.children, relation=rel.id, relation_type=rel.type,
-                                           table=other.id, name=other.name, columns=columns,
-                                           rows=[_summary(ontology, cr, x, reader, skip=columns) for x in found.rows],
-                                           truncated=found.truncated, missing=0))
+            found = reader.find(schema, name, cr.columns, profile.order or cr.key, where,
+                                profile.row_limit(limit), profile.descending)
+            groups.append(RelatedGroup.model_validate(dict(
+                kind=RelatedKind.children, relation=rel.id, relation_type=rel.type, table=other.id, name=other.name,
+                columns=columns, rows=[_summary(ontology, cr, x, reader, skip=columns) for x in found.rows],
+                truncated=found.truncated, missing=0, **profile.fields)))
     return groups
 
 
 def _through_relations(ontology: Ontology, table: Table, row: Mapping[str, object], reader: RecordReader,
-                       limit: int, omitted: list[OmittedRelation]) -> list[RelatedGroup]:
-    """relation の表を挟んだ先のインスタンス（n:m）。relation の表そのものは出さない。
-    先の行が無ければ missing に数える。先の表がドメインでなければ理由を omitted に足す。"""
+                       limit: int, today: date, omitted: list[OmittedRelation]) -> list[RelatedGroup]:
+    """relation の表を挟んだ先のインスタンス（n:m）。relation の表そのものは出さない。見せ方と集計は relation の表の行について
+    （_profile）。先の行が無ければ missing に数える。先の表がドメインでなければ理由を omitted に足す。"""
     groups: list[RelatedGroup] = []
     for middle in sorted(ontology.tables, key=lambda t: t.name):
         if middle.status != ReviewStatus.approved.value or middle.kind != TableKind.relation.value:
@@ -473,16 +498,21 @@ def _through_relations(ontology: Ontology, table: Table, row: Mapping[str, objec
                     others.append((rel, target))
             if not others:
                 continue
+            where = Equals({p.from_: row[p.to] for p in mine.via or []})
+            profile = _profile(ontology, middle, where, reader, today)
+            if profile.count == 0:
+                continue
             columns = list(dict.fromkeys(p.from_ for rel, _ in others for p in rel.via or []))
             referencing = {p.from_ for rel in rels for p in rel.via or []}
             surrogate = (set(middle.identity.primary) if middle.identity and len(middle.identity.primary) == 1
                          and not set(middle.identity.primary) & referencing else set[str]())
             # つながりの属性：参照の列と、relation の行の代理キー（1列で参照でない主キー。行の番号でしかない）を除く
-            attributes = [c for c in visible_columns(ontology, middle) if c not in referencing | surrogate]
+            attributes = _with_first(profile.time_columns,
+                                     [c for c in visible_columns(ontology, middle) if c not in referencing | surrogate], [])
             schema, name = _schema_table(middle)
             order = list(middle.identity.primary) if middle.identity else columns
-            links = reader.find(schema, name, list(dict.fromkeys([*columns, *order, *attributes])), order,
-                                Equals({p.from_: row[p.to] for p in mine.via or []}), limit)
+            links = reader.find(schema, name, list(dict.fromkeys([*columns, *order, *attributes])),
+                                profile.order or order, where, profile.row_limit(limit), profile.descending)
             for rel, target in others:
                 tr = _reading(ontology, target)
                 tschema, tname = _schema_table(target)
@@ -499,10 +529,247 @@ def _through_relations(ontology: Ontology, table: Table, row: Mapping[str, objec
                             _cell(ontology, middle, c, link[c], cut=True) for c in attributes] or None}))
                     else:
                         missing += 1
-                if rows or missing:
-                    groups.append(RelatedGroup(kind=RelatedKind.via, relation=rel.id, relation_type=rel.type,
-                                               table=target.id, name=target.name,
-                                               columns=[p.from_ for p in rel.via or []], via_table=middle.id,
-                                               via_name=middle.name, rows=rows, truncated=links.truncated,
-                                               missing=missing))
+                groups.append(RelatedGroup.model_validate(dict(
+                    kind=RelatedKind.via, relation=rel.id, relation_type=rel.type, table=target.id, name=target.name,
+                    columns=[p.from_ for p in rel.via or []], via_table=middle.id, via_name=middle.name, rows=rows,
+                    truncated=links.truncated, missing=missing, **profile.fields)))
     return groups
+
+
+def _with_first(first: Sequence[str], rest: Sequence[str], exclude: Sequence[str]) -> list[str]:
+    """時刻・期間の列を先頭に（rows で必ず見えるように）。添える列の数は SUMMARY_CELLS まで。"""
+    return list(dict.fromkeys([*first, *(c for c in rest if c not in exclude)]))[:max(SUMMARY_CELLS, len(first))]
+
+
+# ---------------------------------------------------------------- 近隣の集まりの見せ方（仕様 9.4 の近隣への具体化）
+
+LIST_MAX = 10
+"""これ以下の件数なら個々のサマリを並べる。"""
+SERIES_MIN = 30
+"""出来事の時刻の列があり、これを超える件数なら時系列。"""
+RECENT = 5
+"""集計や時系列に添える、新しい（または先頭の）行の数。"""
+BREAKDOWN_LIMIT = 6
+MEASURES_MAX = 3
+SERIES_MEASURES_MAX = 2
+DAY_SPAN = 62
+"""期間の幅がこれ以下の日数なら日ごと、MONTH_SPAN 以下なら月ごと、それより長ければ年ごとに区切る。"""
+MONTH_SPAN = 1100
+
+
+def group_view(count: int, has_time: bool, has_period: bool) -> GroupView:
+    """近隣の集まりの見せ方。上から最初に当たったもの：出来事の時刻があって件数が多い → 時系列、期間の列がある → 期間の帯、
+    件数が少ない → 一覧、それ以外 → 集計。"""
+    if count < 0:
+        raise ValueError(f"件数が負: {count}")
+    if has_time and count > SERIES_MIN:
+        return GroupView.time_series
+    if has_period:
+        return GroupView.timeline
+    if count <= LIST_MAX:
+        return GroupView.list
+    return GroupView.summary
+
+
+def bucket_unit(first: date, last: date) -> BucketUnit:
+    """時系列の区切り：期間の幅から。"""
+    days = (last - first).days
+    if days < 0:
+        raise ValueError(f"期間が逆: {first} > {last}")
+    return BucketUnit.day if days <= DAY_SPAN else BucketUnit.month if days <= MONTH_SPAN else BucketUnit.year
+
+
+def _role_column(ontology: Ontology, table: Table, role: str) -> str | None:
+    return next((c for c in visible_columns(ontology, table)
+                 if (d := _semantic(ontology, table, c)) is not None and d.role == role), None)
+
+
+@dataclass(frozen=True)
+class _Plan:
+    """集まりの表（children なら子の表、via なら relation の表）の、OM から決まる集計の計画（件数に依らない部分）。"""
+
+    time: str | None
+    period: tuple[str, str] | None
+    sums: list[tuple[str, MeasureOp]]
+    """集まり全体で集計する尺度（加法は合計、非加法は平均）。"""
+    snapshot: list[str]
+    """最新の時点の行だけで合計する半加法の尺度。"""
+    skipped: list[SkippedMeasure]
+    breakdown: str | None
+
+
+def measure_plan(ontology: Ontology, table: Table) -> _Plan:
+    """尺度の集計を加法性から決める：additive は合計、non-additive は平均。semi-additive（残高・在庫など）は集まり全体では
+    集計しない（時間の軸が無いと OM から言えない。役割の付け漏れもある）。出来事の時刻の列があれば、最新の時点の行だけで合計する。
+    尺度が多ければ先頭の MEASURES_MAX 個（省いたものは理由つき）。"""
+    time = _role_column(ontology, table, SemanticRole.event_time.value)
+    start = _role_column(ontology, table, SemanticRole.valid_from.value)
+    end = _role_column(ontology, table, SemanticRole.valid_to.value)
+    key = set(table.identity.primary) if table.identity else set[str]()
+    sums: list[tuple[str, MeasureOp]] = []
+    snapshot: list[str] = []
+    skipped: list[SkippedMeasure] = []
+    breakdown: str | None = None
+    for c in visible_columns(ontology, table):
+        d = _semantic(ontology, table, c)
+        if d is None or c in key:
+            continue
+        if d.type == ValueType.enum.value and d.values and breakdown is None:
+            breakdown = c
+        if d.additivity is None:
+            continue
+        if d.additivity == Additivity.semi_additive.value:
+            if time is None:
+                skipped.append(SkippedMeasure(column=c, reason="半加法（残高・在庫など）は、時間の軸が無いと言えないので合計しない"))
+            else:
+                snapshot.append(c)
+        elif len(sums) >= MEASURES_MAX:
+            skipped.append(SkippedMeasure(column=c, reason=f"尺度が多いので先頭の {MEASURES_MAX} 個だけ集計した"))
+        else:
+            sums.append((c, MeasureOp.sum if d.additivity == Additivity.additive.value else MeasureOp.avg))
+    return _Plan(time, (start, end) if start and end else None, sums, snapshot, skipped, breakdown)
+
+
+@dataclass(frozen=True)
+class _Profile:
+    count: int
+    view: GroupView
+    time_columns: list[str]
+    order: list[str]
+    descending: bool
+    fields: dict[str, object]
+
+    def row_limit(self, limit: int) -> int:
+        return limit if self.view in (GroupView.list, GroupView.timeline) else min(RECENT, limit)
+
+
+_OP: dict[MeasureOp, Op] = {MeasureOp.sum: "sum", MeasureOp.avg: "avg"}
+
+
+def _profile(ontology: Ontology, table: Table, where: Equals, reader: RecordReader, today: date) -> _Profile:
+    """集まりの件数と、見せ方に応じた集計（ソースに押し下げる）。件数で見せ方を決めてから、要る集計だけを問う。"""
+    plan = measure_plan(ontology, table)
+    schema, name = _schema_table(table)
+    bounds = [Measure("min", plan.time), Measure("max", plan.time)] if plan.time else []
+    [whole] = reader.aggregate(schema, name, where, None, [Measure("count", None), *bounds], 1).groups
+    count = _int(whole.values[0])
+    view = group_view(count, plan.time is not None, plan.period is not None)
+    time_columns = [c for c in (plan.time, *(plan.period or ())) if c is not None]
+    order = [plan.time] if plan.time else [plan.period[0]] if plan.period else []
+    fields: dict[str, object] = {
+        "view": view, "count": count, "time_column": plan.time,
+        "period_from": plan.period[0] if plan.period else None, "period_to": plan.period[1] if plan.period else None,
+    }
+    profile = _Profile(count, view, time_columns, order, bool(order), fields)
+    if count == 0 or view == GroupView.list:
+        return profile  # 一覧では集計を見せない（個々の行がすべて見える）
+    units, mixed = _units(table, [*(c for c, _ in plan.sums), *plan.snapshot], schema, name, where, reader)
+    excluded = {m.column for m in mixed}
+    measures = [(c, op) for c, op in plan.sums if c not in excluded]
+    snapshot = [c for c in plan.snapshot if c not in excluded]
+    skipped = list({m.column: m for m in [*plan.skipped, *mixed]}.values())
+    if measures:
+        [totals] = reader.aggregate(schema, name, where, None, [Measure(_OP[op], c) for c, op in measures], 1).groups
+        fields["measures"] = [_measure_value(c, op, v, units.get(c)) for (c, op), v in zip(measures, totals.values, strict=True)]
+    fields["skipped_measures"] = skipped or None
+    if plan.breakdown is not None:
+        found = reader.aggregate(schema, name, where, plan.breakdown, [Measure("count", None)], BREAKDOWN_LIMIT)
+        d = _semantic(ontology, table, plan.breakdown)
+        fields |= {"breakdown_column": plan.breakdown, "breakdown_truncated": found.truncated,
+                   "breakdown": [BreakdownValue(value=display(g.key, d), count=_int(g.values[0])) for g in found.groups]}
+    if plan.time is None:
+        return profile
+    first, last = whole.values[1], whole.values[2]
+    if not isinstance(first, date) or not isinstance(last, date):
+        raise BrowseError(f"{table.name} の出来事の時刻の列 {plan.time} の値が日付・日時でない"
+                          f"（{type(first).__name__}）。OM の意味型か、ソースの型が食い違っている")
+    additive = [c for c, op in measures if op == MeasureOp.sum]
+    if view == GroupView.time_series:
+        unit = bucket_unit(_day(first), _day(last))
+        series_measures = additive[:SERIES_MEASURES_MAX]
+        found = reader.aggregate(schema, name, where, TimeBucket(plan.time, _UNIT[unit]),
+                                 [Measure("count", None), *(Measure("sum", c) for c in series_measures)], MONTH_SPAN)
+        fields |= {"series_unit": unit, "series_measures": series_measures or None,
+                   "series": _fill(found.groups, unit, len(series_measures))}
+    found = reader.aggregate(schema, name, where, TimeBucket(plan.time, "day"),
+                             [Measure("count", None), *(Measure("sum", c) for c in additive)], 1, latest_first=True)
+    g = found.groups[0]  # 件数が 1 以上で、時刻の列の最小・最大が日付なので、少なくとも1つある
+    day = _day(cast(date, g.key))
+    latest: dict[str, object] = {
+        "day": day, "is_today": day == today, "count": _int(g.values[0]),
+        "measures": [_measure_value(c, MeasureOp.sum, v, units.get(c)) for c, v in zip(additive, g.values[1:], strict=True)]
+        or None}
+    if snapshot:  # 半加法は、最新の時点（時刻の最大の値）の行だけで合計する
+        at = Equals({**where.values, plan.time: last})
+        [shot] = reader.aggregate(schema, name, at, None, [Measure("sum", c) for c in snapshot], 1).groups
+        latest |= {"snapshot_at": display(last, None),
+                   "snapshot": [_measure_value(c, MeasureOp.sum, v, units.get(c))
+                                for c, v in zip(snapshot, shot.values, strict=True)]}
+    fields["latest"] = LatestDay.model_validate(latest)
+    return profile
+
+
+_UNIT: dict[BucketUnit, TimeUnit] = {BucketUnit.day: "day", BucketUnit.month: "month", BucketUnit.year: "year"}
+
+
+def _fill(groups: Sequence[Group], unit: BucketUnit, sums: int) -> list[SeriesPoint]:
+    """行の無い区切りを count 0（合計は値無し）で埋める（時間軸を詰めない）。区切りは古い順。"""
+    found = {_day(cast(date, g.key)): g for g in groups}
+    if not found:
+        return []
+    points: list[SeriesPoint] = []
+    current, last = min(found), max(found)
+    while current <= last:
+        g = found.get(current)
+        points.append(SeriesPoint(start=current, count=_int(g.values[0]) if g else 0,
+                                  sums=[SeriesSum(value=float(cast(float, v)) if v is not None else None)
+                                        for v in (g.values[1:] if g else [None] * sums)]))
+        current = _next(current, unit)
+    return points
+
+
+def _next(day: date, unit: BucketUnit) -> date:
+    if unit == BucketUnit.day:
+        return day + timedelta(days=1)
+    if unit == BucketUnit.month:
+        return date(day.year + day.month // 12, day.month % 12 + 1, 1)
+    return date(day.year + 1, 1, 1)
+
+
+def _int(value: object) -> int:
+    if not isinstance(value, int):
+        raise AssertionError(f"件数が整数でない（読み手の誤り）: {value!r}")
+    return value
+
+
+def _units(table: Table, columns: Sequence[str], schema: str, name: str, where: Equals,
+           reader: RecordReader) -> tuple[dict[str, str], list[SkippedMeasure]]:
+    """尺度の単位：固定ならそれ。単位の列なら、集まりの中で値が1つのときだけ集計する（混ざっていれば合計しない。理由を返す）。
+    同じ単位の列は1回だけ問う。"""
+    units: dict[str, str] = {}
+    mixed: list[SkippedMeasure] = []
+    asked: dict[str, Aggregated] = {}
+    for c in columns:
+        unit = (table.columns or {})[c].unit
+        if unit is not None and unit.fixed is not None:
+            units[c] = str(unit.fixed)
+        elif unit is not None and unit.column is not None:
+            if unit.column not in asked:
+                asked[unit.column] = reader.aggregate(schema, name, where, unit.column, [Measure("count", None)], 1)
+            found = asked[unit.column]
+            if found.truncated:
+                mixed.append(SkippedMeasure(column=c, reason=f"単位が混ざる（列 {unit.column} の値が2つ以上）ので集計しない"))
+            elif found.groups and found.groups[0].key is not None:
+                units[c] = str(found.groups[0].key).strip()
+    return units, mixed
+
+
+def _measure_value(column: str, op: MeasureOp, value: object, unit: str | None) -> MeasureValue:
+    """平均は小数 4 桁に丸め、末尾の 0 を落とす（Decimal も浮動小数も）。"""
+    if op == MeasureOp.avg and isinstance(value, Decimal | float):
+        value = Decimal(str(round(value, 4))).normalize()
+    return MeasureValue(column=column, op=op, value=display(value, None), unit_text=unit)
+
+
+def _day(value: date) -> date:
+    return value.date() if isinstance(value, datetime) else value

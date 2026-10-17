@@ -198,6 +198,37 @@ export enum ClaimPredicate {
     discriminated_by = "discriminated_by",
 };
 /**
+* 近隣の集まりの見せ方。OM（種類、意味型の役割と加法性）と件数から機械的に決める（browse.group_view）
+*/
+export enum GroupView {
+    
+    /** 個々のサマリを並べる（件数が少ない） */
+    list = "list",
+    /** 件数、尺度の集計、enum の内訳、新しい（または先頭の）数件 */
+    summary = "summary",
+    /** 時系列の線グラフ（出来事の時刻の列があり、件数が多い） */
+    time_series = "time_series",
+    /** 期間の帯（valid_from と valid_to の列を持つ） */
+    timeline = "timeline",
+};
+/**
+* 尺度の集計のしかた（加法性から決まる。additive は sum、non-additive は avg。semi-additive は集まり全体では集計しない （時間の軸が無いと OM から言えないため）。最新の時点の行だけで合計する（LatestDay.snapshot））
+*/
+export enum MeasureOp {
+    
+    sum = "sum",
+    avg = "avg",
+};
+/**
+* 時系列の区切り（期間の幅から決まる）
+*/
+export enum BucketUnit {
+    
+    day = "day",
+    month = "month",
+    year = "year",
+};
+/**
 * インスタンスの見出しの出どころ
 */
 export enum LabelSource {
@@ -775,6 +806,86 @@ export interface RelatedGroup {
     truncated: boolean,
     /** relation の表の行が指す先の行が無かった数（via のとき。壊れた参照） */
     missing: number,
+    view: string,
+    /** 集まりの行の数（via なら relation の表の行の数）。rows は先頭・新しいものからの一部 */
+    count: number,
+    /** 出来事の時刻の列（role event_time。via なら relation の表の列）。rows はこの列の新しい順 */
+    time_column?: string,
+    /** 期間の始まりの列（role valid_from。via なら relation の表の列） */
+    period_from?: string,
+    /** 期間の終わりの列（role valid_to） */
+    period_to?: string,
+    /** 尺度の集計（集まり全体） */
+    measures?: MeasureValue[],
+    /** 集計しなかった尺度と理由（単位が混ざる、時間の軸で合計できない、など） */
+    skipped_measures?: SkippedMeasure[],
+    /** 内訳の列（enum の意味型の列） */
+    breakdown_column?: string,
+    breakdown?: BreakdownValue[],
+    breakdown_truncated?: boolean,
+    series_unit?: string,
+    /** series の各点の values に入る尺度の列（合計） */
+    series_measures?: string[],
+    /** 区切りの古い順。行の無い区切りも count 0 で入る（時間軸を詰めない） */
+    series?: SeriesPoint[],
+    /** 最新の日（time_column の値の日付で最も新しい日）のまとめ。データが今日まで届いていれば今日（is_today）。 届いていなければ最新の日を基準日として明示する */
+    latest?: LatestDay,
+}
+
+
+
+export interface MeasureValue {
+    column: string,
+    op: string,
+    /** 表示の文字列。対象の値が無ければ無し */
+    value?: string,
+    /** 単位（固定の単位、または単位の列の値がすべて同じならその値） */
+    unit_text?: string,
+}
+
+
+
+export interface SkippedMeasure {
+    column: string,
+    reason: string,
+}
+
+
+
+export interface BreakdownValue {
+    /** 表示の文字列（enum はラベルつき）。NULL は無し */
+    value?: string,
+    count: number,
+}
+
+
+
+export interface SeriesPoint {
+    /** 区切りの始まりの日付（ISO 8601） */
+    start: date,
+    count: number,
+    /** series_measures の順の合計。区切りに値が無ければ value 無し（0 とは区別する） */
+    sums: SeriesSum[],
+}
+
+
+
+export interface SeriesSum {
+    value?: number,
+}
+
+
+
+export interface LatestDay {
+    day: date,
+    is_today: boolean,
+    count: number,
+    /** 加法の尺度の、最新の日の合計 */
+    measures?: MeasureValue[],
+    /** 半加法の尺度を合計した時点（time_column の最大の値。表示の文字列） */
+    snapshot_at?: string,
+    /** 半加法の尺度（残高・在庫など）の、最新の時点（snapshot_at）の行だけの合計 */
+    snapshot?: MeasureValue[],
 }
 
 

@@ -341,7 +341,8 @@ def _serve(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
         print(style.dim(f"   {s.id:<28} {s.root}"), file=out)
     for name in readers:
         print(style.dim(f"   connect {name}"), file=out)
-    uvicorn.run(create_app(sources, readers, reviewing, records), host=args.host, port=args.port, log_level="warning")
+    uvicorn.run(create_app(sources, readers, reviewing, records, lambda: _now().date()), host=args.host, port=args.port,
+                log_level="warning")
     return 0
 
 

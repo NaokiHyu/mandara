@@ -2,11 +2,12 @@
 // relation の表は出さずにリンクとしてたどる。値はソースをその場で読む（ゼロコピー）。読めなかったら理由をそのまま見せる。
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, getDomainRows, getDomains, getInstance } from "./api";
-import { emphasized, extendTrail, linkTitle, type Place, relatedTitle, samePlace } from "./domain";
+import { emphasized, extendTrail, linkTitle, type Place, samePlace } from "./domain";
+import { GroupPanel } from "./GroupPanel";
+import { DomainIcon, Label } from "./parts";
 import { contextColor, shortName } from "./graph";
 import { type DomainIndex, type DomainRows, type DomainSummary, type Instance, type InstanceSummary,
-         LabelSource, LinkState } from "./om/model";
-import { asKind, KIND } from "./vocabulary";
+         LinkState } from "./om/model";
 
 type Load<T> = { state: "loading" } | { state: "ok"; value: T } | { state: "error"; error: unknown };
 
@@ -81,13 +82,6 @@ export function DomainView({ ontologyId, place, onPlace }: {
       </section>
     </div>
   );
-}
-
-/** ドメインのアイコン：形（文字）は種類、色はカテゴリ（コンテキスト）。 */
-function DomainIcon({ kind, color, big = false }: { kind: string; color: string; big?: boolean }) {
-  const k = KIND[asKind(kind)];
-  return <span className={`icon${big ? " big" : ""}`} style={{ background: `var(${color})` }}
-               title={k.text}>{k.mark}</span>;
 }
 
 function DomainList({ domains, filter, selected, color, onOpen }: {
@@ -295,42 +289,10 @@ function InstancePane({ ontologyId, domain, instanceKey, known, color, onOpen }:
               </ul>
             </div>
           )}
-          {it.related.map((g) => {
-            const title = relatedTitle(g);
-            const target = known.get(g.table);
-            return (
-              <div key={`${g.kind}/${g.via_table ?? ""}/${g.relation}`} className="group"
-                   style={{ borderLeftColor: `var(${color(g.table)})` }}>
-                <h2>
-                  {target !== undefined && <DomainIcon kind={target.kind} color={color(g.table)} />}
-                  <span className="mark" style={{ color: `var(${color(g.table)})` }}>{title.mark}</span> {title.name}
-                  <span className="dim"> {title.detail} · {g.rows.length}{g.truncated ? "+" : ""}</span>
-                  {g.missing > 0 && <span className="failure small"> 先の行が無い {g.missing}</span>}
-                  {target !== undefined && (
-                    <button className="link small" onClick={() => onOpen({ table: g.table, key: null })}>一覧 →</button>
-                  )}
-                </h2>
-                <ul>
-                  {g.rows.map((r, i) => ( // via の集まりは relation の行ごと（同じ先が2回出ることがある）ので位置も鍵にする
-                    <li key={`${r.key.join("/")}#${i}`}>
-                      <button className="row-link" onClick={() => open(r)}>
-                        <Label summary={r} />
-                        {r.link_cells !== undefined && r.link_cells.length > 0 && (
-                          <span className="link-cells" title="つながり（relation の行）の値。— は NULL">
-                            {r.link_cells.map((c) => `${c.column} ${c.value ?? "—"}`).join(" · ")}
-                          </span>
-                        )}
-                        <span className="dim cells">
-                          {r.cells.filter((c) => c.value !== undefined).slice(0, 3)
-                            .map((c) => `${c.column} ${c.value ?? ""}`).join(" · ")}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            );
-          })}
+          {it.related.map((g) => (
+            <GroupPanel key={`${g.kind}/${g.via_table ?? ""}/${g.relation}`} group={g} target={known.get(g.table)}
+                        color={color(g.table)} onOpen={open} onList={() => onOpen({ table: g.table, key: null })} />
+          ))}
           {it.links.length === 0 && it.related.length === 0 && <p className="dim">近隣は無い</p>}
           {it.omitted.length > 0 && (
             <details className="omitted">
@@ -343,19 +305,6 @@ function InstancePane({ ontologyId, domain, instanceKey, known, color, onOpen }:
         </section>
       </div>
     </article>
-  );
-}
-
-/** インスタンスの見出し。借りた見出しは印を付け、借りる先の行が無ければ壊れた参照として見せる。 */
-function Label({ summary }: { summary: InstanceSummary }) {
-  return (
-    <span className="key label">
-      {summary.label}
-      {summary.label_source === LabelSource.borrowed && <span className="dim small" title="is-a の上位の見出しを借りた"> ↑</span>}
-      {summary.label_source === LabelSource.borrowed_missing && (
-        <span className="failure small" title="is-a の上位に同じキーの行が無い（壊れた参照）。キーを見出しにした"> 上位の行が無い</span>
-      )}
-    </span>
   );
 }
 
