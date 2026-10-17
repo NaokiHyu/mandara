@@ -356,3 +356,22 @@ def test_time_role_types_of_other_tables_are_not_offered() -> None:
     assert "hire_date" in plain.request.questions["column startdate"].options
     options = guarded.request.questions["column startdate"].options
     assert "hire_date" not in options and "birth_date" in options  # 役割の無い意味型はそのまま出す
+
+
+def test_decided_facts_go_to_the_llm_only_when_decided() -> None:
+    """判断モデルが閾値を超えて決めたこと（既存の意味型、関係型）だけを、LLM の材料に事実として入れる。
+    新しい意味型（new）や決められなかったものは入れない。"""
+    name = "sales.salesorderdetail"
+    claims = _claims(name)
+    fk = next(x for x in claims if x.predicate == "references" and x.columns == ["salesorderid"])
+    classified = c.Classified(columns={"productid": c.Picked("product_id", 0.9), "unitprice": c.Picked(c.NEW, 1.0)},
+                              relations={fk.id: c.Picked("part-of", 0.88)})
+    lines = c.decided_lines(classified, claims, VOCABULARY)
+    assert lines == ['column "productid": semantic type product_id (identifier), probability 0.90',
+                     "foreign key (salesorderid) -> sales.salesorderheader: relation part-of, probability 0.88"]
+    prompt = c.naming_prompt(claims, VOCABULARY, "event", {}, ["unitprice"], lines)
+    body = prompt.split("<data>")[1].split("</data>")[0]
+    assert "decided by the classification" in body and "relation part-of" in body  # データの区画の中
+    assert "decided by the classification" not in c.naming_prompt(claims, VOCABULARY, "event", {}, ["unitprice"])
+    final = {"unitprice": SemanticType(name="unit_price", type=ValueType.money, description="単価", requires_unit=True)}
+    assert c.decided_lines(classified, claims, VOCABULARY, final)[0] == 'column "unitprice": semantic type unit_price (money)'

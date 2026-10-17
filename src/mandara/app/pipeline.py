@@ -448,7 +448,8 @@ def _ask_table(table: Table, table_claims: Sequence[Claim], ontology: Ontology,
     if new_columns:
         request = StructuredRequest(
             purpose=f"name {table.name}", system=classify.NAMING_SYSTEM,
-            prompt=classify.naming_prompt(table_claims, vocabulary, kind, hints, new_columns),
+            prompt=classify.naming_prompt(table_claims, vocabulary, kind, hints, new_columns,
+                                          classify.decided_lines(classified, table_claims, vocabulary)),
             schema=classify.NamingAnswer.model_json_schema(), max_output_tokens=NAMING_MAX_OUTPUT_TOKENS)
         naming_data: object = None
         try:
@@ -517,7 +518,10 @@ def _ask_table(table: Table, table_claims: Sequence[Claim], ontology: Ontology,
             kind, final_types):
         request = StructuredRequest(
             purpose=f"grain {table.name}", system=classify.GRAIN_SYSTEM,
-            prompt=classify.grain_prompt(table_claims, kind, hints),
+            prompt=classify.grain_prompt(table_claims, kind, hints,
+                                         classify.decided_lines(classified, table_claims, vocabulary, {
+                                             n: d for n, d in final_types.items()  # 単位が決まらず落ちる列は除く
+                                             if n not in needs_unit or n in unit_answers})),
             schema=classify.GrainAnswer.model_json_schema(), max_output_tokens=GRAIN_MAX_OUTPUT_TOKENS)
         grain_data: object = None
         try:

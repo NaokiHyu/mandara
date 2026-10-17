@@ -157,8 +157,9 @@ def meaning_hints(ontology: Ontology, table: Table, groups: MeaningGroups) -> di
 
 
 def brief(table_claims: Sequence[Claim], vocabulary: Mapping[str, SemanticType], decided_kind: str | None,
-          meaning: Mapping[str, MeaningHint]) -> str:
-    """表の主張を、根拠の ID つきで読める形にする。自由文はすべて JSON の文字列で、データの区画の中。"""
+          meaning: Mapping[str, MeaningHint], decided: Sequence[str] = ()) -> str:
+    """表の主張を、根拠の ID つきで読める形にする。自由文はすべて JSON の文字列で、データの区画の中。
+    decided は前の段（判断モデルの分類）で決まったこと（classify.decided_lines。閾値を超えたものだけ）。"""
     by = {p.value: [c for c in table_claims if c.predicate == p.value] for p in ClaimPredicate}
     declared = by[ClaimPredicate.declared_as.value]
     if not declared:
@@ -198,6 +199,9 @@ def brief(table_claims: Sequence[Claim], vocabulary: Mapping[str, SemanticType],
                      f" on delete {c.on_delete}")
     for c in by[ClaimPredicate.checks.value]:
         lines.append(f"check {c.id}: {_q(c.text)}")
+    if decided:
+        lines.append("decided by the classification (facts; do not contradict them):")
+        lines += [f"- {d}" for d in decided]
     if vocabulary:
         lines.append("existing vocabulary:")
         lines += [f"- {d.name}: {d.type}" + (f" {_q(d.description)}" if d.description else "")

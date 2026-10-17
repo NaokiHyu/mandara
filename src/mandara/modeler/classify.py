@@ -15,6 +15,7 @@ Domain 層の純粋な関数（呼び出しは Application がポート経由で
 - どの問いにも「決められない」（unclear）を置く。選ぶしかない問いにしない
 """
 
+import json
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 
@@ -500,12 +501,43 @@ class NamingAnswer(_Strict):
     semantic_types: list[NamedType]
 
 
+def decided_lines(classified: Classified, table_claims: Sequence[Claim], vocabulary: Mapping[str, SemanticType],
+                  types: Mapping[str, SemanticType] | None = None) -> list[str]:
+    """判断モデルが決めたこと（閾値を超えたものだけ）を、後の LLM の材料にする行。決められなかったものは入れない
+    （不確かなことを事実として渡すと、LLM がそれを補強してしまう）。
+    types があれば列の意味型はそれ（命名・性質の後の、新しい意味型も含む最終の型）。無ければ分類で既存の意味型に決まった列だけ。"""
+    lines: list[str] = []
+    if types is not None:
+        columns = {name: d for name, d in types.items()}
+        lines += [f"column {_qs(name)}: semantic type {d.name} ({d.type}" + (f", role {d.role}" if d.role else "") + ")"
+                  for name, d in sorted(columns.items())]
+    else:
+        for name, picked in sorted(classified.columns.items()):
+            d = vocabulary.get(picked.value)
+            if picked.value != NEW and d is not None:
+                lines.append(f"column {_qs(name)}: semantic type {d.name} ({d.type}"
+                             + (f", role {d.role}" if d.role else "") + f"), probability {picked.probability:.2f}")
+    fks = {c.id: c for c in _by(table_claims, ClaimPredicate.references)}
+    for fk_id, picked in sorted(classified.relations.items()):
+        if (fk := fks.get(fk_id)) is not None:
+            lines.append(f"foreign key {_fk_label(fk)}: relation {picked.value}, probability {picked.probability:.2f}")
+    if classified.edge is not None:
+        edge, p = classified.edge
+        lines.append(f"each row is an edge: the {_target_of(list(fks.values()), edge.from_fk)} {_EDGE_VERB[edge.type]} "
+                     f"the {_target_of(list(fks.values()), edge.to_fk)}, probability {p:.2f}")
+    return lines
+
+
+def _qs(text: str) -> str:
+    return json.dumps(text, ensure_ascii=False)
+
+
 def naming_prompt(table_claims: Sequence[Claim], vocabulary: Mapping[str, SemanticType], kind: str | None,
-                  hints: Mapping[str, MeaningHint], columns: Sequence[str]) -> str:
+                  hints: Mapping[str, MeaningHint], columns: Sequence[str], decided: Sequence[str] = ()) -> str:
     """語彙は名前だけを渡す（使ってはいけない名前として。説明まで渡すと問いの大半が語彙になる）。
     名前は NAME の形（小文字・数字・_）に検証済みなので、データの区画の外に置いてよい。"""
     taken = ", ".join(sorted(vocabulary)) or "(none)"
-    return (brief(table_claims, {}, kind, hints)
+    return (brief(table_claims, {}, kind, hints, decided)
             + f"\nexisting semantic type names (taken, do not reuse): {taken}"
             + "\ncolumns to name: " + ", ".join(f'"{c}"' for c in columns))
 
@@ -708,8 +740,9 @@ class GrainAnswer(_Strict):
     grain: str = Field(min_length=1)
 
 
-def grain_prompt(table_claims: Sequence[Claim], kind: str | None, hints: Mapping[str, MeaningHint]) -> str:
-    return brief(table_claims, {}, kind, hints)
+def grain_prompt(table_claims: Sequence[Claim], kind: str | None, hints: Mapping[str, MeaningHint],
+                 decided: Sequence[str] = ()) -> str:
+    return brief(table_claims, {}, kind, hints, decided)
 
 
 def parse_grain(data: object) -> GrainAnswer:
