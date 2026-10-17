@@ -18,7 +18,7 @@ from mandara.om.model import Claim, ClaimPredicate, ClaimSource, ClaimSourceKind
 
 PAYLOAD_FIELDS = (
     "columns", "target", "target_columns", "on_delete", "on_update", "text", "type_name", "family", "position",
-    "object_kind", "encoding", "discriminator", "discriminator_values",
+    "object_kind", "encoding", "discriminator", "discriminator_values", "fixed_unit",
 )
 """述語によって持つ・持たないが決まる、値のフィールド。"""
 
@@ -49,6 +49,7 @@ SHAPES: dict[str, Shape] = {
     ClaimPredicate.typed_as.value: _shape("column", "type_name", "family", "position"),
     ClaimPredicate.aliased_as.value: _shape("column", "type_name"),
     ClaimPredicate.encoded_as.value: _shape("column", "encoding"),
+    ClaimPredicate.amounts_in.value: _shape("table", "fixed_unit"),
     ClaimPredicate.covers_all.value: _shape("table", "columns", "target", "target_columns"),
     ClaimPredicate.discriminated_by.value: _shape("table", "columns", "target", "target_columns", "discriminator",
                                                   "discriminator_values"),

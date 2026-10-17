@@ -487,8 +487,9 @@ claims:
 - `locator` は出所の中の場所（どの表・列・制約か）を指す。6.6.5 の「同じ出所は1票」はこの単位で束ねる
 - **ID は内容から決まる**：主語、述語、値のフィールド、出所（種類と場所）の正規形のハッシュ。抽出器の版・確信度・日付には依存しない。決定的な抽出器を再実行すれば同じ ID になり、OM の `evidence` が切れない
 - 決定的な抽出器（スキーマ、SQL、公開コード表）の主張は再生成できるキャッシュで、**git に乗せない**（`work/`）。再生成できない主張（レビューの回答、LLM による抽出）の保存方針は未決（15.2）
-- 述語は①で閉じる。今あるのはカタログの抽出器が出すもの（declared_as、identified_by、unique、references、not_null、nullable、defaults_to、described_as、checks、typed_as、aliased_as）と、実データの値の抽出器が出すもの（encoded_as、covers_all、discriminated_by）。カタログの事実はすべて主張にし、モデラーは主張だけを根拠にする（evidence で指せるように）。`means`、`same_as`、否定形（`not_*`）などは、それを出す抽出器と一緒に足す。否定形の述語で反証を記録できるようにする
-- `source.kind` は `schema | sql | codelist | data | design-doc | memo | package | world | review`（data はソースの実データの値を読んだもの）
+- 述語は①で閉じる。今あるのはカタログの抽出器が出すもの（declared_as、identified_by、unique、references、not_null、nullable、defaults_to、described_as、checks、typed_as、aliased_as）と、実データの値の抽出器が出すもの（encoded_as、covers_all、discriminated_by）と、人の宣言から作るもの（amounts_in）。カタログの事実はすべて主張にし、モデラーは主張だけを根拠にする（evidence で指せるように）。`means`、`same_as`、否定形（`not_*`）などは、それを出す抽出器と一緒に足す。否定形の述語で反証を記録できるようにする
+- `source.kind` は `schema | sql | codelist | data | declaration | design-doc | memo | package | world | review`（data はソースの実データの値を読んだもの。declaration は人がソースについて宣言したこと（`work/<source>/declarations.yaml`、`mandara declare`）で、抽出のたびに主張に作り直す）
+- データやカタログからは分からないソースの性質（金額の通貨など）は、人が宣言する。推論はそれを事実として問いに添え、根拠に引く。規則で決め打ちはしない（行ごとの通貨コードの列があればそちらを選べるように）
 - 提案（OM、アダプタ、メトリクス、関数）の `evidence` は主張IDを指す
 
 #### 6.6.3 抽出器は入力の種類ごとに分ける

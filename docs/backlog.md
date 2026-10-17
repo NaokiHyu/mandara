@@ -58,6 +58,7 @@
 | [T3.6](tasks/T3.6-durable-claims.md) | レビューの回答と LLM の主張の保存方針 | 未着手 | T3.2 |
 | [T3.7](tasks/T3.7-decision-model.md) | 分類は判断モデル（Jev）、名前と文は LLM | 着手 | T3.1, T3.2 |
 | [T3.8](tasks/T3.8-relation-evidence.md) | 関係型の手がかり（is-a は共有主キーと被覆・区分の列、part-of は主キー・カスケード・NOT NULL） | 完了 | T3.7 |
+| [T3.9](tasks/T3.9-source-declarations.md) | ソースの宣言（既定の通貨。データから分からないことを人が宣言し、推論の根拠にする） | 完了 | T3.7 |
 
 ## 段 4：コードを掘る
 | ID | タスク | 状態 | 依存 |

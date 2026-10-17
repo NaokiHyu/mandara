@@ -195,6 +195,9 @@ enums:
         description: 列はユーザー定義の型の別名 type_name を使う
       encoded_as:
         description: 列の値は物理的な表現 encoding で書かれている（実データの値の抽出器 T2.4 が出す。読んだ値がすべてそのコーデックで読めた）
+      amounts_in:
+        description: >-
+          表の金額は、行が別の単位を言わない限り fixed_unit（人が宣言したソースの性質。宣言のファイルから抽出のたびに作る）
       covers_all:
         description: >-
           表の columns で target の target_columns を参照する行が、target のすべての行にある（実データ。target が空なら出さない）
@@ -246,6 +249,8 @@ enums:
       codelist:
       data:
         description: ソースの実データの値（列の値を読んだもの）
+      declaration:
+        description: 人が宣言したソースの性質（work/<source>/declarations.yaml。抽出のたびに主張に作り直す）
       design-doc:
       memo:
       package:
@@ -608,6 +613,9 @@ classes:
         range: ObjectKind
       encoding:
         range: SourceEncoding
+      fixed_unit:
+        description: 固定の単位（amounts_in）
+        range: Unit
       discriminator:
         description: 区分の列の名前（target の列）
       discriminator_values:
@@ -628,6 +636,16 @@ classes:
         required: true
         minimum_value: 0.0
         maximum_value: 1.0
+
+  SourceDeclarations:
+    tree_root: true
+    description: >-
+      人が宣言するソースの性質（work/<source>/declarations.yaml）。データやカタログからは分からないことだけを書く。
+      抽出のたびに主張（source.kind: declaration）にし、推論の根拠にする
+    attributes:
+      default_currency:
+        description: ソースの金額の通貨（行が別の単位を言わない限り）
+        range: Unit
 
   SourceRef:
     description: データソース上の表または列。OM の安定 ID ができる前の段階なので、ソース上の名前で指す

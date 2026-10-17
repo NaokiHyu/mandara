@@ -8,6 +8,8 @@
 
 import io
 import json
+
+import pytest
 import shutil
 from pathlib import Path
 
@@ -46,6 +48,7 @@ def test_run_writes_everything_and_is_deterministic(tmp_path: Path) -> None:
     data = json.loads(record.read_text())
     assert data["status"] == "succeeded" and data["completed"] == ["extract", "propose", "evaluate"]
     assert data["versions"] == {"extractor": "catalog 0.1", "values_extractor": "values 0.1",
+                                "declaration_extractor": "declarations 0.1",
                                 "modeler": "modeler-rules 0.1"}
     decided = {(e["table"], e["column"]): e["encoding"] for e in data["encodings"]["examined"] if e["encoding"]}
     assert decided == {("person.address", "spatiallocation"): "sqlserver_geography"}
@@ -101,3 +104,17 @@ def test_failed_run_is_recorded_with_its_stage(tmp_path: Path) -> None:
     data = json.loads(record.read_text())
     assert (data["status"], data["failed_stage"], data["completed"]) == ("failed", "evaluate", ["extract", "propose"])
     assert "OmLoadError" in data["error"]
+
+
+def test_declare_writes_the_declaration_and_extract_makes_claims(tmp_path: Path) -> None:
+    code, out, err = _run("declare", "--source", "adventureworks", "--work", str(tmp_path), "--default-currency", "USD")
+    assert (code, err) == (0, "") and "default_currency USD" in out
+    assert (tmp_path / "adventureworks/declarations.yaml").read_text() == "default_currency: USD\n"
+    assert _run("extract", *_aw(tmp_path))[0] == 0
+    claims = "".join(p.read_text() for p in (tmp_path / "adventureworks/claims").rglob("*.yaml"))
+    assert claims.count("predicate: amounts_in") == 89 and "kind: declaration" in claims
+    with pytest.raises(SystemExit):  # 通貨でない単位は宣言できない（引数の段で拒む）
+        _run("declare", "--source", "adventureworks", "--work", str(tmp_path), "--default-currency", "each")
+    (tmp_path / "adventureworks/declarations.yaml").write_text("default_currency: each\n")  # 手で書き換えても拒む
+    code, _, err = _run("extract", *_aw(tmp_path))
+    assert code == 2 and "通貨でない" in err

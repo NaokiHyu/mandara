@@ -651,18 +651,24 @@ class Units:
     evidence: Mapping[str, list[str]]
 
 
-def units(table_claims: Sequence[Claim], needs_unit: Sequence[str], code_columns: Sequence[str],
+def units(table_claims: Sequence[Claim], needs_unit: Sequence[str], money: Collection[str], code_columns: Sequence[str],
           purpose: str) -> Units:
-    """単位の要る列の単位。選択肢は固定の単位と、同じ表の code の列。"""
+    """単位の要る列の単位。選択肢は固定の単位と、同じ表の code の列。
+    金額の列（money）には、ソースの宣言（amounts_in：行が別の単位を言わない限りその通貨）を事実として添える。"""
     questions: dict[str, Choice] = {}
     evidence: dict[str, list[str]] = {}
+    declared = _by(table_claims, ClaimPredicate.amounts_in)
     for name in needs_unit:
         options: dict[str, str | None] = dict(_UNIT)
         options |= {f"column {c}": f"the unit is given in each row by the column {c}" for c in code_columns if c != name}
         options[UNCLEAR] = "The facts do not say the unit."
-        questions[f"unit {name}"] = Choice({"column": name, "question": "In which unit are the values of `column`?"},
-                                           options)
-        evidence[f"unit {name}"] = _column_evidence(table_claims, name)
+        instructions: dict[str, object] = {"column": name, "question": "In which unit are the values of `column`?"}
+        cited = declared if name in money else []
+        if cited:
+            instructions["facts"] = [f"The owner of the data source declares that amounts of money in it are in "
+                                     f"{c.fixed_unit}, unless a column of the row gives the unit." for c in cited]
+        questions[f"unit {name}"] = Choice(instructions, options)
+        evidence[f"unit {name}"] = sorted({*_column_evidence(table_claims, name), *(c.id for c in cited)})
     request = DecisionRequest(purpose, state(table_claims), questions) if questions else None
     return Units(request, evidence)
 

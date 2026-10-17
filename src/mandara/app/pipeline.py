@@ -23,6 +23,7 @@ from mandara.codecs.detect import Detection, detect
 from mandara.codecs.registry import BY_ENCODING, CodecError
 from mandara.evaluation.score import Report, score
 from mandara.extractors import catalog as catalog_extractor
+from mandara.extractors import declarations as declaration_extractor
 from mandara.extractors import values as values_extractor
 from mandara.llm.decision import BudgetedDecisionModel, DecisionModel, DecisionResponse
 from mandara.llm.model import (
@@ -44,6 +45,7 @@ from mandara.om.encoding_traits import ENCODING_TARGETS
 from mandara.om.model import Claim, ClaimPredicate, ReviewStatus, SemanticType, Table, Unit, ValueType
 from mandara.om.names import qualify, split_qualified
 from mandara.om.ontology import Ontology
+from mandara.omstore.declaration_store import load_declarations
 from mandara.omstore.claim_store import load_claim_ledger, load_ledger_scope, write_claim_ledger
 from mandara.omstore.json_store import write_json
 from mandara.modeler.rules import InvalidInputError
@@ -142,6 +144,7 @@ def extract(workspace: Workspace, reader: CatalogReader, scope: Scope, values: C
     """カタログを読み、実データの主張（バイト列の物理的な表現、主キーを共有する参照の被覆）を足して、主張台帳を作り直す。"""
     catalog = reader.read(scope)
     claims = catalog_extractor.extract(workspace.source, catalog)
+    claims += declaration_extractor.extract(workspace.source, catalog, load_declarations(workspace.root))
     targets, not_examined = values_extractor.targets(catalog)
     examined: list[Examined] = []
     for target in targets:
@@ -489,7 +492,8 @@ def _ask_table(table: Table, table_claims: Sequence[Claim], ontology: Ontology,
     needs_unit = sorted(name for name in classified.columns
                         if name in final_types and final_types[name].requires_unit)
     code_columns = sorted(name for name, d in final_types.items() if d.type == ValueType.code.value)
-    unit_asked = classify.units(table_claims, needs_unit, code_columns, f"units {table.name}")
+    money = sorted(name for name in needs_unit if final_types[name].type == ValueType.money.value)
+    unit_asked = classify.units(table_claims, needs_unit, money, code_columns, f"units {table.name}")
     unit_answers: dict[str, tuple[Unit | None, str | None, float]] = {}
     if unit_asked.request is not None:
         try:
@@ -687,6 +691,7 @@ def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, cover
         "source": workspace.source,
         "requested_scope": list(scope.schemas),
         "versions": {"extractor": catalog_extractor.EXTRACTOR, "values_extractor": values_extractor.EXTRACTOR,
+                     "declaration_extractor": declaration_extractor.EXTRACTOR,
                      "modeler": modeler.MODELER},
         "completed": [],
     })

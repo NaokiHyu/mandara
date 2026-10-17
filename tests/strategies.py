@@ -311,6 +311,8 @@ def claims(
     if "discriminator" in shape.fields:
         payload["discriminator"] = draw(column_names)
         payload["discriminator_values"] = draw(st.lists(texts, min_size=1, max_size=3))
+    if "fixed_unit" in shape.fields:
+        payload["fixed_unit"] = draw(st.sampled_from(tuple(Unit)))
     if "encoding" in shape.fields:
         payload["encoding"] = draw(st.sampled_from(tuple(SourceEncoding)))
     return new_claim(

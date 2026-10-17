@@ -165,7 +165,7 @@ def test_unit_column_evidence_is_included() -> None:
     name = "sales.salesorderdetail"
     asked = _asked(name)
     classified = c.Classified(columns={"unitprice": c.Picked("unit_price", 0.9)})
-    units = c.units(_claims(name), ["unitprice"], ["carriertrackingnumber"], "units")
+    units = c.units(_claims(name), ["unitprice"], ["unitprice"], ["carriertrackingnumber"], "units")
     answer, _ = c.assemble(_table(name), _claims(name), asked, classified, [], None,
                            {"unitprice": (None, "carriertrackingnumber", 0.8)}, units.evidence, None)
     unit_column = {x.id for x in _claims(name) if x.subject.column == "carriertrackingnumber"}
@@ -317,3 +317,22 @@ def test_kind_questions_tell_what_the_primary_key_is_made_of() -> None:
     assert "the foreign key (salesorderid) -> sales.salesorderheader and the columns salesorderdetailid" in facts(
         "sales.salesorderdetail")
     assert facts("production.product") == "No foreign key is a part of the primary key."
+
+
+def test_declared_currency_is_told_for_money_columns_only() -> None:
+    """ソースの宣言（既定の通貨）は、金額の列の単位の問いにだけ事実として添い、根拠に宣言の主張が入る。"""
+    from mandara.extractors import declarations
+    from mandara.om.model import SourceDeclarations, Unit
+
+    name = "sales.salesorderdetail"
+    catalog = PostgresCatalogReader("dbname=adventureworks").read(SCOPE)
+    declared = [x for x in declarations.extract("adventureworks", catalog, SourceDeclarations(default_currency=Unit.USD))
+                if qualify(x.subject.schema_name, x.subject.table) == name]
+    assert len(declared) == 1 and declared[0].source.kind == "declaration"
+    asked = c.units([*_claims(name), *declared], ["unitprice", "orderqty"], ["unitprice"], [], "units")
+    assert asked.request is not None
+    money, quantity = asked.request.questions["unit unitprice"], asked.request.questions["unit orderqty"]
+    assert isinstance(money.instructions, dict) and isinstance(quantity.instructions, dict)
+    assert "USD" in _facts(money.instructions) and "facts" not in quantity.instructions
+    assert declared[0].id in asked.evidence["unit unitprice"] and declared[0].id not in asked.evidence["unit orderqty"]
+    assert declarations.extract("adventureworks", catalog, SourceDeclarations()) == []  # 宣言が無ければ主張も無い

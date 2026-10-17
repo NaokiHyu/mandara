@@ -327,6 +327,10 @@ class ClaimPredicate(str, Enum):
     """
     列の値は物理的な表現 encoding で書かれている（実データの値の抽出器 T2.4 が出す。読んだ値がすべてそのコーデックで読めた）
     """
+    amounts_in = "amounts_in"
+    """
+    表の金額は、行が別の単位を言わない限り fixed_unit（人が宣言したソースの性質。宣言のファイルから抽出のたびに作る）
+    """
     covers_all = "covers_all"
     """
     表の columns で target の target_columns を参照する行が、target のすべての行にある（実データ。target が空なら出さない）
@@ -408,6 +412,10 @@ class ClaimSourceKind(str, Enum):
     data = "data"
     """
     ソースの実データの値（列の値を読んだもの）
+    """
+    declaration = "declaration"
+    """
+    人が宣言したソースの性質（work/<source>/declarations.yaml。抽出のたびに主張に作り直す）
     """
     design_doc = "design-doc"
     memo = "memo"
@@ -792,6 +800,7 @@ class Claim(ConfiguredBaseModel):
     position: Optional[int] = Field(default=None, description="""列の、表の中の位置（1 から）""", ge=1, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     object_kind: Optional[ObjectKind] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     encoding: Optional[SourceEncoding] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Column', 'Claim']} })
+    fixed_unit: Optional[Unit] = Field(default=None, description="""固定の単位（amounts_in）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     discriminator: Optional[str] = Field(default=None, description="""区分の列の名前（target の列）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     discriminator_values: Optional[list[str]] = Field(default=None, description="""区分の列の値（ソースの値の文字列表現。NULL は含めない）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     source: ClaimSource = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Claim', 'SourceRef']} })
@@ -811,6 +820,15 @@ class Claim(ConfiguredBaseModel):
             err_msg = f"Invalid id format: {v}"
             raise ValueError(err_msg)
         return v
+
+
+class SourceDeclarations(ConfiguredBaseModel):
+    """
+    人が宣言するソースの性質（work/<source>/declarations.yaml）。データやカタログからは分からないことだけを書く。 抽出のたびに主張（source.kind: declaration）にし、推論の根拠にする
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'tree_root': True})
+
+    default_currency: Optional[Unit] = Field(default=None, description="""ソースの金額の通貨（行が別の単位を言わない限り）""", json_schema_extra = { "linkml_meta": {'domain_of': ['SourceDeclarations']} })
 
 
 class SourceRef(ConfiguredBaseModel):
@@ -1405,6 +1423,7 @@ Relation.model_rebuild()
 ColumnPair.model_rebuild()
 ClaimFile.model_rebuild()
 Claim.model_rebuild()
+SourceDeclarations.model_rebuild()
 SourceRef.model_rebuild()
 ClaimSource.model_rebuild()
 OntologyIndex.model_rebuild()

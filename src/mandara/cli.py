@@ -39,6 +39,9 @@ from mandara.review.decisions import Approve, Decision, Question, Reject, Review
 from mandara.source.catalog import Scope, SourceError
 from mandara.source.records import RecordReader
 from mandara.source.rows import ColumnReader
+from mandara.om.model import SourceDeclarations
+from mandara.om.value_types import CURRENCIES
+from mandara.omstore.declaration_store import InvalidDeclarationError, load_declarations, write_declarations
 
 class UsageError(Exception):
     """コマンドの引数の誤り。"""
@@ -47,7 +50,7 @@ class UsageError(Exception):
 _KNOWN_ERRORS = (SourceError, OmLoadError, InvalidClaimsError, LedgerRefusedError, UnstorableNameError,
                  InvalidOntologyError, OntologyWriteRefusedError, InvalidInputError, InvalidForScoringError,
                  ReviewError, LedgerMismatchError, BulkThresholdError, UsageError, LlmError, SettingsError,
-                 UnknownPricingError)
+                 UnknownPricingError, InvalidDeclarationError)
 """データ・ファイル・操作に原因のある失敗。これ以外（モデラーの出力が検証を通らない InvalidProposalError、
 pydantic の ValidationError など）はバグなので、捕まえずにトレースバックごと落とす。"""
 
@@ -119,6 +122,12 @@ def _parser() -> argparse.ArgumentParser:
     source_args(p)
     connection_args(p)
     p.set_defaults(handler=_extract)
+
+    p = commands.add_parser("declare", help="ソースの性質を宣言する（データやカタログから分からないこと。抽出のたびに主張になる）")
+    source_args(p)
+    p.add_argument("--default-currency", required=True, choices=sorted(CURRENCIES),
+                   help="金額の通貨（行が別の単位を言わない限り）")
+    p.set_defaults(handler=_declare)
 
     p = commands.add_parser("propose", help="主張台帳から OM を提案する")
     source_args(p)
@@ -200,6 +209,16 @@ def _extract(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
     scope = Scope(tuple(args.schema))
     _banner(out, style, workspace, scope)
     _extract_line(out, style, pipeline.extract(workspace, _reader(args), scope, _values(args), PostgresCoverageReader(args.conninfo)))
+    return 0
+
+
+def _declare(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
+    workspace = _workspace(args)
+    current = load_declarations(workspace.root).model_dump(mode="json", exclude_none=True)
+    declarations = SourceDeclarations.model_validate({**current, "default_currency": args.default_currency})
+    path = write_declarations(workspace.root, declarations)
+    print(f"  {style.dim('declare')}   default_currency {args.default_currency}  {style.dim(str(path))}", file=out)
+    print(f"  {style.dim('next')}      mandara extract / run で主張になる（推論の根拠に使う）", file=out)
     return 0
 
 

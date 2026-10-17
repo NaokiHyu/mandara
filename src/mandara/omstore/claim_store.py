@@ -5,6 +5,7 @@ Adapter 層。配置：<root>/<name(schema)>/<name(table)>.yaml（root は work/
 符号化したスキーマ名は "." を含まないので、scope.json と衝突しない。
 - 台帳は決定的な抽出器が丸ごと作り直すキャッシュ。書けるのは決定的な出所（schema / sql / codelist / data）の主張だけ。
   data は実データの値を読んだもの。抽出のたびに読み直す（データが変われば主張も変わる）。
+  declaration は人の宣言のファイル（declarations.yaml）から抽出のたびに作る（宣言はファイルに残るので消えない）。
   再生成できない主張（review など）を、書き直しで消さないため（保存方針は仕様 15.2 で未決）
 - 書く前と読む境界の両方で、主張を検証する（台帳のファイルは手で編集されうる）
 """
@@ -21,7 +22,7 @@ from mandara.omstore.codec import OmLoadError
 from mandara.omstore.tree import decode_name, encode_name, files_in, replace_tree
 
 _DETERMINISTIC_KINDS = frozenset({ClaimSourceKind.schema.value, ClaimSourceKind.sql.value, ClaimSourceKind.codelist.value,
-                                  ClaimSourceKind.data.value})
+                                  ClaimSourceKind.data.value, ClaimSourceKind.declaration.value})
 _WHAT = "主張台帳"
 
 

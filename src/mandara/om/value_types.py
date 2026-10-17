@@ -4,7 +4,7 @@ Domain 層。モデラー（規則、LLM、同じ意味の伝播）に共通の�
 """
 
 from mandara.om.encoding_traits import ENCODING_TARGETS
-from mandara.om.model import TypeFamily, ValueType
+from mandara.om.model import TypeFamily, Unit, ValueType
 
 COMPATIBLE: dict[str, frozenset[str]] = {
     TypeFamily.integer.value: frozenset({"identifier", "code", "enum", "integer", "quantity", "money", "ratio"}),
@@ -40,6 +40,9 @@ def assignable(family: str, encoding: str | None) -> frozenset[str]:
         raise IncompatibleEncodingError(f"encoding {encoding} の変換先 {target} を、型族 {family} の列に当てられない")
     return frozenset({target})
 
+
+CURRENCIES = frozenset({Unit.USD.value, Unit.JPY.value})
+"""通貨の単位（ソースの既定の通貨に宣言できるもの）。"""
 
 UNIT_BEARING = frozenset({ValueType.quantity.value, ValueType.money.value})
 """単位が要る値の型（SEMANTIC_TYPE_SHAPE）。"""

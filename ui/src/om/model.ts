@@ -192,6 +192,8 @@ export enum ClaimPredicate {
     aliased_as = "aliased_as",
     /** 列の値は物理的な表現 encoding で書かれている（実データの値の抽出器 T2.4 が出す。読んだ値がすべてそのコーデックで読めた） */
     encoded_as = "encoded_as",
+    /** 表の金額は、行が別の単位を言わない限り fixed_unit（人が宣言したソースの性質。宣言のファイルから抽出のたびに作る） */
+    amounts_in = "amounts_in",
     /** 表の columns で target の target_columns を参照する行が、target のすべての行にある（実データ。target が空なら出さない） */
     covers_all = "covers_all",
     /** 表の columns で target の target_columns を参照される target の行は、ちょうど target の列 discriminator が discriminator_values のどれかである行（実データ。区分の列。値の一部だけが参照され、残りは参照されない） */
@@ -252,6 +254,8 @@ export enum ClaimSourceKind {
     codelist = "codelist",
     /** ソースの実データの値（列の値を読んだもの） */
     data = "data",
+    /** 人が宣言したソースの性質（work/<source>/declarations.yaml。抽出のたびに主張に作り直す） */
+    declaration = "declaration",
     design_doc = "design-doc",
     memo = "memo",
     package = "package",
@@ -511,6 +515,8 @@ export interface Claim {
     position?: number,
     object_kind?: string,
     encoding?: string,
+    /** 固定の単位（amounts_in） */
+    fixed_unit?: string,
     /** 区分の列の名前（target の列） */
     discriminator?: string,
     /** 区分の列の値（ソースの値の文字列表現。NULL は含めない） */
@@ -521,6 +527,15 @@ export interface Claim {
     /** 出所の日付（文書の日付など）。鮮度の根拠 */
     valid_at?: date,
     confidence: number,
+}
+
+
+/**
+ * 人が宣言するソースの性質（work/<source>/declarations.yaml）。データやカタログからは分からないことだけを書く。 抽出のたびに主張（source.kind: declaration）にし、推論の根拠にする
+ */
+export interface SourceDeclarations {
+    /** ソースの金額の通貨（行が別の単位を言わない限り） */
+    default_currency?: string,
 }
 
 
