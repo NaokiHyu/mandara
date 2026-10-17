@@ -178,10 +178,16 @@ def searchable(ontology: Ontology, table: Table) -> list[str]:
             if (d := _semantic(ontology, table, c)) is not None and d.type in _SEARCH_TYPES]
 
 
+_BULKY_TYPES = {ValueType("document.xml").value, ValueType("media.image").value, ValueType("media.audio").value,
+                ValueType("media.document").value}
+"""一覧の行に添えない値の型（文書やメディア。1行に収まらない）。個のビューでは出す。"""
+
+
 def _summary_columns(ontology: Ontology, table: Table) -> list[str]:
     key = list(table.identity.primary) if table.identity else []
     labels = label_columns(ontology, table)
-    rest = [c for c in visible_columns(ontology, table) if c not in key and c not in labels]
+    rest = [c for c in visible_columns(ontology, table) if c not in key and c not in labels
+            and ((d := _semantic(ontology, table, c)) is None or d.type not in _BULKY_TYPES)]
     return rest[:SUMMARY_CELLS]
 
 
@@ -553,8 +559,8 @@ BREAKDOWN_LIMIT = 6
 MEASURES_MAX = 3
 SERIES_MEASURES_MAX = 2
 DAY_SPAN = 62
-"""期間の幅がこれ以下の日数なら日ごと、MONTH_SPAN 以下なら月ごと、それより長ければ年ごとに区切る。"""
-MONTH_SPAN = 1100
+"""期間の幅がこれ以下の日数なら日ごと、MONTH_SPAN 以下なら月ごと、それより長ければ年ごとに区切る（点がおよそ 60 以下になる細かさ）。"""
+MONTH_SPAN = 1890
 
 
 def group_view(count: int, has_time: bool, has_period: bool) -> GroupView:

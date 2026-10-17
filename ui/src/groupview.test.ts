@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { measureText, periodBars, seriesLine } from "./groupview";
+import { bucketLabel, measureText, partialBucket, periodBars, seriesLine, ticks, trend } from "./groupview";
 import { LabelSource, MeasureOp, type InstanceSummary } from "./om/model";
 
 const chart = { width: 100, height: 10 };
@@ -50,5 +50,28 @@ describe("measureText", () => {
   it("合計・平均と単位", () => {
     expect(measureText({ column: "qty", op: MeasureOp.sum, value: "26", unit_text: "each" })).toBe("qty 合計 26 each");
     expect(measureText({ column: "price", op: MeasureOp.avg })).toBe("price 平均 —");
+  });
+});
+
+describe("trend / ticks / bucketLabel / partialBucket", () => {
+  it("最後と一つ前の区切りの増減。前が 0 なら率は無し", () => {
+    expect(trend([point("2024-01-01", 10), point("2024-02-01", 15)])?.ratio).toBeCloseTo(0.5);
+    expect(trend([point("2024-01-01", 0), point("2024-02-01", 5)])?.ratio).toBeUndefined();
+    expect(trend([])).toBeNull();
+  });
+  it("目盛りは 0 から最大を覆う、切りのよい刻み", () => {
+    expect(ticks(20)).toEqual([0, 5, 10, 15, 20]);
+    expect(ticks(358)).toEqual([0, 100, 200, 300]);
+    expect(ticks(0)).toEqual([0]);
+  });
+  it("区切りの見出し", () => {
+    expect(bucketLabel("2024-05-01", "month")).toBe("2024-05");
+    expect(bucketLabel("2024-01-01", "year")).toBe("2024");
+  });
+  it("最新の日が区切りの最後の日より前なら途中", () => {
+    expect(partialBucket("2025-06-01", "month", "2025-06-29")).toBe(true);
+    expect(partialBucket("2025-06-01", "month", "2025-06-30")).toBe(false);
+    expect(partialBucket("2025-01-01", "year", "2025-12-31")).toBe(false);
+    expect(partialBucket("2025-06-01", "day", "2025-06-01")).toBe(false);
   });
 });

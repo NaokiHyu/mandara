@@ -69,3 +69,37 @@ function day(text: string | undefined): number | undefined | null {
 function iso(t: number): string {
   return new Date(t).toISOString().slice(0, 10);
 }
+
+/** 最後の区切りと、その一つ前の区切りの件数の増減（前が 0 なら率は無し）。 */
+export function trend(points: readonly SeriesPoint[]): { last: SeriesPoint; previous?: SeriesPoint; ratio?: number } | null {
+  const last = points[points.length - 1];
+  if (last === undefined) return null;
+  const previous = points[points.length - 2];
+  if (previous === undefined || previous.count === 0) return { last, previous };
+  return { last, previous, ratio: (last.count - previous.count) / previous.count };
+}
+
+/** 目盛り：0 から最大までを、切りのよい刻み（1・2・5 × 10^n）で 3〜5 本に分ける。 */
+export function ticks(max: number): number[] {
+  if (max <= 0) return [0];
+  const raw = max / 4;
+  const power = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 5, 10].map((m) => m * power).find((s) => s >= raw) ?? raw;
+  const out: number[] = [];
+  for (let v = 0; v <= max + 1e-9; v += step) out.push(Math.round(v * 1e6) / 1e6);
+  return out;
+}
+
+/** 区切りの見出し（月なら 2024-05、年なら 2024、日ならそのまま）。 */
+export function bucketLabel(start: string, unit: string | undefined): string {
+  return unit === "year" ? start.slice(0, 4) : unit === "month" ? start.slice(0, 7) : start;
+}
+
+/** 最後の区切りが途中までか：最新の日（latest.day）が、その区切りの最後の日より前。途中の区切りとの増減は比べられない。 */
+export function partialBucket(start: string, unit: string | undefined, latestDay: string | undefined): boolean {
+  if (latestDay === undefined || unit === undefined || unit === "day") return false;
+  const s = new Date(`${start}T00:00:00Z`);
+  const end = unit === "month" ? new Date(Date.UTC(s.getUTCFullYear(), s.getUTCMonth() + 1, 0))
+    : new Date(Date.UTC(s.getUTCFullYear(), 11, 31));
+  return latestDay < end.toISOString().slice(0, 10);
+}

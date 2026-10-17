@@ -7,7 +7,7 @@ import { GroupPanel } from "./GroupPanel";
 import { DomainIcon, Label } from "./parts";
 import { contextColor, shortName } from "./graph";
 import { type DomainIndex, type DomainRows, type DomainSummary, type Instance, type InstanceSummary,
-         LinkState } from "./om/model";
+         GroupView, LinkState } from "./om/model";
 
 type Load<T> = { state: "loading" } | { state: "ok"; value: T } | { state: "error"; error: unknown };
 
@@ -238,6 +238,9 @@ function InstancePane({ ontologyId, domain, instanceKey, known, color, onOpen }:
   if (shown.state === "error") return <ErrorText error={shown.error} />;
   const it = shown.value;
   const open = (s: InstanceSummary) => onOpen({ table: s.table, key: s.key });
+  // 時系列のまとまりは全幅で上に（線グラフは幅があるほど読める）。ほかは右の列に
+  const hero = it.related.filter((g) => g.view === GroupView.time_series);
+  const rest = it.related.filter((g) => g.view !== GroupView.time_series);
   return (
     <article className="instance" aria-label="インスタンス">
       <header className="domain-head">
@@ -247,6 +250,14 @@ function InstancePane({ ontologyId, domain, instanceKey, known, color, onOpen }:
                 onClick={() => onOpen({ table: domain.table, key: null })}>{shortName(it.name)}</button>
         <span className="key">#{it.key.join("·")}</span>
       </header>
+      {hero.length > 0 && (
+        <section className="hero neighbors" aria-label="時系列">
+          {hero.map((g) => (
+            <GroupPanel key={`${g.kind}/${g.via_table ?? ""}/${g.relation}`} group={g} target={known.get(g.table)}
+                        color={color(g.table)} onOpen={open} onList={() => onOpen({ table: g.table, key: null })} />
+          ))}
+        </section>
+      )}
       <div className="instance-body">
         <section className="fields" aria-label="値">
           <table className="grid">
@@ -289,7 +300,7 @@ function InstancePane({ ontologyId, domain, instanceKey, known, color, onOpen }:
               </ul>
             </div>
           )}
-          {it.related.map((g) => (
+          {rest.map((g) => (
             <GroupPanel key={`${g.kind}/${g.via_table ?? ""}/${g.relation}`} group={g} target={known.get(g.table)}
                         color={color(g.table)} onOpen={open} onList={() => onOpen({ table: g.table, key: null })} />
           ))}
