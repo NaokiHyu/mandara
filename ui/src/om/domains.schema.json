@@ -205,6 +205,23 @@
                     "minimum": 0.0,
                     "type": "number"
                 },
+                "discriminator": {
+                    "description": "\u533a\u5206\u306e\u5217\u306e\u540d\u524d\uff08target \u306e\u5217\uff09",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "discriminator_values": {
+                    "description": "\u533a\u5206\u306e\u5217\u306e\u5024\uff08\u30bd\u30fc\u30b9\u306e\u5024\u306e\u6587\u5b57\u5217\u8868\u73fe\u3002NULL \u306f\u542b\u3081\u306a\u3044\uff09",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
                 "encoding": {
                     "anyOf": [
                         {
@@ -349,7 +366,7 @@
             "type": "object"
         },
         "ClaimPredicate": {
-            "description": "\u4e3b\u5f35\u306e\u8ff0\u8a9e\uff086.6.2\uff09\u3002\u8ff0\u8a9e\u3054\u3068\u306b\u3001\u4e3b\u8a9e\u306e\u7c92\u5ea6\uff08\u8868 / \u5217\uff09\u3068\u3001\u5024\u3068\u3057\u3066\u6301\u3064\u30d5\u30a3\u30fc\u30eb\u30c9\u304c\u6c7a\u307e\u3063\u3066\u3044\u308b\u3002 \u30ab\u30bf\u30ed\u30b0\u306e\u62bd\u51fa\u5668\uff08T1.3\uff09\u3068\u3001\u5b9f\u30c7\u30fc\u30bf\u306e\u5024\u306e\u62bd\u51fa\u5668\uff08T2.4\uff09\u304c\u51fa\u3059\u3002\u8db3\u3059\u3068\u304d\u306f\u2460\u3092\u5909\u3048\u3001\u691c\u8a3c\u306e\u5f62\u306e\u8868\u3082\u8db3\u3059",
+            "description": "\u4e3b\u5f35\u306e\u8ff0\u8a9e\uff086.6.2\uff09\u3002\u8ff0\u8a9e\u3054\u3068\u306b\u3001\u4e3b\u8a9e\u306e\u7c92\u5ea6\uff08\u8868 / \u5217\uff09\u3068\u3001\u5024\u3068\u3057\u3066\u6301\u3064\u30d5\u30a3\u30fc\u30eb\u30c9\u304c\u6c7a\u307e\u3063\u3066\u3044\u308b\u3002 \u30ab\u30bf\u30ed\u30b0\u306e\u62bd\u51fa\u5668\uff08T1.3\uff09\u3068\u3001\u5b9f\u30c7\u30fc\u30bf\u306e\u5024\u306e\u62bd\u51fa\u5668\uff08T2.4\u3001\u53c2\u7167\u306e\u88ab\u8986\uff09\u304c\u51fa\u3059\u3002\u8db3\u3059\u3068\u304d\u306f\u2460\u3092\u5909\u3048\u3001\u691c\u8a3c\u306e\u5f62\u306e\u8868\u3082\u8db3\u3059",
             "enum": [
                 "identified_by",
                 "unique",
@@ -362,7 +379,9 @@
                 "checks",
                 "typed_as",
                 "aliased_as",
-                "encoded_as"
+                "encoded_as",
+                "covers_all",
+                "discriminated_by"
             ],
             "title": "ClaimPredicate",
             "type": "string"

@@ -50,7 +50,7 @@ from mandara.om.model import (
 )
 from mandara.om.names import qualify
 from mandara.om.value_types import UNIT_BEARING, assignable
-from mandara.om.ontology import SELF, Ontology
+from mandara.om.ontology import SELF, Ontology, is_shared_key
 
 MODELER = "modeler-llm 0.2"
 NAME = r"^[a-z][a-z0-9_]{0,62}$"
@@ -548,12 +548,19 @@ def _foreign_key_relations(table: Table, relations: list[Relation], table_claims
     return out
 
 
+def shared_key_foreign_keys(table: Table, table_claims: Sequence[Claim], ontology: Ontology) -> frozenset[str]:
+    """主キーを共有する（is-a になりうる）外部キーの主張 ID。"""
+    relations = list(table.relations or [])
+    return frozenset(fk for fk, i in _foreign_key_relations(table, relations, table_claims, ontology).items()
+                     if _shares_key(table, relations[i], ontology))
+
+
 def _shares_key(table: Table, relation: Relation, ontology: Ontology) -> bool:
-    target = table if relation.target == SELF else ontology.table(relation.target)
+    """自分自身への参照は共有主キーにしない（行が自分を指すだけ）。"""
+    target = None if relation.target == SELF else ontology.table(relation.target)
     if target is None or table.identity is None or target.identity is None:
         return False
-    pairs = [(p.from_, p.to) for p in relation.via or []]
-    return [a for a, _ in pairs] == table.identity.primary and [b for _, b in pairs] == target.identity.primary
+    return is_shared_key([(p.from_, p.to) for p in relation.via or []], table.identity.primary, target.identity.primary)
 
 
 def _with_table(ontology: Ontology, table: Table) -> Ontology:

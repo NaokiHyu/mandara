@@ -6,7 +6,9 @@
 - 組み立てた答えは、従来の検証（apply_answer）を通しても OM を壊さない
 """
 
+from collections.abc import Sequence
 from dataclasses import replace
+from typing import cast
 
 import pytest
 from hypothesis import given, settings
@@ -52,7 +54,8 @@ def _table(name: str) -> Table:
 
 def _asked(name: str) -> c.Classify:
     table = _table(name)
-    return c.classify(table, _claims(name), VOCABULARY, v1.meaning_hints(SEEDED, table, GROUPS), MAX_OPTIONS,
+    return c.classify(table, _claims(name), VOCABULARY, v1.meaning_hints(SEEDED, table, GROUPS),
+                      v1.shared_key_foreign_keys(table, _claims(name), SEEDED), MAX_OPTIONS,
                       f"classify {name}")
 
 
@@ -208,13 +211,13 @@ def test_encoded_columns_are_offered_only_the_types_the_encoding_decodes_to() ->
     name = "person.address"
     plain = _table(name)
     hints = v1.meaning_hints(SEEDED, plain, GROUPS)
-    asked = c.classify(plain, _claims(name), vocabulary, hints, MAX_OPTIONS, "classify")
+    asked = c.classify(plain, _claims(name), vocabulary, hints, (), MAX_OPTIONS, "classify")
     assert asked.request is not None
     assert {"location", "photo"} <= set(asked.request.questions["column spatiallocation"].options)
     columns = dict(plain.columns or {})
     columns["spatiallocation"] = columns["spatiallocation"].model_copy(update={"encoding": "sqlserver_geography"})
     encoded = plain.model_copy(update={"columns": columns})
-    asked = c.classify(encoded, _claims(name), vocabulary, hints, MAX_OPTIONS, "classify")
+    asked = c.classify(encoded, _claims(name), vocabulary, hints, (), MAX_OPTIONS, "classify")
     assert asked.request is not None
     assert set(asked.request.questions["column spatiallocation"].options) - {c.NEW, c.UNCLEAR} == {"location"}
     named = c.Named((c.NamedType(name="spot", description="位置", columns=["spatiallocation"], values_evidence=[]),), ())
@@ -228,3 +231,73 @@ def test_an_encoding_that_contradicts_the_column_family_is_an_error() -> None:
     assert assignable("binary", "sqlserver_geography") == {"geo.point"}
     with pytest.raises(IncompatibleEncodingError, match="型族 integer"):
         assignable("integer", "sqlserver_geography")
+
+
+# ---------------------------------------------------------------- 関係型の手がかり（構造とデータの事実）
+
+
+def _relation_question(name: str, target: str, extra: Sequence[Claim] = ()) -> tuple[dict[str, object], set[str]]:
+    table = _table(name)
+    claims = [*_claims(name), *extra]
+    fk = next(x for x in claims if x.predicate == "references" and x.target is not None
+              and qualify(x.target.schema_name, x.target.table) == target)
+    asked = c.classify(table, claims, VOCABULARY, v1.meaning_hints(SEEDED, table, GROUPS),
+                       v1.shared_key_foreign_keys(table, claims, SEEDED), MAX_OPTIONS, "classify")
+    assert asked.request is not None
+    question = asked.request.questions[f"relation {fk.id}"]
+    assert isinstance(question.instructions, dict)
+    assert {fk.id} <= set(asked.evidence[f"relation {fk.id}"]) <= {x.id for x in claims}
+    return question.instructions, set(question.options)
+
+
+def _facts(instructions: dict[str, object]) -> str:
+    facts = instructions["facts"]
+    assert isinstance(facts, list)
+    return " ".join(str(f) for f in cast(list[object], facts))
+
+
+def test_is_a_is_offered_only_for_foreign_keys_that_share_the_primary_key() -> None:
+    shared, options = _relation_question("humanresources.employee", "person.person")
+    assert "is-a" in options and "shares its identity" in _facts(shared)
+    detail, options = _relation_question("sales.salesorderdetail", "sales.salesorderheader")
+    assert "is-a" not in options and {"has", "part-of", "classified-as", c.UNCLEAR} <= options
+    facts = _facts(detail)
+    assert "part of the primary key" in facts and "ON DELETE CASCADE" in facts and "NOT NULL" in facts
+    header, _ = _relation_question("sales.salesorderheader", "sales.salesperson")
+    assert "may be NULL" in _facts(header) and "CASCADE" not in _facts(header)
+
+    # NULL 可否を宣言していない列（not_null も nullable も無い）には、NULL について何も言わない
+    name = "sales.salesorderheader"
+    undeclared = [x for x in _claims(name)
+                  if not (x.predicate in ("not_null", "nullable") and x.subject.column == "salespersonid")]
+    fk = next(x for x in undeclared if x.predicate == "references" and x.columns == ["salespersonid"])
+    asked = c.classify(_table(name), undeclared, VOCABULARY, {}, (), MAX_OPTIONS, "classify")
+    assert asked.request is not None
+    instructions = asked.request.questions[f"relation {fk.id}"].instructions
+    assert isinstance(instructions, dict) and "NULL" not in _facts(instructions)
+
+
+def test_coverage_in_the_data_is_told_to_the_decision_model() -> None:
+    """employee は persontype が EM / SP の人にだけあり、password はすべての人にある（AdventureWorks の実データ）。"""
+    from mandara.connectors.postgres.coverage_reader import PostgresCoverageReader
+    from mandara.extractors import values
+
+    catalog = PostgresCatalogReader("dbname=adventureworks").read(SCOPE)
+    reader = PostgresCoverageReader("dbname=adventureworks")
+    found: dict[str, list[Claim]] = {}
+    for shared in values.shared_keys(catalog):
+        fk = shared.foreign_key
+        coverage = reader.coverage(shared.table.schema, shared.table.name, fk.columns, shared.target.schema,
+                                   shared.target.name, fk.target_columns, shared.split_by, values.MAX_DISCRIMINATOR_VALUES)
+        found[shared.table.qualified_name] = values.coverage_claims("adventureworks", shared, coverage)
+    employee = found["humanresources.employee"]
+    assert [(x.predicate, x.discriminator, x.discriminator_values) for x in employee] == [
+        ("discriminated_by", "persontype", ["EM", "SP"])]
+    assert [x.predicate for x in found["person.password"]] == ["covers_all"]
+    instructions, _ = _relation_question("humanresources.employee", "person.person", employee)
+    assert "`persontype`" in _facts(instructions) and "EM" not in _facts(instructions)  # 値は文に埋め込まない
+    assert instructions["discriminators"] == {"persontype": ["EM", "SP"]}
+    instructions, options = _relation_question("person.password", "person.person", found["person.password"])
+    assert "every target row" in _facts(instructions)
+    assert "is-a" not in options  # すべての人にあるのは下位の型ではなく拡張
+    assert "is-a" in _relation_question("person.password", "person.person")[1]  # 被覆を知らなければ出す

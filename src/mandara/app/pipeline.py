@@ -41,7 +41,7 @@ from mandara.modeler import meaning
 from mandara.modeler import rules as modeler
 from mandara.om.invariants import Violation, check
 from mandara.om.encoding_traits import ENCODING_TARGETS
-from mandara.om.model import Claim, ReviewStatus, SemanticType, Table, Unit, ValueType
+from mandara.om.model import Claim, ClaimPredicate, ReviewStatus, SemanticType, Table, Unit, ValueType
 from mandara.om.names import qualify, split_qualified
 from mandara.om.ontology import Ontology
 from mandara.omstore.claim_store import load_claim_ledger, load_ledger_scope, write_claim_ledger
@@ -67,6 +67,7 @@ from mandara.review.decisions import (
     questions,
 )
 from mandara.source.catalog import CatalogReader, Scope
+from mandara.source.coverage import CoverageReader
 from mandara.source.rows import ColumnReader
 from mandara.source.values import GeoPoint
 
@@ -108,12 +109,24 @@ class Examined:
 
 
 @dataclass(frozen=True)
+class Covered:
+    """被覆を数えた、主キーを共有する外部キー（is-a の候補）。"""
+
+    table: str
+    target: str
+    rows: int
+    covered: int
+    claims: tuple[Claim, ...]
+
+
+@dataclass(frozen=True)
 class Extracted:
     claims: tuple[Claim, ...]
     tables: int
     scope: Scope
     examined: tuple[Examined, ...]
     not_examined: tuple[values_extractor.NotExamined, ...]
+    covered: tuple[Covered, ...]
 
 
 @dataclass(frozen=True)
@@ -124,8 +137,9 @@ class Proposed:
     含まない（モデラーはどちらも読まない）ので、提案の入力の指紋として足りる。"""
 
 
-def extract(workspace: Workspace, reader: CatalogReader, scope: Scope, values: ColumnReader) -> Extracted:
-    """カタログを読み、バイト列の列の値の見本から物理的な表現を判別し、主張台帳を範囲とともに作り直す。"""
+def extract(workspace: Workspace, reader: CatalogReader, scope: Scope, values: ColumnReader,
+            coverage: CoverageReader) -> Extracted:
+    """カタログを読み、実データの主張（バイト列の物理的な表現、主キーを共有する参照の被覆）を足して、主張台帳を作り直す。"""
     catalog = reader.read(scope)
     claims = catalog_extractor.extract(workspace.source, catalog)
     targets, not_examined = values_extractor.targets(catalog)
@@ -137,8 +151,19 @@ def extract(workspace: Workspace, reader: CatalogReader, scope: Scope, values: C
         examined.append(Examined(target.table.qualified_name, target.column.name, detection, sample.truncated))
         if (claim := values_extractor.encoding_claim(workspace.source, target, detection)) is not None:
             claims.append(claim)
+    covered: list[Covered] = []
+    for shared in values_extractor.shared_keys(catalog):
+        fk = shared.foreign_key
+        counted = coverage.coverage(shared.table.schema, shared.table.name, fk.columns, shared.target.schema,
+                                    shared.target.name, fk.target_columns, shared.split_by,
+                                    values_extractor.MAX_DISCRIMINATOR_VALUES)
+        found = values_extractor.coverage_claims(workspace.source, shared, counted)
+        covered.append(Covered(shared.table.qualified_name, shared.target.qualified_name, counted.rows, counted.covered,
+                               tuple(found)))
+        claims.extend(found)
     write_claim_ledger(workspace.claims, workspace.source, catalog.scope.schemas, claims)
-    return Extracted(tuple(claims), len(catalog.tables), catalog.scope, tuple(examined), tuple(not_examined))
+    return Extracted(tuple(claims), len(catalog.tables), catalog.scope, tuple(examined), tuple(not_examined),
+                     tuple(covered))
 
 
 def propose(workspace: Workspace) -> Proposed:
@@ -394,7 +419,9 @@ def _ask_table(table: Table, table_claims: Sequence[Claim], ontology: Ontology,
         failures.append(f"{stage}: {detail}")
         return detail
 
-    asked = classify.classify(table, table_claims, vocabulary, hints, decider.max_options, f"classify {table.name}")
+    shared = llm_modeler.shared_key_foreign_keys(table, table_claims, ontology)
+    asked = classify.classify(table, table_claims, vocabulary, hints, shared, decider.max_options,
+                              f"classify {table.name}")
     response = None
     if asked.request is not None:
         try:
@@ -650,8 +677,8 @@ class Inference:
         return self.model.budget
 
 
-def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, scope: Scope, gold: Path | None,
-        clock: Clock, inference: Inference | None = None) -> RunResult:
+def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, coverage: CoverageReader, scope: Scope,
+        gold: Path | None, clock: Clock, inference: Inference | None = None) -> RunResult:
     """抽出 → 提案 → （LLM があれば）推論 → （正解があれば）評価を通しで行い、実行の記録を書く。失敗も記録してから伝える。"""
     started = _utc(clock())
     log = _RunLog(workspace.runs / f"{started.strftime('%Y%m%dT%H%M%S%fZ')}.json", clock, {
@@ -664,12 +691,14 @@ def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, scope
         "completed": [],
     })
     with log.stage("extract"):
-        extracted = extract(workspace, reader, scope, values)
+        extracted = extract(workspace, reader, scope, values, coverage)
         log.update(scope=list(extracted.scope.schemas), tables=extracted.tables,
                    claims=dict(sorted(Counter(c.predicate for c in extracted.claims).items())),
                    encodings={"examined": [_examined_record(e) for e in extracted.examined],
                               "not_examined": [{"table": n.table, "column": n.column, "reason": n.reason}
-                                               for n in extracted.not_examined]})
+                                               for n in extracted.not_examined]},
+                   shared_keys=[{"table": c.table, "target": c.target, "rows": c.rows, "covered": c.covered,
+                                 "claims": [_coverage_text(x) for x in c.claims]} for c in extracted.covered])
     with log.stage("propose"):
         proposed = propose(workspace)
         log.update(ledger_hash=proposed.ledger_hash, proposal=_proposal_counts(proposed.proposal.ontology),
@@ -708,6 +737,12 @@ def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, scope
                 a.aspect: {"correct": a.correct, "gold": a.gold, "proposed": a.proposed} for a in report.aspects})
     log.update(status="succeeded", finished_at=_utc(clock()).isoformat())
     return RunResult(extracted, proposed, refined, report, log.path)
+
+
+def _coverage_text(claim: Claim) -> str:
+    if claim.predicate == ClaimPredicate.discriminated_by.value:
+        return f"discriminated_by {claim.discriminator} in {claim.discriminator_values}"
+    return str(claim.predicate)
 
 
 def _examined_record(e: Examined) -> dict[str, object]:

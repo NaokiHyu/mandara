@@ -30,7 +30,7 @@ from mandara.om.model import (
     ValueType,
     Vocabulary,
 )
-from mandara.om.ontology import SELF, Ontology
+from mandara.om.ontology import SELF, Ontology, is_shared_key
 from mandara.om.relation_traits import RELATION_TRAITS
 from mandara.om.value_types import UNIT_BEARING
 
@@ -367,7 +367,10 @@ def _check_shared_key(relation: Relation, table: Table, target: Table, loc: str)
     if own_key is None or target_key is None:
         yield Violation(Rule.SHARED_KEY_MISMATCH, loc, "どちらかの表に主キーが無い")
         return
-    if [p.from_ for p in pairs] != own_key or [p.to for p in pairs] != target_key:
+    if relation.target == SELF:
+        yield Violation(Rule.SHARED_KEY_MISMATCH, loc, "自分自身への参照は共有主キーにならない（行が自分を指すだけ）")
+        return
+    if not is_shared_key([(p.from_, p.to) for p in pairs], own_key, target_key):
         yield Violation(
             Rule.SHARED_KEY_MISMATCH,
             loc,

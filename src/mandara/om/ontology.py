@@ -3,7 +3,7 @@
 Domain 層。I/O を持たない。読み書きは mandara.omstore（Adapter）が担う。
 """
 
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 
 from mandara.om.model import Column, Edge, EnumValue, Relation, Table, Vocabulary
@@ -11,6 +11,14 @@ from mandara.om.names import qualify
 
 SELF = "self"
 """関係の target で、自分自身の表を指す値（仕様 11.1）。"""
+
+
+def is_shared_key(pairs: Iterable[tuple[str, str]], own_key: Sequence[str], target_key: Sequence[str]) -> bool:
+    """参照の列の対応（自分の列 → target の列）が、自分の主キーの各列を、target の主キーの同じ位置の列に結ぶ（共有主キー）。
+
+    対応の並びは問わない（外部キーの列の並びが主キーの並びと違ってもよい）。自分自身への参照かどうかは呼ぶ側が見る。
+    """
+    return len(own_key) == len(target_key) and sorted(pairs) == sorted(zip(own_key, target_key, strict=True))
 
 
 Annotated = Table | Column | Relation | Edge | EnumValue

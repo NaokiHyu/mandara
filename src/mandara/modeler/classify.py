@@ -15,7 +15,7 @@ Domain 層の純粋な関数（呼び出しは Application がポート経由で
 - どの問いにも「決められない」（unclear）を置く。選ぶしかない問いにしない
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -38,6 +38,7 @@ from mandara.om.model import (
     Additivity,
     Claim,
     ClaimPredicate,
+    ReferentialAction,
     SemanticRole,
     SemanticType,
     Table,
@@ -201,6 +202,58 @@ def _fk_label(claim: Claim) -> str:
     return f"({', '.join(claim.columns or [])}) -> {_target(claim)}"
 
 
+def _fk_facts(fk: Claim, table_claims: Sequence[Claim], shared: bool) -> tuple[list[str], list[str], dict[str, object]]:
+    """関係型の手がかりになる、外部キーの構造（主キーとの関係、ON DELETE、NULL）とデータ（被覆、区分の列）の事実と、その根拠。
+
+    事実の文に実データの値は埋め込まない。区分の列の値はデータの区画（3つ目の値。問いの discriminators）に置き、文はそれを指す。
+    """
+    data: dict[str, object] = {}
+    facts: list[str] = []
+    evidence: list[str] = []
+    columns = set(fk.columns or [])
+    primary = next(iter(_by(table_claims, ClaimPredicate.identified_by)), None)
+    if shared and primary is not None:
+        facts.append("The foreign key columns are the whole primary key of the `table` and point to the primary key of "
+                     "the target: a row shares its identity with the target row.")
+        evidence.append(primary.id)
+    elif primary is not None and columns < set(primary.columns or []):
+        facts.append("The foreign key columns are a part of the primary key of the `table`: a row is identified "
+                     "together with the target row it points to.")
+        evidence.append(primary.id)
+    if fk.on_delete == ReferentialAction.cascade.value:
+        facts.append("Deleting the target row deletes the rows of the `table` that point to it (ON DELETE CASCADE).")
+    not_null = [c for c in _by(table_claims, ClaimPredicate.not_null) if c.subject.column in columns]
+    nullable = [c for c in _by(table_claims, ClaimPredicate.nullable) if c.subject.column in columns]
+    if nullable:
+        facts.append("A foreign key column may be NULL: a row can exist without a target row.")
+        evidence += [c.id for c in nullable]
+    elif columns and {c.subject.column for c in not_null} == columns:
+        facts.append("The foreign key columns are NOT NULL: every row points to a target row.")
+        evidence += [c.id for c in not_null]
+    # どちらの主張も無い（ソースが NULL 可否を宣言していない。ビューの列など）なら、NULL について何も言わない
+    for c in _coverage(fk, table_claims):
+        if c.predicate == ClaimPredicate.covers_all.value:
+            facts.append("In the data, every target row has a row in the `table`.")
+        else:
+            data[c.discriminator or ""] = list(c.discriminator_values or [])
+            facts.append(f"In the data, exactly the target rows whose column `{c.discriminator}` has one of the values "
+                         f"listed for it in `discriminators` have a row in the `table`; target rows with other values "
+                         f"have none.")
+        evidence.append(c.id)
+    return facts, evidence, data
+
+
+def _coverage(fk: Claim, table_claims: Sequence[Claim]) -> list[Claim]:
+    """外部キーと同じ参照についての、データの被覆の主張（covers_all、discriminated_by）。"""
+    return [c for c in table_claims if c.predicate in (ClaimPredicate.covers_all.value,
+                                                       ClaimPredicate.discriminated_by.value)
+            and c.target == fk.target and c.columns == fk.columns and c.target_columns == fk.target_columns]
+
+
+def _covers_all(fk: Claim, table_claims: Sequence[Claim]) -> bool:
+    return any(c.predicate == ClaimPredicate.covers_all.value for c in _coverage(fk, table_claims))
+
+
 def _type_brief(d: SemanticType) -> str:
     """選択肢に添える短い説明（値の型と役割だけ。説明の文は材料に1回だけ置く）。"""
     return f"value type {d.type}" + (f", role {d.role}" if d.role else "")
@@ -235,8 +288,13 @@ class Classify:
 
 
 def classify(table: Table, table_claims: Sequence[Claim], vocabulary: Mapping[str, SemanticType],
-             hints: Mapping[str, MeaningHint], max_options: int, purpose: str) -> Classify:
-    """分類の問い。表種別（v0 が決めていなければ）、外部キーごとの関係型、辺、列の意味型（組の意味型が決まっていなければ）。"""
+             hints: Mapping[str, MeaningHint], shared_keys: Collection[str], max_options: int, purpose: str) -> Classify:
+    """分類の問い。表種別（v0 が決めていなければ）、外部キーごとの関係型、辺、列の意味型（組の意味型が決まっていなければ）。
+
+    関係型の問いには、外部キーの構造とデータの事実（_fk_facts）を添える。is-a は主キーを共有する外部キー（shared_keys、
+    外部キーの主張 ID）にだけ選択肢として出す（is-a は共有主キーでしか表さない。仕様 4.2 の realized_by）。
+    ただし上位のすべての行に下位の行がある（covers_all）外部キーには出さない。全体を覆うのは下位の型ではなく拡張。
+    """
     questions: dict[str, Choice] = {}
     evidence: dict[str, list[str]] = {}
     not_asked: list[Dropped] = []
@@ -247,10 +305,14 @@ def classify(table: Table, table_claims: Sequence[Claim], vocabulary: Mapping[st
     fks = _by(table_claims, ClaimPredicate.references)
     for fk in fks:
         key = f"relation {fk.id}"
-        questions[key] = Choice({"foreign_key": _fk_label(fk),
+        facts, fact_evidence, discriminators = _fk_facts(fk, table_claims, fk.id in shared_keys)
+        subtype = fk.id in shared_keys and not _covers_all(fk, table_claims)
+        relation_options = _RELATION if subtype else {k: v for k, v in _RELATION.items() if k != "is-a"}
+        questions[key] = Choice({"foreign_key": _fk_label(fk), "facts": facts,
+                                 **({"discriminators": discriminators} if discriminators else {}),
                                  "question": "How does a row of the `table` relate to the row that `foreign_key` "
-                                             "points to?"}, _RELATION)
-        evidence[key] = [fk.id]
+                                             "points to?"}, relation_options)
+        evidence[key] = sorted({fk.id, *fact_evidence})
     edges: dict[str, EdgeOption | None] = {}
     if table.kind in (None, TableKind.relation.value) and len(fks) >= 2:
         for a in fks:

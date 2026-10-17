@@ -164,7 +164,7 @@ export enum ReferentialAction {
     set_default = "set_default",
 };
 /**
-* 主張の述語（6.6.2）。述語ごとに、主語の粒度（表 / 列）と、値として持つフィールドが決まっている。 カタログの抽出器（T1.3）と、実データの値の抽出器（T2.4）が出す。足すときは①を変え、検証の形の表も足す
+* 主張の述語（6.6.2）。述語ごとに、主語の粒度（表 / 列）と、値として持つフィールドが決まっている。 カタログの抽出器（T1.3）と、実データの値の抽出器（T2.4、参照の被覆）が出す。足すときは①を変え、検証の形の表も足す
 */
 export enum ClaimPredicate {
     
@@ -192,6 +192,10 @@ export enum ClaimPredicate {
     aliased_as = "aliased_as",
     /** 列の値は物理的な表現 encoding で書かれている（実データの値の抽出器 T2.4 が出す。読んだ値がすべてそのコーデックで読めた） */
     encoded_as = "encoded_as",
+    /** 表の columns で target の target_columns を参照する行が、target のすべての行にある（実データ。target が空なら出さない） */
+    covers_all = "covers_all",
+    /** 表の columns で target の target_columns を参照される target の行は、ちょうど target の列 discriminator が discriminator_values のどれかである行（実データ。区分の列。値の一部だけが参照され、残りは参照されない） */
+    discriminated_by = "discriminated_by",
 };
 /**
 * 主張の出所の種類（6.6.2）
@@ -462,6 +466,10 @@ export interface Claim {
     position?: number,
     object_kind?: string,
     encoding?: string,
+    /** 区分の列の名前（target の列） */
+    discriminator?: string,
+    /** 区分の列の値（ソースの値の文字列表現。NULL は含めない） */
+    discriminator_values?: string[],
     source: ClaimSource,
     /** 抽出器の名前と版 */
     extracted_by: string,

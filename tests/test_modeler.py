@@ -303,6 +303,7 @@ def test_extract_records_every_examined_column(tmp_path: Path) -> None:
 
     from mandara.app import pipeline
     from mandara.codecs.geography import encode_sqlserver_geography
+    from mandara.source.coverage import Coverage
     from mandara.source.rows import ColumnRow, ColumnSample
     from mandara.source.values import GeoPoint
 
@@ -323,8 +324,14 @@ def test_extract_records_every_examined_column(tmp_path: Path) -> None:
             assert (schema, table, list(key_columns), limit) == ("s", "t", ["id"], 100)
             return ColumnSample(tuple(ColumnRow((i,), v) for i, v in enumerate(samples[column])), truncated=True)
 
+    class NoCoverage:  # 外部キーが無いので、被覆は読まない
+        def coverage(self, schema: str, table: str, columns: Sequence[str], target_schema: str, target_table: str,
+                     target_columns: Sequence[str], split_by: Sequence[str], max_values: int) -> Coverage:
+            raise AssertionError(f"読まないはず: {schema}.{table}")
+
     ws = pipeline.Workspace(tmp_path / "src", "src")
-    extracted = pipeline.extract(ws, Catalogs(), Scope(("s",)), Values())
+    extracted = pipeline.extract(ws, Catalogs(), Scope(("s",)), Values(), NoCoverage())
+    assert extracted.covered == ()
     found = {e.column: (e.detection.encoding, e.detection.reason, e.detection.values, e.detection.nulls, e.truncated)
              for e in extracted.examined}
     assert found == {"loc": ("sqlserver_geography", None, 2, 1, True),

@@ -295,6 +295,7 @@ def claims(
     if "target" in shape.fields:
         payload["target"] = SourceRef(source=source, schema_name=draw(column_names), table=draw(column_names))
         payload["target_columns"] = draw(st.lists(column_names, min_size=len(columns), max_size=len(columns)))
+    if "on_delete" in shape.fields:
         payload["on_delete"] = draw(st.sampled_from(tuple(ReferentialAction)))
         payload["on_update"] = draw(st.sampled_from(tuple(ReferentialAction)))
     if "text" in shape.fields:
@@ -307,6 +308,9 @@ def claims(
         payload["position"] = draw(st.integers(min_value=1, max_value=1000))
     if "object_kind" in shape.fields:
         payload["object_kind"] = draw(st.sampled_from(tuple(ObjectKind)))
+    if "discriminator" in shape.fields:
+        payload["discriminator"] = draw(column_names)
+        payload["discriminator_values"] = draw(st.lists(texts, min_size=1, max_size=3))
     if "encoding" in shape.fields:
         payload["encoding"] = draw(st.sampled_from(tuple(SourceEncoding)))
     return new_claim(

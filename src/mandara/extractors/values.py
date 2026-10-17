@@ -1,4 +1,7 @@
-"""実データの値の抽出器：列の値の見本 → 主張（source.kind: data）。今は物理的な表現（encoded_as）だけ（T2.4）。
+"""実データの値の抽出器：ソースの実データ → 主張（source.kind: data）。
+
+物理的な表現（encoded_as、T2.4）：列の値の見本から。
+参照の被覆（covers_all、discriminated_by）：主キーを共有する外部キー（is-a の候補）について、上位の行のうち下位の行がある行。
 
 Domain 層の純粋な関数。値を読むのは呼ぶ側（ColumnReader）。どの DB の値でも同じに働く。
 - 見るのは型族が binary の列だけ（形式の判別が要るのはバイト列。ほかの型族の値は DB の型で表現が決まっている）
@@ -13,14 +16,23 @@ from dataclasses import dataclass
 from mandara.codecs.detect import Detection
 from mandara.extractors.catalog import quote
 from mandara.om.claims import new_claim
+from mandara.om.ontology import is_shared_key
 from mandara.om.model import Claim, ClaimPredicate, ClaimSource, ClaimSourceKind, SourceRef, TypeFamily
-from mandara.source.catalog import Catalog, Column, Table
+from mandara.source.catalog import Catalog, Column, ForeignKey, Table
+from mandara.source.coverage import Coverage, value_text
 
 EXTRACTOR = "values 0.1"
 SAMPLE_LIMIT = 100
 """1列について読む値の数の上限（主キーの順に先頭から）。"""
 CLAIM_CONFIDENCE = 0.95
 """見本の値がすべてそのコーデックで読めた。見本の外の行は読んでいない。"""
+COVERAGE_CONFIDENCE = 1.0
+"""被覆は表を全部数えた事実（読んだ時点のデータについて）。"""
+MAX_DISCRIMINATOR_VALUES = 20
+"""区分の列とみなす値の種類の上限。"""
+MIN_ROWS_PER_VALUE = 2
+"""区分の列とみなすには、値1つあたりの行が平均でこれ以上（値の種類 × これ ≤ 行の数）。"""
+_DISCRIMINATOR_FAMILIES = frozenset({TypeFamily.text, TypeFamily.integer, TypeFamily.boolean})
 
 
 @dataclass(frozen=True)
@@ -69,3 +81,73 @@ def key_columns(target: Target) -> Sequence[str]:
     if key is None:
         raise AssertionError(f"targets で主キーのある表だけを選んだはず: {target.table.qualified_name}")
     return key.columns
+
+
+# ---------------------------------------------------------------- 参照の被覆（is-a の手がかり）
+
+
+@dataclass(frozen=True)
+class SharedKey:
+    """主キーを共有する外部キー：表の主キーの列が、ちょうど target の主キーの列を参照する。"""
+
+    table: Table
+    foreign_key: ForeignKey
+    target: Table
+
+    @property
+    def split_by(self) -> list[str]:
+        """区分の列の候補：target の、主キーでない文字列・整数・真偽の列。"""
+        key = set(self.target.primary_key.columns) if self.target.primary_key is not None else set[str]()
+        return [c.name for c in self.target.columns if c.family in _DISCRIMINATOR_FAMILIES and c.name not in key]
+
+
+def shared_keys(catalog: Catalog) -> list[SharedKey]:
+    """範囲内の表同士の、主キーを共有する外部キー（範囲外の参照先は読まない）。"""
+    tables = {(t.schema, t.name): t for t in catalog.tables}
+    found: list[SharedKey] = []
+    for table in catalog.tables:
+        if table.primary_key is None:
+            continue
+        for fk in table.foreign_keys:
+            target = tables.get((fk.target_schema, fk.target_table))
+            if target is None or target.primary_key is None or target is table:
+                continue
+            if is_shared_key(zip(fk.columns, fk.target_columns, strict=True), table.primary_key.columns,
+                             target.primary_key.columns):
+                found.append(SharedKey(table, fk, target))
+    return found
+
+
+def coverage_claims(source: str, shared: SharedKey, coverage: Coverage) -> list[Claim]:
+    """すべての行を覆う（covers_all）、区分の列の値とちょうど一致する（discriminated_by）。どちらでもなければ何も出さない。
+
+    区分の列：値ごとに、すべての行が参照されているか、どの行も参照されていないかのどちらか。参照されている値も、
+    されていない値も1つ以上ある。参照されている側に NULL があれば区分にしない（値の一覧で表せない）。
+    値の種類が行の数の半分を超える列は区分にしない（値ごとの行が少ないと、一意に近い列でも偶然に当てはまる）。
+    """
+    table, fk, target = shared.table, shared.foreign_key, shared.target
+    subject = SourceRef(source=source, schema_name=table.schema, table=table.name)
+    reference = {"target": SourceRef(source=source, schema_name=target.schema, table=target.name),
+                 "columns": list(fk.columns), "target_columns": list(fk.target_columns)}
+    where = f"coverage {quote(table.schema, table.name)} {quote(fk.name)}"
+
+    def claim(predicate: ClaimPredicate, locator: str, **payload: object) -> Claim:
+        return new_claim(subject=subject, predicate=predicate, source=ClaimSource(kind=ClaimSourceKind.data, locator=locator),
+                         extracted_by=EXTRACTOR, confidence=COVERAGE_CONFIDENCE, **reference, **payload)
+
+    claims: list[Claim] = []
+    if coverage.rows > 0 and coverage.covered == coverage.rows:
+        claims.append(claim(ClaimPredicate.covers_all, where))
+    for column, values in coverage.split.items():
+        if values is None or len(values) * MIN_ROWS_PER_VALUE > coverage.rows:
+            continue
+        covered = [v for v in values if v.covered == v.rows]
+        uncovered = [v for v in values if v.covered == 0]
+        if len(covered) + len(uncovered) != len(values) or not covered or not uncovered:
+            continue
+        named = [v.value for v in covered if v.value is not None]
+        if len(named) != len(covered):
+            continue
+        claims.append(claim(ClaimPredicate.discriminated_by, f"{where} by {quote(column)}", discriminator=column,
+                            discriminator_values=sorted(value_text(v) for v in named)))
+    return claims

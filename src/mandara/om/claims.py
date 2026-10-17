@@ -18,7 +18,7 @@ from mandara.om.model import Claim, ClaimPredicate, ClaimSource, ClaimSourceKind
 
 PAYLOAD_FIELDS = (
     "columns", "target", "target_columns", "on_delete", "on_update", "text", "type_name", "family", "position",
-    "object_kind", "encoding",
+    "object_kind", "encoding", "discriminator", "discriminator_values",
 )
 """述語によって持つ・持たないが決まる、値のフィールド。"""
 
@@ -49,7 +49,12 @@ SHAPES: dict[str, Shape] = {
     ClaimPredicate.typed_as.value: _shape("column", "type_name", "family", "position"),
     ClaimPredicate.aliased_as.value: _shape("column", "type_name"),
     ClaimPredicate.encoded_as.value: _shape("column", "encoding"),
+    ClaimPredicate.covers_all.value: _shape("table", "columns", "target", "target_columns"),
+    ClaimPredicate.discriminated_by.value: _shape("table", "columns", "target", "target_columns", "discriminator",
+                                                  "discriminator_values"),
 }
+_REFERRING = {ClaimPredicate.references.value, ClaimPredicate.covers_all.value, ClaimPredicate.discriminated_by.value}
+"""参照（columns → target の target_columns）を持つ述語。"""
 
 
 # ---------------------------------------------------------------- ID
@@ -169,7 +174,7 @@ def _check_claim(claim: Claim) -> Iterator[ClaimViolation]:
     if extra := sorted(present - shape.fields):
         yield wrong(f"持ってはならない: {', '.join(extra)}")
 
-    if claim.predicate == ClaimPredicate.references.value and claim.target is not None:
+    if claim.predicate in _REFERRING and claim.target is not None:
         if claim.target.column is not None:
             yield wrong("target は表を指す（列の対応は target_columns）")
         if claim.target.source != claim.subject.source:

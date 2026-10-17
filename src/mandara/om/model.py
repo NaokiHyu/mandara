@@ -277,7 +277,7 @@ class ReferentialAction(str, Enum):
 
 class ClaimPredicate(str, Enum):
     """
-    主張の述語（6.6.2）。述語ごとに、主語の粒度（表 / 列）と、値として持つフィールドが決まっている。 カタログの抽出器（T1.3）と、実データの値の抽出器（T2.4）が出す。足すときは①を変え、検証の形の表も足す
+    主張の述語（6.6.2）。述語ごとに、主語の粒度（表 / 列）と、値として持つフィールドが決まっている。 カタログの抽出器（T1.3）と、実データの値の抽出器（T2.4、参照の被覆）が出す。足すときは①を変え、検証の形の表も足す
     """
     identified_by = "identified_by"
     """
@@ -326,6 +326,14 @@ class ClaimPredicate(str, Enum):
     encoded_as = "encoded_as"
     """
     列の値は物理的な表現 encoding で書かれている（実データの値の抽出器 T2.4 が出す。読んだ値がすべてそのコーデックで読めた）
+    """
+    covers_all = "covers_all"
+    """
+    表の columns で target の target_columns を参照する行が、target のすべての行にある（実データ。target が空なら出さない）
+    """
+    discriminated_by = "discriminated_by"
+    """
+    表の columns で target の target_columns を参照される target の行は、ちょうど target の列 discriminator が discriminator_values のどれかである行（実データ。区分の列。値の一部だけが参照され、残りは参照されない）
     """
 
 
@@ -718,6 +726,8 @@ class Claim(ConfiguredBaseModel):
     position: Optional[int] = Field(default=None, description="""列の、表の中の位置（1 から）""", ge=1, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     object_kind: Optional[ObjectKind] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     encoding: Optional[SourceEncoding] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Column', 'Claim']} })
+    discriminator: Optional[str] = Field(default=None, description="""区分の列の名前（target の列）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
+    discriminator_values: Optional[list[str]] = Field(default=None, description="""区分の列の値（ソースの値の文字列表現。NULL は含めない）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     source: ClaimSource = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Claim', 'SourceRef']} })
     extracted_by: str = Field(default=..., description="""抽出器の名前と版""", json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     valid_at: Optional[date] = Field(default=None, description="""出所の日付（文書の日付など）。鮮度の根拠""", json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })

@@ -20,6 +20,7 @@ from mandara.app import pipeline
 from mandara.app.pipeline import Workspace
 from mandara.connectors.postgres.catalog_reader import PostgresCatalogReader
 from mandara.connectors.postgres.column_reader import PostgresColumnReader
+from mandara.connectors.postgres.coverage_reader import PostgresCoverageReader
 from mandara.extractors.catalog import extract
 from mandara.llm.decision import (
     BudgetedDecisionModel,
@@ -381,7 +382,7 @@ def _refine(workspace: Workspace, model: ScriptedModel, decider: ScriptedDecider
 def workspace(tmp_path: Path) -> Iterator[Workspace]:
     ws = Workspace(tmp_path / "adventureworks", "adventureworks")
     pipeline.extract(ws, PostgresCatalogReader("dbname=adventureworks"), SCOPE,
-                         PostgresColumnReader("dbname=adventureworks"))
+                         PostgresColumnReader("dbname=adventureworks"), PostgresCoverageReader("dbname=adventureworks"))
     pipeline.propose(ws)
     yield ws
 
