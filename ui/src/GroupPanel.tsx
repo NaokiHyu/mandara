@@ -218,7 +218,7 @@ function Timeline({ group: g, color, onOpen }: { group: RelatedGroup; color: str
               <Label summary={b.row} />
             </button>
             <span className="track">
-              <span className={`bar${b.open ? " open" : ""}`}
+              <span className={`period-bar${b.open ? " open" : ""}`}
                     style={{ left: `${Math.min(b.from * 100, 99)}%`, // 短い期間も見えるように最低 1%。右端からはみ出さない
                              width: `${Math.max(1, (b.to - Math.min(b.from, 0.99)) * 100)}%`,
                              background: `var(${color})` }}

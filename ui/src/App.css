@@ -278,9 +278,9 @@ button.chip { display: inline-flex; align-items: center; gap: var(--gap-small); 
 .rows-caption { margin: var(--gap-small) 0 0; }
 .timeline ul li { display: grid; grid-template-columns: minmax(120px, 34%) 1fr; align-items: center; gap: var(--gap); }
 .timeline-scale { display: flex; justify-content: space-between; margin-left: calc(34% + var(--gap)); }
-.timeline .track { position: relative; height: 10px; background: var(--panel-raised); border-radius: 2px; }
-.timeline .bar { position: absolute; top: 0; bottom: 0; border-radius: 2px; opacity: 0.85; }
-.timeline .bar.open { border-right: 2px solid var(--text-key); }
+.timeline .track { display: block; position: relative; height: 10px; background: var(--panel-raised); border-radius: 2px; }
+.timeline .period-bar { position: absolute; top: 0; bottom: 0; border-radius: 2px; opacity: 0.85; }
+.timeline .period-bar.open { border-right: 2px solid var(--text-key); }
 
 /* 時系列（GroupPanel の Series） */
 .kpis { display: flex; gap: calc(var(--gap) * 3); margin: var(--gap) 0 var(--gap-small); flex-wrap: wrap; }
