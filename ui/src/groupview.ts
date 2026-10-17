@@ -54,10 +54,24 @@ export function periodBars(rows: readonly InstanceSummary[], from: string, to: s
   return { bars, unreadable, first: iso(lo), last: iso(hi) };
 }
 
-/** 尺度の1行の表示：「orderqty 合計 26 each」。 */
+const CURRENCIES = new Set(["USD", "JPY"]);
+
+/** 尺度の値の表示：通貨は通貨の書式（$16,084,942.55）、ほかは桁区切り（小数は 4 桁まで）。数として読めなければそのまま。 */
+export function amountText(value: string | undefined, unit: string | undefined): string {
+  if (value === undefined) return "—";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return value;
+  if (unit !== undefined && CURRENCIES.has(unit)) {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: unit }).format(n);
+  }
+  const text = new Intl.NumberFormat("en-US", { maximumFractionDigits: 4 }).format(n);
+  return unit === undefined ? text : `${text} ${unit}`;
+}
+
+/** 尺度の1行の表示：「subtotal 合計 $16,084,942.55」「orderqty 合計 26 each」。 */
 export function measureText(m: MeasureValue): string {
   const op = m.op === "sum" ? "合計" : "平均";
-  return `${m.column} ${op} ${m.value ?? "—"}${m.unit_text !== undefined ? ` ${m.unit_text}` : ""}`;
+  return `${m.column} ${op} ${amountText(m.value, m.unit_text)}`;
 }
 
 function day(text: string | undefined): number | undefined | null {

@@ -2,7 +2,7 @@
 // 一覧 / 集計の頭出し / 時系列の線グラフ / 期間の帯。どの見せ方でも、件数・集計・最新の日・行への入り口を出す。
 import { relatedTitle } from "./domain";
 import { useEffect, useRef, useState } from "react";
-import { bucketLabel, measureText, partialBucket, periodBars, seriesLine, ticks, trend } from "./groupview";
+import { amountText, bucketLabel, measureText, partialBucket, periodBars, seriesLine, ticks, trend } from "./groupview";
 import { GroupView, type DomainSummary, type InstanceSummary, type RelatedGroup } from "./om/model";
 import { DomainIcon, Label } from "./parts";
 
@@ -26,8 +26,8 @@ export function GroupPanel({ group: g, target, color, onOpen, onList }: {
         {g.missing > 0 && <span className="failure small"> 先の行が無い {g.missing}</span>}
         {target !== undefined && <button className="link small" onClick={onList}>一覧 →</button>}
       </h2>
-      {g.view !== GroupView.list && <Totals group={g} />}
       {g.view === GroupView.time_series && <Series group={g} color={color} />}
+      {g.view !== GroupView.list && <Totals group={g} />}
       {g.view === GroupView.timeline && <Timeline group={g} color={color} onOpen={onOpen} />}
       {g.view !== GroupView.timeline && <Rows group={g} onOpen={onOpen} />}
     </div>
@@ -101,6 +101,8 @@ function Series({ group: g, color }: { group: RelatedGroup; color: string }) {
     `${line(path)} L${path[path.length - 1]?.[0].toFixed(1)},${chart.height} L${path[0]?.[0].toFixed(1)},${chart.height} Z`).join(" ");
   const last = flat[flat.length - 1];
   const t = trend(points);
+  const headline = (g.measures ?? []).find((m) => m.op === "sum" && m.column === measure);
+  const measureUnit = (g.measures ?? []).find((m) => m.column === measure)?.unit_text;
   const partial = t !== null && partialBucket(t.last.start, g.series_unit, g.latest?.day);
   const gradient = `grad-${g.relation}-${g.via_table ?? ""}`.replace(/[^a-zA-Z0-9_-]/g, "_");
   const step = points.length > 1 ? chart.width / (points.length - 1) : chart.width;
@@ -130,6 +132,10 @@ function Series({ group: g, color }: { group: RelatedGroup; color: string }) {
         )}
         <div className="kpi"><span className="kpi-label">ピーク</span><span className="kpi-value">{count.format(counts.max)}</span>
           <span className="kpi-unit">件 / {unitName(g.series_unit)}</span></div>
+        {headline !== undefined && (
+          <div className="kpi"><span className="kpi-label">{headline.column} 合計</span>
+            <span className="kpi-value">{amountText(headline.value, headline.unit_text)}</span></div>
+        )}
       </div>
       <div ref={box} className="chart-box">
         {width > 0 && (
@@ -181,13 +187,13 @@ function Series({ group: g, color }: { group: RelatedGroup; color: string }) {
             <b>{bucketLabel(shown.start, g.series_unit)}</b>
             <span style={{ color: `var(${color})` }}>{count.format(shown.count)} 件</span>
             {measure !== undefined && <span className="dim">{measure} {shown.sums[0]?.value === undefined ? "—"
-              : count.format(shown.sums[0].value)}</span>}
+              : amountText(String(shown.sums[0].value), measureUnit)}</span>}
           </div>
         )}
       </div>
       <figcaption className="dim small">
         <span><span className="swatch-line" style={{ background: `var(${color})` }} /> 件数（{unitName(g.series_unit)}ごと、{g.time_column}）</span>
-        {sums !== null && <span><span className="swatch-line dashed" /> {measure} の合計（別の目盛り。最大 {count.format(sums.max)}）</span>}
+        {sums !== null && <span><span className="swatch-line dashed" /> {measure} の合計（別の目盛り。最大 {amountText(String(sums.max), measureUnit)}）</span>}
       </figcaption>
     </figure>
   );

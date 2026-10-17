@@ -50,6 +50,9 @@ describe("measureText", () => {
   it("合計・平均と単位", () => {
     expect(measureText({ column: "qty", op: MeasureOp.sum, value: "26", unit_text: "each" })).toBe("qty 合計 26 each");
     expect(measureText({ column: "price", op: MeasureOp.avg })).toBe("price 平均 —");
+    expect(measureText({ column: "subtotal", op: MeasureOp.sum, value: "16084942.5482", unit_text: "USD" }))
+      .toBe("subtotal 合計 $16,084,942.55");
+    expect(measureText({ column: "rate", op: MeasureOp.avg, value: "0.0123456" })).toBe("rate 平均 0.0123");
   });
 });
 
