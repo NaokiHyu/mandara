@@ -321,3 +321,15 @@ button.chip { display: inline-flex; align-items: center; gap: var(--gap-small); 
 .collection-profile { margin: var(--gap) 0; max-width: 720px; }
 button.chip.within { font-size: 14px; padding: 2px var(--gap); }
 .instance-body { margin-top: var(--gap); }
+
+/* n:m のつながり（relation の行）：ドメインの属性のように控えめに。小さい文字、細い点線の区切り、色は落とす */
+.links-strip { margin-top: var(--gap-small); padding-top: var(--gap-small); border-top: 1px dashed var(--line);
+               font-size: var(--size-small); color: var(--text-dim); }
+.links-strip .links-head { margin: 0; display: flex; align-items: baseline; gap: var(--gap-small); font-size: 10px;
+                           letter-spacing: 0.04em; }
+.links-strip .links-head b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.links-strip .row-link { padding: 0; }
+.links-strip .row-link .label { color: var(--text); }
+.links-strip .timeline .track { height: 6px; }
+.links-strip .series .line { opacity: 0.85; }
+.collection-links { max-width: 720px; }

@@ -3,7 +3,8 @@
 - ドメインは承認済みの domain / event の表だけ。ほかの表は理由つきで hidden に出る（どの表も、どちらかにちょうど1回）
 - 検索の結果の行は、そのキーでインスタンスとして開ける。部分一致の % と _ は文字として扱う
 - 参照先へのリンクを開くと、その参照先のインスタンスになる。子の集まり（1:n）の行は、開くとこのインスタンスを指し返す
-- relation の表は、ドメインにも近隣の集まりにも出ない（n:m の向こう側だけが出る）
+- relation の表は、ドメインにも近隣の集まりにも出ない（n:m の向こう側だけが出る。つながりの集計は links に控えめに添う）
+- 近隣の集まり（1:n も n:m も）は、そのインスタンスで絞ったドメインの集合と同じ（八百屋 X の野菜 ⊆ 野菜）
 - 行を読むアダプタ：値はパラメータで渡す（識別子も値も SQL に埋め込まない）
 """
 
@@ -15,7 +16,7 @@ from typing import cast
 from pathlib import Path
 
 import pytest
-from hypothesis import given
+from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from mandara.app import browse
@@ -23,7 +24,7 @@ from mandara.connectors.postgres.record_reader import PostgresRecordReader
 from mandara.om.model import Additivity, GroupProfile, GroupView, LabelSource, RelatedKind, SemanticType, Table, UnitSource, ValueType
 from mandara.om.ontology import Ontology
 from mandara.omstore.yaml_store import load_ontology
-from mandara.source.records import (Aggregated, All, Contains, Equals, Group, Measure, Op, Records, TimeBucket,
+from mandara.source.records import (Aggregated, All, Contains, Equals, Exists, Group, Measure, Op, Records, TimeBucket,
                                     TimeUnit, Where)
 
 GOLD = Path(__file__).parent.parent / "evals/datasets/adventureworks/gold/ontology"
@@ -189,6 +190,11 @@ class DictReader:
         for part in (where.parts if isinstance(where, All) else (where,) if where is not None else ()):
             if isinstance(part, Equals):
                 rows = [r for r in rows if all(str(r[c]) == str(v) for c, v in part.values.items())]
+            elif isinstance(part, Exists):
+                links = [x for x in self.tables.get((part.schema, part.table), [])
+                         if all(str(x[c]) == str(v) for c, v in part.values.items())]
+                rows = [r for r in rows if any(all(r[mine] is not None and str(x[theirs]) == str(r[mine])
+                                                   for mine, theirs in part.on) for x in links)]
             else:
                 rows = [r for r in rows if any(part.text.lower() in str(r[c]).lower() for c in part.columns
                                                if r[c] is not None)]
@@ -203,7 +209,7 @@ class DictReader:
         picked = tuple({c: r[c] for c in columns} for r in rows)
         return Records(picked[:limit], truncated=len(picked) > limit)
 
-    def aggregate(self, schema: str, table: str, where: Equals | None, by: str | TimeBucket | None,
+    def aggregate(self, schema: str, table: str, where: Where | None, by: str | TimeBucket | None,
                   measures: Sequence[Measure], limit: int, latest_first: bool = False) -> Aggregated:
         """SQL の集計と同じ意味（NULL は数えない、行が無ければ合計は None）の素朴な実装。"""
         rows = self._rows(schema, table, where)
@@ -314,7 +320,8 @@ def test_via_rows_carry_the_attributes_of_each_link_row() -> None:
     assert groups and all(g.via_table == bom.id for g in groups)
     referencing = {p.from_ for r in bom.relations or [] for p in r.via or []}
     for g in groups:
-        for row in g.rows:
+        assert g.links is not None and all(r.link_cells is None for r in g.rows)  # 先の行そのものには添えない
+        for row in g.links.rows:
             columns = [c.column for c in row.link_cells or []]
             assert "startdate" in columns and "perassemblyqty" in columns
             assert not set(columns) & (referencing | {"billofmaterialsid"})
@@ -410,12 +417,13 @@ def test_postgres_and_the_fake_agree() -> None:
 
 
 def test_period_links_are_shown_as_a_timeline() -> None:
-    """部品表（relation。startdate / enddate を持つ）を挟んだ先は期間の帯。期間の列は relation の行の値として添う。"""
+    """部品表（relation。startdate / enddate を持つ）のつながりは期間の帯。期間の列は relation の行の値として添う。"""
     product = _table("production.product")
     groups = [g for g in browse.instance(OM, product.id, ["3"], READER, TODAY).related if g.kind == RelatedKind.via]
-    assert groups and all(g.view == GroupView.timeline and (g.period_from, g.period_to) == ("startdate", "enddate")
-                          for g in groups)
-    assert all("startdate" in [c.column for c in r.link_cells or []] for g in groups for r in g.rows)
+    links = [g.links for g in groups if g.links is not None]
+    assert groups and len(links) == len(groups)
+    assert all(l.view == GroupView.timeline and (l.period_from, l.period_to) == ("startdate", "enddate") for l in links)
+    assert all("startdate" in [c.column for c in r.link_cells or []] for l in links for r in l.rows)
 
 
 def _orders(customer: int, days: list[date]) -> list[dict[str, object]]:
@@ -529,7 +537,7 @@ def test_a_group_in_an_instance_is_the_collection_within_that_instance(name: str
     groups = [g for g in it.related if g.kind == RelatedKind.children]
     assert groups
     for g in groups:
-        within = browse.WithinParent(parent.id, tuple(it.key), g.relation)
+        within = browse.WithinChild(parent.id, tuple(it.key), g.relation)
         part = browse.collection(OM, g.table, READER, TODAY, within=within, limit=50)
         fields = set(GroupProfile.model_fields)
         assert part.model_dump(include=fields) == g.model_dump(include=fields)  # 見せ方と集計のすべての項目が同じ
@@ -543,12 +551,89 @@ def test_a_group_in_an_instance_is_the_collection_within_that_instance(name: str
                        for l in child.links)
 
 
+@pytest.mark.parametrize(("name", "key"), [("production.product", ["3"]), ("production.product", ["971"]),
+                                           ("production.product", ["948"])])  # 948 は同じ組立品に2回つながる部品
+def test_a_via_group_in_an_instance_is_the_collection_within_that_instance(name: str, key: list[str]) -> None:
+    """n:m の集まりも、同じつながりで絞ったドメインの集合と同じ（見せ方・集計・行・つながりの集計）。集まりの行は先の行で
+    重複せず、つながりの行が指す先の行と同じ集合（打ち切っていなければ）。"""
+    parent = _table(name)
+    it = browse.instance(OM, parent.id, key, READER, TODAY)
+    groups = [g for g in it.related if g.kind == RelatedKind.via]
+    assert groups
+    fields = set(GroupProfile.model_fields)
+    for g in groups:
+        assert g.links is not None and g.via_relation is not None
+        within = browse.WithinVia(parent.id, tuple(it.key), g.relation, g.via_relation)
+        part = browse.collection(OM, g.table, READER, TODAY, within=within, limit=50)
+        assert part.model_dump(include=fields) == g.model_dump(include=fields)
+        assert part.rows[:len(g.rows)] == g.rows
+        assert part.links == g.links
+        assert part.within is not None and part.within.via_relation == g.via_relation
+        keys = [tuple(r.key) for r in part.rows]
+        assert len(keys) == len(set(keys))
+        if not g.links.truncated:  # つながりの行は、先の行・壊れた参照・先が NULL のどれかにちょうど1回数える
+            assert len(g.links.rows) + g.links.missing + g.links.unlinked == g.links.count
+        if not part.truncated and not g.links.truncated:
+            assert set(keys) == {tuple(r.key) for r in g.links.rows}
+            assert part.count == len(set(keys))
+
+
+_INVENTORY = READER.find("production", "productinventory", ["productid", "locationid", "quantity"], ["productid", "locationid"],
+                         None, 100000).rows
+_LOCATIONS = READER.find("production", "location", ["locationid", "name", "costrate", "modifieddate"], ["locationid"],
+                         None, 1000).rows
+_PRODUCTS = READER.find("production", "product", ["productid", "color", "sellstartdate"], ["productid"], None, 100000).rows
+_SEMIJOIN_READERS = [READER, DictReader({("production", "productinventory"): [dict(r) for r in _INVENTORY],
+                                         ("production", "location"): [dict(r) for r in _LOCATIONS],
+                                         ("production", "product"): [dict(r) for r in _PRODUCTS]})]
+
+
+@settings(max_examples=25, deadline=None)
+@given(st.sampled_from(sorted({str(r["productid"]) for r in _INVENTORY}) + ["999999"]),
+       st.sampled_from(["", "a", "Stor", "zzz"]))
+def test_exists_is_a_semi_join_alike_in_postgres_and_the_fake(product: str, text: str) -> None:
+    """Exists の法則（PostgreSQL と偽物に同じ法則、同じ結果）：
+    - 準結合：Exists で絞った行のキー = つながる表の、値に一致する行が指すキー（重複しない）
+    - 件数：aggregate の件数 = find の行の数（Exists を検索と All で組んでも）。値ごと・時間の区切りごとの件数の和も同じ"""
+    where = Exists("production", "productinventory", (("locationid", "locationid"),), {"productid": product})
+    narrowed: Where = where if text == "" else All((where, Contains(("name",), text)))
+    expected = sorted({cast(int, r["locationid"]) for r in _INVENTORY if str(r["productid"]) == product})
+    results: list[object] = []
+    for reader in _SEMIJOIN_READERS:
+        r = cast(DictReader, reader)
+        plain = r.find("production", "location", ["locationid"], ["locationid"], where, 1000)
+        assert [x["locationid"] for x in plain.rows] == expected
+        rows = r.find("production", "location", ["locationid", "name"], ["locationid"], narrowed, 1000).rows
+        [whole] = r.aggregate("production", "location", narrowed, None, [Measure("count", None)], 1).groups
+        assert whole.values[0] == len(rows)
+        by_value = r.aggregate("production", "location", narrowed, "costrate", [Measure("count", None)], 1000).groups
+        by_month = r.aggregate("production", "location", narrowed, TimeBucket("modifieddate", "month"),
+                               [Measure("count", None)], 1000).groups
+        assert sum(cast(int, g.values[0]) for g in by_value) == sum(cast(int, g.values[0]) for g in by_month) == len(rows)
+        results.append((rows, whole, by_value, by_month))
+    assert results[0] == results[1]
+
+
+@settings(max_examples=10, deadline=None)
+@given(st.sampled_from(sorted({str(r["color"]) for r in _PRODUCTS if r["color"] is not None})))
+def test_exists_on_the_same_table_does_not_confuse_the_outer_and_inner_rows(color: str) -> None:
+    """外と内が同じ表の Exists（自分自身とキーでつながる、色の一致する行がある）は、Equals で絞ったのと同じ行。"""
+    same = Exists("production", "product", (("productid", "productid"),), {"color": color})
+    for reader in _SEMIJOIN_READERS:
+        r = cast(DictReader, reader)
+        a = r.find("production", "product", ["productid"], ["productid"], same, 1000)
+        b = r.find("production", "product", ["productid"], ["productid"], Equals({"color": color}), 1000)
+        assert a == b and a.rows
+    with pytest.raises(ValueError, match="NULL"):
+        Exists("s", "t", (("a", "b"),), {"c": None})
+
+
 def test_search_narrows_rows_but_not_the_profile() -> None:
     """検索は行だけを絞る。集合の件数と集計は検索の前の集合について。"""
     header = _table("sales.salesorderheader")
     detail = _table("sales.salesorderdetail")
     rel = next(r for r in detail.relations or [] if r.target == header.id)
-    within = browse.WithinParent(header.id, ("43659",), rel.id)
+    within = browse.WithinChild(header.id, ("43659",), rel.id)
     every = browse.collection(OM, detail.id, READER, TODAY, within=within)
     found = browse.collection(OM, detail.id, READER, TODAY, "776", within=within)
     assert found.count == every.count == 12 and 0 < len(found.rows) < len(every.rows)
@@ -558,11 +643,11 @@ def test_wrong_within_is_an_error() -> None:
     header, detail, product = _table("sales.salesorderheader"), _table("sales.salesorderdetail"), _table("production.product")
     rel = next(r for r in detail.relations or [] if r.target == header.id)
     with pytest.raises(browse.NotFoundError, match="関係"):
-        browse.collection(OM, detail.id, READER, TODAY, within=browse.WithinParent(product.id, ("707",), rel.id))
+        browse.collection(OM, detail.id, READER, TODAY, within=browse.WithinChild(product.id, ("707",), rel.id))
     with pytest.raises(browse.NotFoundError, match="行が無い"):
-        browse.collection(OM, detail.id, READER, TODAY, within=browse.WithinParent(header.id, ("1",), rel.id))
+        browse.collection(OM, detail.id, READER, TODAY, within=browse.WithinChild(header.id, ("1",), rel.id))
     with pytest.raises(browse.BadKeyError):
-        browse.collection(OM, detail.id, READER, TODAY, within=browse.WithinParent(header.id, ("x",), rel.id))
+        browse.collection(OM, detail.id, READER, TODAY, within=browse.WithinChild(header.id, ("x",), rel.id))
 
 
 def test_null_is_not_an_equality_value_and_a_null_parent_has_no_children() -> None:
@@ -577,7 +662,7 @@ def test_null_is_not_an_equality_value_and_a_null_parent_has_no_children() -> No
         if t.id == header.id and t.identity is not None else t for t in OM.tables))
     reader = DictReader({("sales", "salesorderheader"): [base | {"salesorderid": None, "rowguid": "g"}]})
     part = browse.collection(nulled, detail.id, reader, TODAY,
-                             within=browse.WithinParent(header.id, ("g",), rel.id))
+                             within=browse.WithinChild(header.id, ("g",), rel.id))
     assert (part.count, part.view, part.rows) == (0, GroupView.list, [])
 
 
@@ -585,14 +670,14 @@ def test_parent_key_count_must_match() -> None:
     header, detail = _table("sales.salesorderheader"), _table("sales.salesorderdetail")
     rel = next(r for r in detail.relations or [] if r.target == header.id)
     with pytest.raises(browse.BadKeyError, match="キーの数"):
-        browse.collection(OM, detail.id, READER, TODAY, within=browse.WithinParent(header.id, ("1", "2"), rel.id))
+        browse.collection(OM, detail.id, READER, TODAY, within=browse.WithinChild(header.id, ("1", "2"), rel.id))
 
 
 def test_the_memo_reads_different_conditions_separately() -> None:
     calls: list[object] = []
 
     class Counting(DictReader):
-        def aggregate(self, schema: str, table: str, where: Equals | None, by: str | TimeBucket | None,
+        def aggregate(self, schema: str, table: str, where: Where | None, by: str | TimeBucket | None,
                       measures: Sequence[Measure], limit: int, latest_first: bool = False) -> Aggregated:
             calls.append(where)
             return super().aggregate(schema, table, where, by, measures, limit, latest_first)
@@ -605,3 +690,8 @@ def test_the_memo_reads_different_conditions_separately() -> None:
     every = memo.aggregate("s", "t", None, None, count, 1)
     assert len(calls) == 3 and one == again and one.groups[0].values == (1,) and two.groups[0].values == (1,)
     assert every.groups[0].values == (2,)
+    linked = Exists("s", "u", (("a", "b"),), {"c": 1})
+    memo.aggregate("s", "t", linked, None, count, 1)
+    memo.aggregate("s", "t", Exists("s", "u", (("a", "b"),), {"c": 2}), None, count, 1)
+    memo.aggregate("s", "t", linked, None, count, 1)
+    assert len(calls) == 5  # 同じ Exists の2回目は読まない。値が違えば別に読む

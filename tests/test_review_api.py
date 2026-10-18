@@ -313,6 +313,8 @@ def test_domain_viewer_follows_the_contracts(prepared: Path, tmp_path: Path) -> 
     ROWS_VALIDATOR.validate(part)
     status, body = _request(client, "GET", f"{path}/{group['table']}/rows?{within}")
     assert status == 422 and "そろえて" in body["error"]
+    status, body = _request(client, "GET", f"{path}/{group['table']}/rows?within_via={group['relation']}")
+    assert status == 422 and "そろえて" in body["error"]  # n:m の関係だけでは絞れない
     status, body = _request(client, "GET", f"{path}/{group['table']}/rows?within_table={person['table']}"
                                            f"&within_key=999999999&within_relation={group['relation']}")
     assert status == 404 and "行が無い" in body["error"]

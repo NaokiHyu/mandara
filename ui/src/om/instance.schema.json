@@ -751,7 +751,7 @@
                     "type": "array"
                 },
                 "count": {
-                    "description": "\u96c6\u307e\u308a\u30fb\u96c6\u5408\u306e\u884c\u306e\u6570\uff08via \u306a\u3089 relation \u306e\u8868\u306e\u884c\u306e\u6570\u3002\u96c6\u5408\u306a\u3089\u691c\u7d22\u3067\u7d5e\u308b\u524d\uff09\u3002rows \u306f\u5148\u982d\u30fb\u65b0\u3057\u3044\u3082\u306e\u304b\u3089\u306e\u4e00\u90e8",
+                    "description": "\u96c6\u307e\u308a\u30fb\u96c6\u5408\u306e\u884c\u306e\u6570\uff08\u96c6\u5408\u306a\u3089\u691c\u7d22\u3067\u7d5e\u308b\u524d\u3002LinkGroup \u306a\u3089 relation \u306e\u8868\u306e\u884c\u306e\u6570\uff09\u3002rows \u306f\u5148\u982d\u30fb\u65b0\u3057\u3044\u3082\u306e\u304b\u3089\u306e\u4e00\u90e8",
                     "minimum": 0,
                     "type": "integer"
                 },
@@ -769,6 +769,17 @@
                 "limit": {
                     "type": "integer"
                 },
+                "links": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/LinkGroup"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "n:m \u3067\u7d5e\u3063\u305f\u3068\u304d\uff08within.via_relation \u304c\u3042\u308b\uff09\u3001\u89aa\u3068\u306e\u3064\u306a\u304c\u308a\uff08relation \u306e\u884c\uff09\u306e\u96c6\u8a08\u3002\u30a4\u30f3\u30b9\u30bf\u30f3\u30b9\u306e n:m \u306e \u96c6\u307e\u308a\u306e links \u3068\u540c\u3058"
+                },
                 "measures": {
                     "description": "\u5c3a\u5ea6\u306e\u96c6\u8a08\uff08\u96c6\u307e\u308a\u5168\u4f53\uff09",
                     "items": {
@@ -783,7 +794,7 @@
                     "type": "string"
                 },
                 "period_from": {
-                    "description": "\u671f\u9593\u306e\u59cb\u307e\u308a\u306e\u5217\uff08role valid_from\u3002via \u306a\u3089 relation \u306e\u8868\u306e\u5217\uff09",
+                    "description": "\u671f\u9593\u306e\u59cb\u307e\u308a\u306e\u5217\uff08role valid_from\u3002LinkGroup \u306a\u3089 relation \u306e\u8868\u306e\u5217\uff09",
                     "type": [
                         "string",
                         "null"
@@ -852,7 +863,7 @@
                     "type": "string"
                 },
                 "time_column": {
-                    "description": "\u51fa\u6765\u4e8b\u306e\u6642\u523b\u306e\u5217\uff08role event_time\u3002via \u306a\u3089 relation \u306e\u8868\u306e\u5217\uff09\u3002rows \u306f\u3053\u306e\u5217\u306e\u65b0\u3057\u3044\u9806",
+                    "description": "\u51fa\u6765\u4e8b\u306e\u6642\u523b\u306e\u5217\uff08role event_time\u3002LinkGroup \u306a\u3089 relation \u306e\u8868\u306e\u5217\uff09\u3002rows \u306f\u3053\u306e\u5217\u306e\u65b0\u3057\u3044\u9806",
                     "type": [
                         "string",
                         "null"
@@ -1191,7 +1202,7 @@
                     ]
                 },
                 "count": {
-                    "description": "\u96c6\u307e\u308a\u30fb\u96c6\u5408\u306e\u884c\u306e\u6570\uff08via \u306a\u3089 relation \u306e\u8868\u306e\u884c\u306e\u6570\u3002\u96c6\u5408\u306a\u3089\u691c\u7d22\u3067\u7d5e\u308b\u524d\uff09\u3002rows \u306f\u5148\u982d\u30fb\u65b0\u3057\u3044\u3082\u306e\u304b\u3089\u306e\u4e00\u90e8",
+                    "description": "\u96c6\u307e\u308a\u30fb\u96c6\u5408\u306e\u884c\u306e\u6570\uff08\u96c6\u5408\u306a\u3089\u691c\u7d22\u3067\u7d5e\u308b\u524d\u3002LinkGroup \u306a\u3089 relation \u306e\u8868\u306e\u884c\u306e\u6570\uff09\u3002rows \u306f\u5148\u982d\u30fb\u65b0\u3057\u3044\u3082\u306e\u304b\u3089\u306e\u4e00\u90e8",
                     "minimum": 0,
                     "type": "integer"
                 },
@@ -1217,7 +1228,7 @@
                     ]
                 },
                 "period_from": {
-                    "description": "\u671f\u9593\u306e\u59cb\u307e\u308a\u306e\u5217\uff08role valid_from\u3002via \u306a\u3089 relation \u306e\u8868\u306e\u5217\uff09",
+                    "description": "\u671f\u9593\u306e\u59cb\u307e\u308a\u306e\u5217\uff08role valid_from\u3002LinkGroup \u306a\u3089 relation \u306e\u8868\u306e\u5217\uff09",
                     "type": [
                         "string",
                         "null"
@@ -1271,7 +1282,7 @@
                     ]
                 },
                 "time_column": {
-                    "description": "\u51fa\u6765\u4e8b\u306e\u6642\u523b\u306e\u5217\uff08role event_time\u3002via \u306a\u3089 relation \u306e\u8868\u306e\u5217\uff09\u3002rows \u306f\u3053\u306e\u5217\u306e\u65b0\u3057\u3044\u9806",
+                    "description": "\u51fa\u6765\u4e8b\u306e\u6642\u523b\u306e\u5217\uff08role event_time\u3002LinkGroup \u306a\u3089 relation \u306e\u8868\u306e\u5217\uff09\u3002rows \u306f\u3053\u306e\u5217\u306e\u65b0\u3057\u3044\u9806",
                     "type": [
                         "string",
                         "null"
@@ -1605,6 +1616,162 @@
             "title": "LatestDay",
             "type": "object"
         },
+        "LinkGroup": {
+            "additionalProperties": false,
+            "description": "n:m \u306e\u3064\u306a\u304c\u308a\uff08relation \u306e\u8868\u306e\u3001\u89aa\u3092\u6307\u3059\u884c\uff09\u306e\u96c6\u307e\u308a\u3002\u898b\u305b\u65b9\u3068\u96c6\u8a08\u306f relation \u306e\u884c\u306b\u3064\u3044\u3066\uff08\u671f\u9593\u306e\u5e2f\u3001\u6570\u91cf\u306e\u5408\u8a08\u306a\u3069\uff09\u3002 rows \u306f relation \u306e\u884c\u3054\u3068\u306e\u5148\u306e\u30a4\u30f3\u30b9\u30bf\u30f3\u30b9\u3067\u3001\u305d\u306e\u884c\u306e\u5c5e\u6027\u3092 link_cells \u306b\u6301\u3064\uff08\u540c\u3058\u5148\u304c2\u56de\u51fa\u308b\u3053\u3068\u304c\u3042\u308b\uff09",
+            "properties": {
+                "breakdown": {
+                    "items": {
+                        "$ref": "#/$defs/BreakdownValue"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
+                "breakdown_column": {
+                    "description": "\u5185\u8a33\u306e\u5217\uff08enum \u306e\u610f\u5473\u578b\u306e\u5217\uff09",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "breakdown_truncated": {
+                    "type": [
+                        "boolean",
+                        "null"
+                    ]
+                },
+                "count": {
+                    "description": "\u96c6\u307e\u308a\u30fb\u96c6\u5408\u306e\u884c\u306e\u6570\uff08\u96c6\u5408\u306a\u3089\u691c\u7d22\u3067\u7d5e\u308b\u524d\u3002LinkGroup \u306a\u3089 relation \u306e\u8868\u306e\u884c\u306e\u6570\uff09\u3002rows \u306f\u5148\u982d\u30fb\u65b0\u3057\u3044\u3082\u306e\u304b\u3089\u306e\u4e00\u90e8",
+                    "minimum": 0,
+                    "type": "integer"
+                },
+                "latest": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/LatestDay"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "\u6700\u65b0\u306e\u65e5\uff08time_column \u306e\u5024\u306e\u65e5\u4ed8\u3067\u6700\u3082\u65b0\u3057\u3044\u65e5\uff09\u306e\u307e\u3068\u3081\u3002\u30c7\u30fc\u30bf\u304c\u4eca\u65e5\u307e\u3067\u5c4a\u3044\u3066\u3044\u308c\u3070\u4eca\u65e5\uff08is_today\uff09\u3002 \u5c4a\u3044\u3066\u3044\u306a\u3051\u308c\u3070\u6700\u65b0\u306e\u65e5\u3092\u57fa\u6e96\u65e5\u3068\u3057\u3066\u660e\u793a\u3059\u308b"
+                },
+                "measures": {
+                    "description": "\u5c3a\u5ea6\u306e\u96c6\u8a08\uff08\u96c6\u307e\u308a\u5168\u4f53\uff09",
+                    "items": {
+                        "$ref": "#/$defs/MeasureValue"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
+                "missing": {
+                    "description": "relation \u306e\u884c\u304c\u6307\u3059\u5148\u306e\u884c\u304c\u7121\u304b\u3063\u305f\u6570\uff08\u58ca\u308c\u305f\u53c2\u7167\uff09",
+                    "minimum": 0,
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "period_from": {
+                    "description": "\u671f\u9593\u306e\u59cb\u307e\u308a\u306e\u5217\uff08role valid_from\u3002LinkGroup \u306a\u3089 relation \u306e\u8868\u306e\u5217\uff09",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "period_to": {
+                    "description": "\u671f\u9593\u306e\u7d42\u308f\u308a\u306e\u5217\uff08role valid_to\uff09",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "rows": {
+                    "items": {
+                        "$ref": "#/$defs/InstanceSummary"
+                    },
+                    "type": "array"
+                },
+                "series": {
+                    "description": "\u533a\u5207\u308a\u306e\u53e4\u3044\u9806\u3002\u884c\u306e\u7121\u3044\u533a\u5207\u308a\u3082 count 0 \u3067\u5165\u308b\uff08\u6642\u9593\u8ef8\u3092\u8a70\u3081\u306a\u3044\uff09",
+                    "items": {
+                        "$ref": "#/$defs/SeriesPoint"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
+                "series_measures": {
+                    "description": "series \u306e\u5404\u70b9\u306e values \u306b\u5165\u308b\u5c3a\u5ea6\u306e\u5217\uff08\u5408\u8a08\uff09",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
+                "series_unit": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/BucketUnit"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "skipped_measures": {
+                    "description": "\u96c6\u8a08\u3057\u306a\u304b\u3063\u305f\u5c3a\u5ea6\u3068\u7406\u7531\uff08\u5358\u4f4d\u304c\u6df7\u3056\u308b\u3001\u6642\u9593\u306e\u8ef8\u3067\u5408\u8a08\u3067\u304d\u306a\u3044\u3001\u306a\u3069\uff09",
+                    "items": {
+                        "$ref": "#/$defs/SkippedMeasure"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
+                "table": {
+                    "description": "relation \u306e\u8868\u306e\u5b89\u5b9a ID",
+                    "type": "string"
+                },
+                "time_column": {
+                    "description": "\u51fa\u6765\u4e8b\u306e\u6642\u523b\u306e\u5217\uff08role event_time\u3002LinkGroup \u306a\u3089 relation \u306e\u8868\u306e\u5217\uff09\u3002rows \u306f\u3053\u306e\u5217\u306e\u65b0\u3057\u3044\u9806",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "truncated": {
+                    "type": "boolean"
+                },
+                "unlinked": {
+                    "description": "relation \u306e\u884c\u306e\u3046\u3061\u3001\u5148\u3092\u6307\u3059\u5217\u304c NULL \u306e\u6570\uff08\u5148\u304c\u7121\u3044\u3064\u306a\u304c\u308a\u3002\u58ca\u308c\u305f\u53c2\u7167\u3067\u306f\u306a\u3044\uff09\u3002\u6253\u3061\u5207\u3063\u3066\u3044\u306a\u3051\u308c\u3070 rows \u306e\u6570 + missing + unlinked = \u8aad\u3093\u3060 relation \u306e\u884c\u306e\u6570",
+                    "minimum": 0,
+                    "type": "integer"
+                },
+                "view": {
+                    "$ref": "#/$defs/GroupView"
+                }
+            },
+            "required": [
+                "table",
+                "name",
+                "rows",
+                "truncated",
+                "missing",
+                "unlinked",
+                "view",
+                "count"
+            ],
+            "title": "LinkGroup",
+            "type": "object"
+        },
         "LinkState": {
             "description": "\u53c2\u7167\u5148\uff08n:1\uff09\u3078\u306e\u30ea\u30f3\u30af\u306e\u72b6\u614b\uff08\u30c9\u30e1\u30a4\u30f3\u30d3\u30e5\u30fc\u30ef\uff09",
             "enum": [
@@ -1850,7 +2017,7 @@
         },
         "RelatedGroup": {
             "additionalProperties": false,
-            "description": "",
+            "description": "\u30a4\u30f3\u30b9\u30bf\u30f3\u30b9\u306e\u8fd1\u96a3\u306e\u96c6\u307e\u308a\u3002\u898b\u305b\u65b9\u30fb\u96c6\u8a08\u30fb\u884c\u306f\u96c6\u307e\u308a\u306e\u8868\uff08table\uff09\u306e\u884c\u306b\u3064\u3044\u3066\uff1a1:n \u306a\u3089\u53c2\u7167\u3057\u3066\u304f\u308b\u5b50\u306e\u884c\u3001n:m \u306a\u3089 relation \u306e\u8868\u306e\u884c\u3067\u3064\u306a\u304c\u308b\u5148\u306e\u884c\uff08\u91cd\u8907\u3057\u306a\u3044\u3002\u516b\u767e\u5c4b X \u306e\u91ce\u83dc\uff09\u3002n:m \u306e\u3064\u306a\u304c\u308a\u81ea\u4f53\uff08\u671f\u9593\u30fb\u6570\u91cf\u306a\u3069\u306e\u5c5e\u6027\uff09\u306f links",
             "properties": {
                 "breakdown": {
                     "items": {
@@ -1882,7 +2049,7 @@
                     "type": "array"
                 },
                 "count": {
-                    "description": "\u96c6\u307e\u308a\u30fb\u96c6\u5408\u306e\u884c\u306e\u6570\uff08via \u306a\u3089 relation \u306e\u8868\u306e\u884c\u306e\u6570\u3002\u96c6\u5408\u306a\u3089\u691c\u7d22\u3067\u7d5e\u308b\u524d\uff09\u3002rows \u306f\u5148\u982d\u30fb\u65b0\u3057\u3044\u3082\u306e\u304b\u3089\u306e\u4e00\u90e8",
+                    "description": "\u96c6\u307e\u308a\u30fb\u96c6\u5408\u306e\u884c\u306e\u6570\uff08\u96c6\u5408\u306a\u3089\u691c\u7d22\u3067\u7d5e\u308b\u524d\u3002LinkGroup \u306a\u3089 relation \u306e\u8868\u306e\u884c\u306e\u6570\uff09\u3002rows \u306f\u5148\u982d\u30fb\u65b0\u3057\u3044\u3082\u306e\u304b\u3089\u306e\u4e00\u90e8",
                     "minimum": 0,
                     "type": "integer"
                 },
@@ -1900,6 +2067,17 @@
                     ],
                     "description": "\u6700\u65b0\u306e\u65e5\uff08time_column \u306e\u5024\u306e\u65e5\u4ed8\u3067\u6700\u3082\u65b0\u3057\u3044\u65e5\uff09\u306e\u307e\u3068\u3081\u3002\u30c7\u30fc\u30bf\u304c\u4eca\u65e5\u307e\u3067\u5c4a\u3044\u3066\u3044\u308c\u3070\u4eca\u65e5\uff08is_today\uff09\u3002 \u5c4a\u3044\u3066\u3044\u306a\u3051\u308c\u3070\u6700\u65b0\u306e\u65e5\u3092\u57fa\u6e96\u65e5\u3068\u3057\u3066\u660e\u793a\u3059\u308b"
                 },
+                "links": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/LinkGroup"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "n:m\uff08via\uff09\u306e\u3068\u304d\u3001\u3064\u306a\u304c\u308a\uff08relation \u306e\u884c\uff09\u306e\u96c6\u8a08"
+                },
                 "measures": {
                     "description": "\u5c3a\u5ea6\u306e\u96c6\u8a08\uff08\u96c6\u307e\u308a\u5168\u4f53\uff09",
                     "items": {
@@ -1910,16 +2088,11 @@
                         "null"
                     ]
                 },
-                "missing": {
-                    "description": "relation \u306e\u8868\u306e\u884c\u304c\u6307\u3059\u5148\u306e\u884c\u304c\u7121\u304b\u3063\u305f\u6570\uff08via \u306e\u3068\u304d\u3002\u58ca\u308c\u305f\u53c2\u7167\uff09",
-                    "minimum": 0,
-                    "type": "integer"
-                },
                 "name": {
                     "type": "string"
                 },
                 "period_from": {
-                    "description": "\u671f\u9593\u306e\u59cb\u307e\u308a\u306e\u5217\uff08role valid_from\u3002via \u306a\u3089 relation \u306e\u8868\u306e\u5217\uff09",
+                    "description": "\u671f\u9593\u306e\u59cb\u307e\u308a\u306e\u5217\uff08role valid_from\u3002LinkGroup \u306a\u3089 relation \u306e\u8868\u306e\u5217\uff09",
                     "type": [
                         "string",
                         "null"
@@ -1990,7 +2163,7 @@
                     "type": "string"
                 },
                 "time_column": {
-                    "description": "\u51fa\u6765\u4e8b\u306e\u6642\u523b\u306e\u5217\uff08role event_time\u3002via \u306a\u3089 relation \u306e\u8868\u306e\u5217\uff09\u3002rows \u306f\u3053\u306e\u5217\u306e\u65b0\u3057\u3044\u9806",
+                    "description": "\u51fa\u6765\u4e8b\u306e\u6642\u523b\u306e\u5217\uff08role event_time\u3002LinkGroup \u306a\u3089 relation \u306e\u8868\u306e\u5217\uff09\u3002rows \u306f\u3053\u306e\u5217\u306e\u65b0\u3057\u3044\u9806",
                     "type": [
                         "string",
                         "null"
@@ -2042,7 +2215,6 @@
                 "columns",
                 "rows",
                 "truncated",
-                "missing",
                 "view",
                 "count"
             ],
@@ -2950,7 +3122,7 @@
         },
         "Within": {
             "additionalProperties": false,
-            "description": "\u96c6\u5408\u3092\u7d5e\u308b\u30a4\u30f3\u30b9\u30bf\u30f3\u30b9\uff08\u89aa\uff09\u3068\u3001\u5b50\u306e\u8868\u304b\u3089\u305d\u306e\u89aa\u3078\u306e\u95a2\u4fc2\uff081:n \u306e\u5b50\u306e\u96c6\u307e\u308a\uff09",
+            "description": "\u96c6\u5408\u3092\u7d5e\u308b\u30a4\u30f3\u30b9\u30bf\u30f3\u30b9\uff08\u89aa\uff09\u3068\u3001\u305d\u306e\u89aa\u3078\u306e\u95a2\u4fc2\u30021:n \u306a\u3089\u5b50\u306e\u8868\u304b\u3089\u89aa\u3078\u306e\u95a2\u4fc2\uff08relation\uff09\u3002n:m \u306a\u3089 relation \u306e\u8868\u3092\u631f\u3080\uff1a relation \u306f relation \u306e\u8868\u304b\u3089\u96c6\u5408\u306e\u8868\u3078\u306e\u95a2\u4fc2\u3001via_relation \u306f relation \u306e\u8868\u304b\u3089\u89aa\u3078\u306e\u95a2\u4fc2\uff08RelatedGroup \u3068\u540c\u3058\u610f\u5473\uff09",
             "properties": {
                 "key": {
                     "items": {
@@ -2967,12 +3139,19 @@
                     "type": "string"
                 },
                 "relation": {
-                    "description": "\u5b50\u306e\u8868\u304b\u3089\u89aa\u3078\u306e\u95a2\u4fc2\u306e\u5b89\u5b9a ID",
+                    "description": "1:n \u306a\u3089\u5b50\u306e\u8868\u304b\u3089\u89aa\u3078\u306e\u95a2\u4fc2\u3001n:m \u306a\u3089 relation \u306e\u8868\u304b\u3089\u96c6\u5408\u306e\u8868\u3078\u306e\u95a2\u4fc2\u306e\u5b89\u5b9a ID",
                     "type": "string"
                 },
                 "table": {
                     "description": "\u89aa\u306e\u30c9\u30e1\u30a4\u30f3\uff08\u8868\u306e\u5b89\u5b9a ID\uff09",
                     "type": "string"
+                },
+                "via_relation": {
+                    "description": "n:m \u306e\u3068\u304d\u3001relation \u306e\u8868\u304b\u3089\u89aa\u3078\u306e\u95a2\u4fc2\u306e\u5b89\u5b9a ID",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 }
             },
             "required": [

@@ -7,7 +7,8 @@ Application 層。どのソースかは知らない（RecordReader を外から�
 - 個：1行の値（技術列を除く）、参照先へのリンク（n:1）、近隣の集まり（参照してくる行 1:n、relation の表を挟んだ先 n:m）
 - 列の等値で結べない関係（via_function）はたどらない
 - 見出しの列が無い表は、is-a の上位（主キーを共有する）の同じキーの行の見出しを借りる（label_parent）
-- n:m の集まりの行には、結んだ relation の表の行の値（期間、数量など。link_cells）を添える。relation の行ごとに1つ
+- n:m の集まりは、relation の表の行でつながる先の行（重複しない。EXISTS で絞った先のドメインの部分集合）。つながり自体は
+  links（LinkGroup）に分ける：relation の行の見せ方と集計、relation の行ごとの先の行と、その行の値（期間、数量など。link_cells）
 """
 
 from collections.abc import Mapping, Sequence
@@ -38,6 +39,7 @@ from mandara.om.model import (
     Instance,
     InstanceLink,
     InstanceSummary,
+    LinkGroup,
     LinkState,
     OmittedRelation,
     RelatedGroup,
@@ -61,6 +63,7 @@ from mandara.source.records import (
     All,
     Contains,
     Equals,
+    Exists,
     Group,
     InvalidKeyError,
     NotKeyableError,
@@ -358,7 +361,7 @@ class _Memo:
             self._seen[key] = self._inner.find(schema, table, columns, order_by, where, limit, descending)
         return self._seen[key]
 
-    def aggregate(self, schema: str, table: str, where: Equals | None, by: str | TimeBucket | None,
+    def aggregate(self, schema: str, table: str, where: Where | None, by: str | TimeBucket | None,
                   measures: Sequence[Measure], limit: int, latest_first: bool = False) -> Aggregated:
         key = ("aggregate", schema, table, _condition_key(where), by, tuple(measures), limit, latest_first)
         if key not in self._aggregated:
@@ -373,16 +376,33 @@ def _condition_key(where: Where | None) -> object:
         return ("all", tuple(_condition_key(p) for p in where.parts))
     if isinstance(where, Contains):
         return ("contains", where.columns, where.text)
+    if isinstance(where, Exists):
+        return ("exists", where.schema, where.table, where.on, tuple(sorted((k, repr(v)) for k, v in where.values.items())))
     return ("equals", tuple(sorted((k, repr(v)) for k, v in where.values.items())))
 
 
 @dataclass(frozen=True)
-class WithinParent:
-    """集合を、親のインスタンス（table の key の行）につながる行に絞る。relation は子の表から親への関係の安定 ID。"""
+class WithinChild:
+    """集合（子の表）を、親のインスタンス（table の key の行）を指す行に絞る（1:n）。relation は子の表から親への関係の安定 ID。"""
 
     table: str
     key: tuple[str, ...]
     relation: str
+
+
+@dataclass(frozen=True)
+class WithinVia:
+    """集合を、relation の表を挟んで親のインスタンス（table の key の行）につながる行に絞る（n:m）。relation は relation の表から
+    集合の表への関係、via_relation は relation の表から親への関係の安定 ID（RelatedGroup の relation / via_relation と同じ）。"""
+
+    table: str
+    key: tuple[str, ...]
+    relation: str
+    via_relation: str
+
+
+WithinParent = WithinChild | WithinVia
+"""集合を絞る親のインスタンスと、その親への関係。"""
 
 
 def collection(ontology: Ontology, table_id: str, reader: RecordReader, today: date, query: str | None = None,
@@ -393,6 +413,8 @@ def collection(ontology: Ontology, table_id: str, reader: RecordReader, today: d
     reader = _Memo(reader)
     table = _domain(ontology, table_id)
     narrowed, summary = _within(ontology, table, within, reader) if within is not None else (None, None)
+    links = (_link_group(ontology, narrowed.middle, narrowed.mine, narrowed.rel, table, narrowed.parent, reader, today,
+                         RELATED_LIMIT) if isinstance(narrowed, _Via) else None)
     r = _reading(ontology, table)
     if summary is not None and narrowed is None:  # 親の参照される列が NULL：つながる行は無い（空の部分集合）
         return DomainRows.model_validate(dict(
@@ -401,26 +423,50 @@ def collection(ontology: Ontology, table_id: str, reader: RecordReader, today: d
             view=GroupView.list, count=0))
     text = (query or "").strip()
     search = Contains(tuple(dict.fromkeys([*r.key, *searchable(ontology, table)])), text) if text else None
-    sub = _subset(ontology, table, narrowed, search, reader, today, limit, whole_page=True)
+    sub = _subset(ontology, table, narrowed.where if isinstance(narrowed, _Via) else narrowed, search, reader, today,
+                  limit, whole_page=True)
     return DomainRows.model_validate(dict(
-        table=table.id, name=table.name, within=summary, query=text or None,
+        table=table.id, name=table.name, within=summary, links=links, query=text or None,
         columns=[*sub.reading.labels, *sub.reading.cells], rows=sub.rows, limit=limit, truncated=sub.truncated,
         **sub.profile.fields))
 
 
+@dataclass(frozen=True)
+class _Via:
+    """n:m の絞り込み：relation の表（middle）の、親を指す関係 mine と、集合の表を指す関係 rel。parent は親の行。"""
+
+    middle: Table
+    mine: Relation
+    rel: Relation
+    parent: Mapping[str, object]
+
+    @property
+    def where(self) -> Exists:
+        """集合の表の行のうち、親を指す relation の行がつながるもの。"""
+        schema, name = _schema_table(self.middle)
+        return Exists(schema, name, tuple((p.to, p.from_) for p in self.rel.via or []),
+                      {p.from_: self.parent[p.to] for p in self.mine.via or []})
+
+
 def _within(ontology: Ontology, table: Table, within: WithinParent,
-            reader: RecordReader) -> tuple[Equals | None, Within]:
-    """親のインスタンスの行を読み、子の表の参照の列の値（Equals）にする。関係は子の表から親の表への、列の等値の関係。
-    親の参照される列が NULL なら、つながる行は無い（Equals の代わりに None）。"""
+            reader: RecordReader) -> tuple[Equals | _Via | None, Within]:
+    """親のインスタンスの行を読み、集合の絞り込みにする。1:n なら子の表の参照の列の値（Equals）。n:m なら relation の表を
+    挟んだつながり（_Via）。親の参照される列が NULL なら、つながる行は無い（None）。"""
     parent = _domain(ontology, within.table)
-    rel = next((x for x in table.relations or [] if x.id == within.relation), None)
-    if rel is None or not rel.via or not _points_to(ontology, table, rel, parent):
-        raise NotFoundError(f"{table.name} に、{parent.name} への関係 {within.relation} が無い")
+    if isinstance(within, WithinChild):
+        rel = next((x for x in table.relations or [] if x.id == within.relation), None)
+        if rel is None or not rel.via or not _points_to(ontology, table, rel, parent):
+            raise NotFoundError(f"{table.name} に、{parent.name} への関係 {within.relation} が無い")
+        mine, middle = rel, None
+    else:
+        middle, mine, rel = _middle(ontology, within.via_relation, within.relation)
+        if not _points_to(ontology, middle, mine, parent) or not _points_to(ontology, middle, rel, table):
+            raise NotFoundError(f"relation の表 {middle.name} が、{parent.name} と {table.name} を結んでいない")
     pr = _reading(ontology, parent)
     if len(within.key) != len(pr.key):
         raise BadKeyError(f"親のキーの数が主キー {pr.key} と合わない: {list(within.key)}")
     schema, name = _schema_table(parent)
-    columns = list(dict.fromkeys([*pr.columns, *(p.to for p in rel.via)]))
+    columns = list(dict.fromkeys([*pr.columns, *(p.to for p in mine.via or [])]))
     try:
         found = reader.find(schema, name, columns, pr.key, Equals(dict(zip(pr.key, within.key, strict=True))), 1)
     except InvalidKeyError as e:
@@ -429,16 +475,31 @@ def _within(ontology: Ontology, table: Table, within: WithinParent,
         raise NotFoundError(f"{parent.name} に行が無い: {list(within.key)}")
     row = found.rows[0]
     me = _summary(ontology, pr, row, reader)
-    summary = Within(table=parent.id, key=me.key, relation=rel.id, label=me.label, name=parent.name)
-    if any(row[p.to] is None for p in rel.via):
+    summary = Within(table=parent.id, key=me.key, relation=rel.id,
+                     via_relation=within.via_relation if isinstance(within, WithinVia) else None, label=me.label,
+                     name=parent.name)
+    if any(row[p.to] is None for p in mine.via or []):
         return None, summary
-    return Equals({p.from_: row[p.to] for p in rel.via}), summary
+    if middle is not None:
+        return _Via(middle, mine, rel, row), summary
+    return Equals({p.from_: row[p.to] for p in mine.via or []}), summary
 
 
-def instance(ontology: Ontology, table_id: str, key: Sequence[str], reader: RecordReader, today: date,
-             related_limit: int = RELATED_LIMIT) -> Instance:
+def _middle(ontology: Ontology, mine_id: str, rel_id: str) -> tuple[Table, Relation, Relation]:
+    """承認済みの relation の表で、関係 mine_id と rel_id（別の関係。どちらも列の等値）を持つもの。"""
+    for middle in ontology.tables:
+        if middle.status != ReviewStatus.approved.value or middle.kind != TableKind.relation.value:
+            continue
+        by_id = {x.id: x for x in middle.relations or [] if x.via}
+        if mine_id in by_id and rel_id in by_id and mine_id != rel_id:
+            return middle, by_id[mine_id], by_id[rel_id]
+    raise NotFoundError(f"関係 {mine_id} と {rel_id} を持つ承認済みの relation の表が無い")
+
+
+def instance(ontology: Ontology, table_id: str, key: Sequence[str], reader: RecordReader, today: date) -> Instance:
     """インスタンスの個のビュー：値、参照先へのリンク（n:1）、近隣の集まり（1:n の子、relation の表を挟んだ n:m）。
-    key はキーの文字列（key_text）。たどらなかった関係は理由とともに omitted に返す。"""
+    key はキーの文字列（key_text）。たどらなかった関係は理由とともに omitted に返す。集まりの行の上限は RELATED_LIMIT（そのインスタンスで
+    絞った集合の links と同じ上限。集まりと集合が同じになるように、引数で変えられないようにしている）。"""
     _require_valid(ontology)
     reader = _Memo(reader)
     table = _domain(ontology, table_id)
@@ -474,8 +535,8 @@ def instance(ontology: Ontology, table_id: str, key: Sequence[str], reader: Reco
             omitted.append(OmittedRelation(relation=rel.id, table=table.name, reason=f"参照先がドメインでない: {reason}"))
             continue
         links.append(_link(ontology, table, target, rel, row, reader))
-    related = [*_children(ontology, table, row, reader, related_limit, today, omitted),
-               *_through_relations(ontology, table, row, reader, related_limit, today, omitted)]
+    related = [*_children(ontology, table, row, reader, RELATED_LIMIT, today, omitted),
+               *_through_relations(ontology, table, row, reader, RELATED_LIMIT, today, omitted)]
     return Instance(table=table.id, name=table.name, key=me.key, label=me.label, fields=fields, links=links,
                     related=related, omitted=omitted)
 
@@ -525,15 +586,16 @@ def _children(ontology: Ontology, table: Table, row: Mapping[str, object], reade
                 continue
             groups.append(RelatedGroup.model_validate(dict(
                 kind=RelatedKind.children, relation=rel.id, relation_type=rel.type, table=other.id, name=other.name,
-                columns=[p.from_ for p in rel.via or []], rows=sub.rows, truncated=sub.truncated, missing=0,
+                columns=[p.from_ for p in rel.via or []], rows=sub.rows, truncated=sub.truncated,
                 **sub.profile.fields)))
     return groups
 
 
 def _through_relations(ontology: Ontology, table: Table, row: Mapping[str, object], reader: RecordReader,
                        limit: int, today: date, omitted: list[OmittedRelation]) -> list[RelatedGroup]:
-    """relation の表を挟んだ先のインスタンス（n:m）。relation の表そのものは出さない。見せ方と集計は relation の表の行について
-    （_profile）。先の行が無ければ missing に数える。先の表がドメインでなければ理由を omitted に足す。"""
+    """relation の表を挟んだ先のインスタンス（n:m）。relation の表そのものは出さない。集まりは先のドメインの部分集合（_subset。
+    そのドメインの集合を同じつながりで絞ったものと同じ）で、つながり（relation の行）は links に添える。つながりが無ければ出さない。
+    先の表がドメインでなければ理由を omitted に足す。"""
     groups: list[RelatedGroup] = []
     for middle in sorted(ontology.tables, key=lambda t: t.name):
         if middle.status != ReviewStatus.approved.value or middle.kind != TableKind.relation.value:
@@ -553,45 +615,55 @@ def _through_relations(ontology: Ontology, table: Table, row: Mapping[str, objec
                                                    reason=f"relation の表の先がドメインでない: {reason}"))
                 else:
                     others.append((rel, target))
-            if not others:
-                continue
-            where = Equals({p.from_: row[p.to] for p in mine.via or []})
-            profile = _profile(ontology, middle, where, reader, today)
-            if profile.count == 0:
-                continue
-            columns = list(dict.fromkeys(p.from_ for rel, _ in others for p in rel.via or []))
-            referencing = {p.from_ for rel in rels for p in rel.via or []}
-            surrogate = (set(middle.identity.primary) if middle.identity and len(middle.identity.primary) == 1
-                         and not set(middle.identity.primary) & referencing else set[str]())
-            # つながりの属性：参照の列と、relation の行の代理キー（1列で参照でない主キー。行の番号でしかない）を除く
-            attributes = _with_first(profile.time_columns,
-                                     [c for c in visible_columns(ontology, middle) if c not in referencing | surrogate], [])
-            schema, name = _schema_table(middle)
-            order = list(middle.identity.primary) if middle.identity else columns
-            links = reader.find(schema, name, list(dict.fromkeys([*columns, *order, *attributes])),
-                                profile.order or order, where, profile.row_limit(limit), profile.descending)
             for rel, target in others:
-                tr = _reading(ontology, target)
-                tschema, tname = _schema_table(target)
-                rows: list[InstanceSummary] = []
-                missing = 0
-                for link in links.rows:  # relation の行ごとに1つ（同じ先が別の期間・属性で2回出ることがある）
-                    values = {p.to: link[p.from_] for p in rel.via or []}
-                    if any(v is None for v in values.values()):
-                        continue
-                    found = reader.find(tschema, tname, tr.columns, tr.key, Equals(values), 1)
-                    if found.rows:
-                        summary = _summary(ontology, tr, found.rows[0], reader)
-                        rows.append(summary.model_copy(update={"link_cells": [
-                            _cell(ontology, middle, c, link[c], cut=True) for c in attributes] or None}))
-                    else:
-                        missing += 1
+                links = _link_group(ontology, middle, mine, rel, target, row, reader, today, limit)
+                if links.count == 0:
+                    continue
+                sub = _subset(ontology, target, _Via(middle, mine, rel, row).where, None, reader, today, limit)
                 groups.append(RelatedGroup.model_validate(dict(
                     kind=RelatedKind.via, relation=rel.id, relation_type=rel.type, table=target.id, name=target.name,
                     columns=[p.from_ for p in rel.via or []], via_table=middle.id, via_name=middle.name,
-                    via_relation=mine.id, via_columns=[p.from_ for p in mine.via or []], rows=rows,
-                    truncated=links.truncated, missing=missing, **profile.fields)))
+                    via_relation=mine.id, via_columns=[p.from_ for p in mine.via or []], rows=sub.rows,
+                    truncated=sub.truncated, links=links, **sub.profile.fields)))
     return groups
+
+
+def _link_group(ontology: Ontology, middle: Table, mine: Relation, rel: Relation, target: Table,
+                parent: Mapping[str, object], reader: RecordReader, today: date, limit: int) -> LinkGroup:
+    """n:m のつながり：relation の表（middle）の、親の行を指す行の見せ方と集計（_profile）と、行ごとの先（rel の先）の行。
+    行には relation の行の属性（参照の列と、行の番号でしかない代理キーを除いた列）を link_cells に添える。先の行が無ければ
+    missing に、先を指す列が NULL なら unlinked に数える。"""
+    where = Equals({p.from_: parent[p.to] for p in mine.via or []})
+    profile = _profile(ontology, middle, where, reader, today)
+    referencing = {p.from_ for x in middle.relations or [] if x.via for p in x.via}
+    surrogate = (set(middle.identity.primary) if middle.identity and len(middle.identity.primary) == 1
+                 and not set(middle.identity.primary) & referencing else set[str]())
+    attributes = _with_first(profile.time_columns,
+                             [c for c in visible_columns(ontology, middle) if c not in referencing | surrogate], [])
+    schema, name = _schema_table(middle)
+    columns = [p.from_ for p in rel.via or []]
+    order = list(middle.identity.primary) if middle.identity else columns
+    found = reader.find(schema, name, list(dict.fromkeys([*columns, *order, *attributes])),
+                        list(dict.fromkeys([*profile.order, *order])), where, profile.row_limit(limit),
+                        profile.descending)
+    tr = _reading(ontology, target)
+    tschema, tname = _schema_table(target)
+    rows: list[InstanceSummary] = []
+    missing = unlinked = 0
+    for link in found.rows:  # relation の行ごとに1つ（同じ先が別の期間・属性で2回出ることがある）
+        values = {p.to: link[p.from_] for p in rel.via or []}
+        if any(v is None for v in values.values()):
+            unlinked += 1
+            continue
+        hit = reader.find(tschema, tname, tr.columns, tr.key, Equals(values), 1)
+        if hit.rows:
+            summary = _summary(ontology, tr, hit.rows[0], reader)
+            rows.append(summary.model_copy(update={"link_cells": [
+                _cell(ontology, middle, c, link[c], cut=True) for c in attributes] or None}))
+        else:
+            missing += 1
+    return LinkGroup.model_validate(dict(table=middle.id, name=middle.name, rows=rows, truncated=found.truncated,
+                                         missing=missing, unlinked=unlinked, **profile.fields))
 
 
 @dataclass(frozen=True)
@@ -602,7 +674,7 @@ class _Subset:
     reading: _Reading
 
 
-def _subset(ontology: Ontology, table: Table, narrowed: Equals | None, search: Contains | None, reader: RecordReader,
+def _subset(ontology: Ontology, table: Table, narrowed: Equals | Exists | None, search: Contains | None, reader: RecordReader,
             today: date, limit: int, whole_page: bool = False) -> _Subset:
     """ドメインの部分集合（narrowed で絞った行。無ければすべて）の見せ方・集計と行。インスタンスの 1:n の集まりと、
     ドメインの集合（全体・親で絞ったもの）が同じこれを使う。行は search でさらに絞る（見せ方と集計は search の前の集合）。
@@ -610,7 +682,7 @@ def _subset(ontology: Ontology, table: Table, narrowed: Equals | None, search: C
     行の数：集まり（インスタンスの中）は見せ方に応じて（集計・時系列なら新しい RECENT 件）、集合の画面（whole_page）は limit 件。"""
     profile = _profile(ontology, table, narrowed, reader, today)
     r = _reading(ontology, table)
-    skip = list(narrowed.values) if narrowed is not None else []
+    skip = list(narrowed.values) if isinstance(narrowed, Equals) else []  # Exists の値は relation の表の列
     r = _Reading(r.table, r.key, r.labels, _with_first(profile.time_columns, r.cells, [*r.labels, *skip]))
     parts = tuple(p for p in (narrowed, search) if p is not None)
     where = None if not parts else parts[0] if len(parts) == 1 else All(parts)
@@ -731,7 +803,7 @@ class _Profile:
 _OP: dict[MeasureOp, Op] = {MeasureOp.sum: "sum", MeasureOp.avg: "avg"}
 
 
-def _profile(ontology: Ontology, table: Table, where: Equals | None, reader: RecordReader, today: date) -> _Profile:
+def _profile(ontology: Ontology, table: Table, where: Equals | Exists | None, reader: RecordReader, today: date) -> _Profile:
     """集まりの件数と、見せ方に応じた集計（ソースに押し下げる）。件数で見せ方を決めてから、要る集計だけを問う。"""
     plan = measure_plan(ontology, table)
     schema, name = _schema_table(table)
@@ -785,7 +857,8 @@ def _profile(ontology: Ontology, table: Table, where: Equals | None, reader: Rec
         "measures": [_measure_value(c, MeasureOp.sum, v, units.get(c)) for c, v in zip(additive, g.values[1:], strict=True)]
         or None}
     if snapshot:  # 半加法は、最新の時点（時刻の最大の値）の行だけで合計する
-        at = Equals({**(where.values if where is not None else {}), plan.time: last})
+        instant = Equals({plan.time: last})
+        at = instant if where is None else All((where, instant))
         [shot] = reader.aggregate(schema, name, at, None, [Measure("sum", c) for c in snapshot], 1).groups
         latest |= {"snapshot_at": display(last, None),
                    "snapshot": [_measure_value(c, MeasureOp.sum, v, units.get(c))
@@ -827,7 +900,7 @@ def _int(value: object) -> int:
     return value
 
 
-def _units(table: Table, columns: Sequence[str], schema: str, name: str, where: Equals | None,
+def _units(table: Table, columns: Sequence[str], schema: str, name: str, where: Equals | Exists | None,
            reader: RecordReader) -> tuple[dict[str, str], list[SkippedMeasure]]:
     """尺度の単位：固定ならそれ。単位の列なら、集まりの中で値が1つのときだけ集計する（混ざっていれば合計しない。理由を返す）。
     同じ単位の列は1回だけ問う。"""

@@ -2,8 +2,9 @@
 import { type DomainSummary, type InstanceLink, type RelatedGroup, RelatedKind } from "./om/model";
 import { shortName } from "./graph";
 
-/** 集合を絞る親のインスタンス（table の key の行）と、子の表からその親への関係。 */
-export type Within = { table: string; key: readonly string[]; relation: string };
+/** 集合を絞る親のインスタンス（table の key の行）と、その親への関係。1:n なら relation は子の表から親への関係。
+ *  n:m なら relation は relation の表から集合の表への関係、via は relation の表から親への関係（RelatedGroup と同じ）。 */
+export type Within = { table: string; key: readonly string[]; relation: string; via?: string };
 
 /** 見ているもの：ドメイン（集合。key が無い）か、そのインスタンス（個）。集合は within で親のインスタンスにつながる部分集合にできる。 */
 export type Place = { table: string; key: readonly string[] | null; within?: Within };
@@ -16,7 +17,7 @@ export function samePlace(a: Place, b: Place): boolean {
 }
 
 function withinKey(w: Within | undefined): string {
-  return w === undefined ? "" : [w.table, w.relation, ...w.key].join("\u0000");
+  return w === undefined ? "" : [w.table, w.relation, w.via ?? "", ...w.key].join("\u0000");
 }
 
 /** たどった道に足す。同じ場所に戻ったら、そこから先を切る（行き来で道が伸び続けない）。長さは TRAIL_LIMIT まで。 */
@@ -26,12 +27,13 @@ export function extendTrail(trail: readonly Place[], next: Place): Place[] {
   return [...kept, next].slice(-TRAIL_LIMIT);
 }
 
-/** 近隣の集まりの見出し：1:n なら「← 表（参照の列）」、n:m なら「⇄ 表 via 中間の表」。 */
+/** 近隣の集まりの見出し：1:n なら「← 表 参照の列」、n:m なら「⇄ 表 こちらを指す列 から」。relation の表（中間の表）は見出しに
+ *  出さない（ドメインのように見せない。つながりの段に控えめに出す）。こちらを指す列は、同じ relation の表を別の側から見た集まり
+ *  （部品表の組立品と部品）を見分けるために出す。 */
 export function relatedTitle(group: RelatedGroup): { mark: string; name: string; detail: string } {
   if (group.kind === RelatedKind.via) {
     const from = (group.via_columns ?? []).join(", ");
-    return { mark: "⇄", name: shortName(group.name),
-             detail: `via ${shortName(group.via_name ?? "")}${from === "" ? "" : `（${from} から）`}` };
+    return { mark: "⇄", name: shortName(group.name), detail: from === "" ? "" : `${from} から` };
   }
   return { mark: "←", name: shortName(group.name), detail: group.columns.join(", ") };
 }

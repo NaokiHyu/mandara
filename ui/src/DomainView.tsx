@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, getDomainRows, getDomains, getInstance } from "./api";
 import { emphasized, extendTrail, groupKey, linkTitle, type Place, samePlace, type Within } from "./domain";
-import { GroupPanel, Series, Timeline, Totals } from "./GroupPanel";
+import { GroupPanel, Links, Series, Timeline, Totals } from "./GroupPanel";
 import { DomainIcon, Label } from "./parts";
 import { contextColor, shortName } from "./graph";
 import { type DomainIndex, type DomainRows, type DomainSummary, type Instance, type InstanceSummary,
@@ -209,6 +209,12 @@ function Collection({ ontologyId, domain, within, known, color, onOpen }: {
           )}
         </div>
       )}
+      {rows.state === "ok" && rows.value.links !== undefined && (
+        <div className="collection-links">
+          <Links links={rows.value.links} color={color(domain.table)} onOpen={(r) => onOpen({ table: r.table, key: r.key })}
+                 chartId={`collection-links-${domain.table}`} />
+        </div>
+      )}
       {rows.state === "ok" && (
         <>
           <p className="dim small">全 {count.format(rows.value.count)} 件{query.trim() !== "" ? ` · 検索 ${rows.value.rows.length}${rows.value.truncated ? "+" : ""} 件` : ""}
@@ -272,10 +278,14 @@ function InstancePane({ ontologyId, domain, instanceKey, known, color, onOpen }:
   if (shown.state === "error") return <ErrorText error={shown.error} />;
   const it = shown.value;
   const open = (s: InstanceSummary) => onOpen({ table: s.table, key: s.key });
-  // 「一覧 →」：1:n の子は、このインスタンスで絞った集合（部分集合）を開く。n:m はまだ絞れない（ドメイン全体を開く）
-  const listOf = (g: RelatedGroup): Place => g.kind === RelatedKind.children
-    ? { table: g.table, key: null, within: { table: it.table, key: it.key, relation: g.relation } }
-    : { table: g.table, key: null };
+  // 「この集合 →」：このインスタンスで絞った集合（部分集合）を開く。n:m は relation の表を挟んで絞る。
+  // n:m なのに via_relation が無い（契約に反する）なら開かない（1:n として開くと別の関係で絞ってしまう）
+  const listOf = (g: RelatedGroup): Place | null => {
+    if (g.kind !== RelatedKind.via) return { table: g.table, key: null, within: { table: it.table, key: it.key, relation: g.relation } };
+    if (g.via_relation === undefined) return null;
+    return { table: g.table, key: null, within: { table: it.table, key: it.key, relation: g.relation, via: g.via_relation } };
+  };
+  const onList = (g: RelatedGroup) => { const p = listOf(g); return p === null ? null : () => onOpen(p); };
   // 時系列のまとまりを近隣の列の先頭に（詰めた形なので列の幅で読める）。ほかは API の順のまま
   const groups = [...it.related.filter((g) => g.view === GroupView.time_series),
                   ...it.related.filter((g) => g.view !== GroupView.time_series)];
@@ -332,7 +342,7 @@ function InstancePane({ ontologyId, domain, instanceKey, known, color, onOpen }:
           )}
           {groups.map((g) => (
             <GroupPanel key={groupKey(g)} group={g} target={known.get(g.table)}
-                        color={color(g.table)} onOpen={open} onList={() => onOpen(listOf(g))} />
+                        color={color(g.table)} onOpen={open} onList={onList(g)} />
           ))}
           {it.links.length === 0 && it.related.length === 0 && <p className="dim">近隣は無い</p>}
           {it.omitted.length > 0 && (

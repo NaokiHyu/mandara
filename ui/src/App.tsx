@@ -36,8 +36,9 @@ function readUrl(): { ontology: string | null; table: string | null; view: View;
     key: params.has("key") ? params.getAll("key") : null,
     within: withinParts.every(Boolean)
       ? { table: params.get("within_table") ?? "", key: params.getAll("within_key"),
-          relation: params.get("within_relation") ?? "" } : undefined,
-    partialWithin: withinParts.some(Boolean) && !withinParts.every(Boolean),
+          relation: params.get("within_relation") ?? "", ...(params.has("within_via") ? { via: params.get("within_via") ?? "" } : {}) }
+      : undefined,
+    partialWithin: (withinParts.some(Boolean) || params.has("within_via")) && !withinParts.every(Boolean),
   };
 }
 
@@ -52,6 +53,7 @@ function writeUrl(ontology: string | null, table: string | null, view: View, key
     params.set("within_table", within.table);
     for (const k of within.key) params.append("within_key", k);
     params.set("within_relation", within.relation);
+    if (within.via !== undefined) params.set("within_via", within.via);
   }
   const search = params.toString();
   history.replaceState(null, "", search === "" ? location.pathname : `?${search}`);
@@ -124,7 +126,7 @@ export function App() {
       </header>
       <main className="body">
         {partialWithin && (
-          <p className="failure">URL の within_table・within_key・within_relation がそろっていないので、絞らずに開いた</p>
+          <p className="failure">URL の within_table・within_key・within_relation がそろっていない（within_via はそれらと一緒に）ので、絞らずに開いた</p>
         )}
         {unknownView !== null && (
           <p className="failure">表示 {unknownView} は無い（{VIEWS.join(" / ")} のどれか）。graph で開いた</p>

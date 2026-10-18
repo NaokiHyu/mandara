@@ -135,13 +135,14 @@ export async function getDomains(ontologyId: string): Promise<DomainIndex> {
 
 /** ドメインの集合：query があれば部分一致の検索、無ければ先頭から。 */
 export async function getDomainRows(ontologyId: string, tableId: string, query: string,
-                                    within?: { table: string; key: readonly string[]; relation: string }): Promise<DomainRows> {
+                                    within?: { table: string; key: readonly string[]; relation: string; via?: string }): Promise<DomainRows> {
   const params = new URLSearchParams();
   if (query.trim() !== "") params.set("q", query.trim());
   if (within !== undefined) {
     params.set("within_table", within.table);
     for (const k of within.key) params.append("within_key", k);
     params.set("within_relation", within.relation);
+    if (within.via !== undefined) params.set("within_via", within.via);
   }
   const q = params.toString() === "" ? "" : `?${params}`;
   return parseDomainRows(await getJson(`${domainsPath(ontologyId)}/${encodeURIComponent(tableId)}/rows${q}`));

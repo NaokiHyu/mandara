@@ -727,6 +727,8 @@ export interface DomainRows extends GroupProfile {
     table: string,
     name: string,
     within?: Within,
+    /** n:m で絞ったとき（within.via_relation がある）、親とのつながり（relation の行）の集計。インスタンスの n:m の 集まりの links と同じ */
+    links?: LinkGroup,
     query?: string,
     /** 一覧に出す列（技術列を除く。cells の列はこの中から） */
     columns: string[],
@@ -737,14 +739,16 @@ export interface DomainRows extends GroupProfile {
 
 
 /**
- * 集合を絞るインスタンス（親）と、子の表からその親への関係（1:n の子の集まり）
+ * 集合を絞るインスタンス（親）と、その親への関係。1:n なら子の表から親への関係（relation）。n:m なら relation の表を挟む： relation は relation の表から集合の表への関係、via_relation は relation の表から親への関係（RelatedGroup と同じ意味）
  */
 export interface Within {
     /** 親のドメイン（表の安定 ID） */
     table: string,
     key: string[],
-    /** 子の表から親への関係の安定 ID */
+    /** 1:n なら子の表から親への関係、n:m なら relation の表から集合の表への関係の安定 ID */
     relation: string,
+    /** n:m のとき、relation の表から親への関係の安定 ID */
+    via_relation?: string,
     /** 親のインスタンスの見出し */
     label: string,
     /** 親の表の名前 */
@@ -825,11 +829,11 @@ export interface InstanceLink {
  */
 export interface GroupProfile {
     view: string,
-    /** 集まり・集合の行の数（via なら relation の表の行の数。集合なら検索で絞る前）。rows は先頭・新しいものからの一部 */
+    /** 集まり・集合の行の数（集合なら検索で絞る前。LinkGroup なら relation の表の行の数）。rows は先頭・新しいものからの一部 */
     count: number,
-    /** 出来事の時刻の列（role event_time。via なら relation の表の列）。rows はこの列の新しい順 */
+    /** 出来事の時刻の列（role event_time。LinkGroup なら relation の表の列）。rows はこの列の新しい順 */
     time_column?: string,
-    /** 期間の始まりの列（role valid_from。via なら relation の表の列） */
+    /** 期間の始まりの列（role valid_from。LinkGroup なら relation の表の列） */
     period_from?: string,
     /** 期間の終わりの列（role valid_to） */
     period_to?: string,
@@ -851,7 +855,9 @@ export interface GroupProfile {
 }
 
 
-
+/**
+ * インスタンスの近隣の集まり。見せ方・集計・行は集まりの表（table）の行について：1:n なら参照してくる子の行、n:m なら relation の表の行でつながる先の行（重複しない。八百屋 X の野菜）。n:m のつながり自体（期間・数量などの属性）は links
+ */
 export interface RelatedGroup extends GroupProfile {
     kind: string,
     /** たどった関係の安定 ID（via なら、relation の表から先への関係） */
@@ -871,8 +877,24 @@ export interface RelatedGroup extends GroupProfile {
     via_name?: string,
     rows: InstanceSummary[],
     truncated: boolean,
-    /** relation の表の行が指す先の行が無かった数（via のとき。壊れた参照） */
+    /** n:m（via）のとき、つながり（relation の行）の集計 */
+    links?: LinkGroup,
+}
+
+
+/**
+ * n:m のつながり（relation の表の、親を指す行）の集まり。見せ方と集計は relation の行について（期間の帯、数量の合計など）。 rows は relation の行ごとの先のインスタンスで、その行の属性を link_cells に持つ（同じ先が2回出ることがある）
+ */
+export interface LinkGroup extends GroupProfile {
+    /** relation の表の安定 ID */
+    table: string,
+    name: string,
+    rows: InstanceSummary[],
+    truncated: boolean,
+    /** relation の行が指す先の行が無かった数（壊れた参照） */
     missing: number,
+    /** relation の行のうち、先を指す列が NULL の数（先が無いつながり。壊れた参照ではない）。打ち切っていなければ rows の数 + missing + unlinked = 読んだ relation の行の数 */
+    unlinked: number,
 }
 
 

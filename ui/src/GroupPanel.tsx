@@ -3,7 +3,9 @@
 import { groupKey, relatedTitle } from "./domain";
 import { useEffect, useRef, useState } from "react";
 import { amountText, bucketLabel, measureText, partialBucket, periodBars, seriesLine, trend } from "./groupview";
-import { GroupView, MeasureOp, type DomainSummary, type GroupProfile, type InstanceSummary, type RelatedGroup } from "./om/model";
+import { GroupView, MeasureOp, type DomainSummary, type GroupProfile, type InstanceSummary, type LinkGroup,
+         type RelatedGroup } from "./om/model";
+import { shortName } from "./graph";
 import { DomainIcon, Label } from "./parts";
 
 const count = new Intl.NumberFormat("en-US");
@@ -17,7 +19,7 @@ export function GroupPanel({ group: g, target, color, onOpen, onList }: {
   target: DomainSummary | undefined;
   color: string;
   onOpen: (r: InstanceSummary) => void;
-  onList: () => void;
+  onList: (() => void) | null;
 }) {
   const title = relatedTitle(g);
   return (
@@ -27,18 +29,16 @@ export function GroupPanel({ group: g, target, color, onOpen, onList }: {
         <span className="mark" style={{ color: `var(${color})` }}>{title.mark}</span> {title.name}
         <span className="dim"> {title.detail}</span>
         <span className="count-badge">{count.format(g.count)}</span>
-        {g.missing > 0 && <span className="failure small"> 先の行が無い {g.missing}</span>}
-        {target !== undefined && (
-          <button className="link small" onClick={onList}
-                  title={g.kind === "children" ? "このインスタンスにつながる行だけの集合を開く" : "ドメイン全体の集合を開く（n:m の絞り込みは未対応）"}>
-            {g.kind === "children" ? "この集合 →" : "一覧 →"}
-          </button>
+        {target !== undefined && onList !== null && (
+          <button className="link small" onClick={onList} title="このインスタンスにつながる行だけの集合を開く">この集合 →</button>
         )}
+        {onList === null && <span className="failure small">n:m なのに via_relation が無い（API の応答が契約に反する）</span>}
       </h2>
       {g.view === GroupView.time_series && <Series group={g} color={color} chartId={groupKey(g)} />}
       {g.view !== GroupView.list && <Totals group={g} />}
       {g.view === GroupView.timeline && <Timeline group={g} color={color} onOpen={onOpen} />}
       {g.view !== GroupView.timeline && <Rows group={g} onOpen={onOpen} />}
+      {g.links !== undefined && <Links links={g.links} color={color} onOpen={onOpen} chartId={`${groupKey(g)}/links`} />}
     </div>
   );
 }
@@ -242,7 +242,28 @@ export function Timeline({ group: g, color, onOpen, note }: {
   );
 }
 
-function Rows({ group: g, onOpen }: { group: RelatedGroup; onOpen: (r: InstanceSummary) => void }) {
+/** n:m のつながり（relation の行）：ドメインの属性のように、小さく控えめに。見せ方は同じ規則（期間の帯、時系列、集計、一覧）で、
+ *  行は relation の行ごとの先とその属性（link_cells）。インスタンスの n:m の集まりと、n:m で絞った集合が同じこれを出す。 */
+export function Links({ links: l, color, onOpen, chartId }: {
+  links: LinkGroup; color: string; onOpen: (r: InstanceSummary) => void; chartId: string;
+}) {
+  return (
+    <div className="links-strip">
+      <p className="links-head">
+        <span>つながり</span> <span title={`relation の表 ${l.name}`}>{shortName(l.name)}</span>
+        <b>{count.format(l.count)}</b>
+        {l.missing > 0 && <span className="failure"> 先の行が無い {l.missing}</span>}
+        {l.unlinked > 0 && <span title="relation の行の、先を指す列が NULL"> 先が NULL {l.unlinked}</span>}
+      </p>
+      {l.view === GroupView.time_series && <Series group={l} color={color} chartId={chartId} />}
+      {l.view !== GroupView.list && <Totals group={l} />}
+      {l.view === GroupView.timeline && <Timeline group={l} color={color} onOpen={onOpen} />}
+      {l.view !== GroupView.timeline && <Rows group={l} onOpen={onOpen} />}
+    </div>
+  );
+}
+
+function Rows({ group: g, onOpen }: { group: Profiled; onOpen: (r: InstanceSummary) => void }) {
   if (g.view === GroupView.time_series) { // 時系列ではグラフが主役。新しい行は見出しだけを1行に並べ、値は title に
     return (
       <p className="row-chips">
