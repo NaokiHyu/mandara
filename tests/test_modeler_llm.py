@@ -10,7 +10,7 @@ from collections import Counter
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from hypothesis import given, settings
@@ -43,6 +43,7 @@ from mandara.llm.model import (
 from mandara.modeler import llm as v1
 from mandara.modeler.joins import InferenceClaims
 from mandara.modeler import meaning, nameless_joins
+from mandara.modeler import resemblance as resemblance_modeler
 from mandara.omstore.claim_store import load_claim_ledger
 from mandara.modeler.meaning import (
     InconsistentGroupError,
@@ -490,7 +491,7 @@ def workspace(tmp_path: Path) -> Iterator[Workspace]:
     ws = Workspace(tmp_path / "adventureworks", "adventureworks")
     pipeline.extract(ws, PostgresCatalogReader("dbname=adventureworks"), SCOPE,
                          PostgresColumnReader("dbname=adventureworks"), PostgresCoverageReader("dbname=adventureworks"),
-                         PostgresInclusionReader("dbname=adventureworks"))
+                         PostgresInclusionReader("dbname=adventureworks"), None)
     pipeline.propose(ws)
     yield ws
 
@@ -759,6 +760,41 @@ def test_grain_is_asked_even_when_nothing_is_classified() -> None:
     claims = [x for x in _claims(name) if x.predicate != "references"]
     model, decider = ScriptedModel({f"grain {name}": {"grain": "1行 = 受注の明細1行"}}), ScriptedDecider({})
     record: dict[str, object] = {}
-    asked = pipeline._ask_table(event, _for(claims), ontology, {}, model, decider, record)  # pyright: ignore[reportPrivateUsage]
+    asked = pipeline._ask_table(event, _for(claims), ontology, {}, model, decider, record,  # pyright: ignore[reportPrivateUsage]
+                                resemblance_modeler.Resemblances({}))
     assert decider.asked == [] and model.asked == [f"grain {name}"]
     assert asked.answer is not None and asked.answer.grain == "1行 = 受注の明細1行"
+
+
+def test_resemblance_facts_reach_the_question_and_their_evidence_is_accepted(workspace: Workspace) -> None:
+    """値の似かた（T2.6）の組は、名前の順で前の表に 1 つだけ置く。後ろの表の問いの事実にもなり、その答えの根拠として
+    当たる（後ろの表の主張として確かめられる）。"""
+    from mandara.om.claims import new_claim
+    from mandara.om.model import ClaimPredicate, ClaimSource, ClaimSourceKind, SourceRef
+    from mandara.omstore.claim_store import load_ledger_scope, write_claim_ledger
+
+    address, detail = "person.address", "sales.salesorderdetail"
+    pair = [new_claim(
+        subject=SourceRef(source="adventureworks", schema_name="person", table="address"),
+        predicate=ClaimPredicate.resembles, source=ClaimSource(kind=ClaimSourceKind.data, locator=f"test {m}"),
+        extracted_by="test", confidence=1.0, columns=["rowguid"],
+        target=SourceRef(source="adventureworks", schema_name="sales", table="salesorderdetail"),
+        target_columns=["rowguid"], method=m, score=s, baseline=b, sampled_values=256, target_sampled_values=256)
+        for m, s, b in (("pattern 0.1", 1.0, 1.0), ("c2st 0.1", 0.5, 0.55))]
+    ledger = load_claim_ledger(workspace.claims, workspace.source)
+    write_claim_ledger(workspace.claims, workspace.source, load_ledger_scope(workspace.claims), [*ledger, *pair])
+    decider = ScriptedDecider({
+        f"classify {address}": {"column rowguid": "new"},
+        f"properties {address}": {"role row_guid": "technical"},
+        f"classify {detail}": {"column rowguid": "row_guid"}})
+    model = ScriptedModel({f"name {address}": {"semantic_types": [
+        {"name": "row_guid", "description": "行の guid", "columns": ["rowguid"], "values": None, "values_evidence": []}]}})
+    refined = _refine(workspace, model, decider, [address, detail])
+    question = decider.requests[f"classify {detail}"].questions["column rowguid"]
+    facts = cast(list[str], cast(dict[str, object], question.instructions)["facts"])
+    assert "person.address.rowguid" in facts[0] and "2 of the 2 measures taken" in facts[0]
+    outcome = next(o for o in refined.outcomes if o.table == detail)
+    assert "column rowguid" in outcome.applied, outcome.dropped
+    table = next(t for t in load_ontology(workspace.ontology).tables if t.name == detail)
+    column = (table.columns or {})["rowguid"]
+    assert column.semantic_type == "row_guid" and {c.id for c in pair} <= set(column.evidence or [])

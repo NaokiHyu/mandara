@@ -54,7 +54,7 @@ def prepared() -> Iterator[Path]:
         ws = Workspace(work / "adventureworks", "adventureworks")
         pipeline.extract(ws, PostgresCatalogReader("dbname=adventureworks"), SCOPE,
                          PostgresColumnReader("dbname=adventureworks"), PostgresCoverageReader("dbname=adventureworks"),
-                         PostgresInclusionReader("dbname=adventureworks"))
+                         PostgresInclusionReader("dbname=adventureworks"), None)
         pipeline.propose(ws)
         yield work
 

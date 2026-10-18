@@ -6,7 +6,7 @@
 - 組み立てた答えは、従来の検証（apply_answer）を通しても OM を壊さない
 """
 
-from collections.abc import Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import replace
 from typing import cast
 
@@ -22,6 +22,7 @@ from mandara.modeler import classify as c
 from mandara.modeler import llm as v1
 from mandara.modeler.joins import InferenceClaims
 from mandara.modeler.meaning import same_meaning_groups
+from mandara.modeler.resemblance import Resemblances
 from mandara.modeler.rules import propose
 from mandara.om.invariants import check
 from mandara.om.model import Additivity, Claim, SemanticType, Table, ValueType
@@ -45,6 +46,19 @@ NAMES = ["sales.salesorderdetail", "sales.specialofferproduct", "production.prod
          "production.billofmaterials"]
 
 
+NOTHING_ALIKE = Resemblances({})
+"""値の似かたの主張が無い（T2.6 の前の問い）。"""
+
+
+def _classify(table: Table, table_claims: InferenceClaims, vocabulary: Mapping[str, SemanticType],
+              hints: Mapping[str, v1.MeaningHint], shared: Collection[str], max_options: int, purpose: str, *,
+              elsewhere_only: Collection[str] = (), resemblances: Resemblances = NOTHING_ALIKE,
+              assigned: Mapping[tuple[str, str], str] | None = None) -> c.Classify:
+    """分類の問い。値の似かたは、テストが渡したときだけ（既定は「似かたの主張が無い」）。"""
+    return c.classify(table, table_claims, vocabulary, hints, shared, max_options, purpose,
+                      elsewhere_only=elsewhere_only, resemblances=resemblances, assigned=assigned or {})
+
+
 def _claims(name: str) -> list[Claim]:
     return [x for x in CLAIMS if qualify(x.subject.schema_name, x.subject.table) == name]
 
@@ -61,7 +75,7 @@ def _table(name: str) -> Table:
 
 def _asked(name: str) -> c.Classify:
     table = _table(name)
-    return c.classify(table, _for(_claims(name)), VOCABULARY, v1.meaning_hints(SEEDED, table, GROUPS),
+    return _classify(table, _for(_claims(name)), VOCABULARY, v1.meaning_hints(SEEDED, table, GROUPS),
                       v1.shared_key_foreign_keys(table, _claims(name), SEEDED), MAX_OPTIONS,
                       f"classify {name}")
 
@@ -218,13 +232,13 @@ def test_encoded_columns_are_offered_only_the_types_the_encoding_decodes_to() ->
     name = "person.address"
     plain = _table(name)
     hints = v1.meaning_hints(SEEDED, plain, GROUPS)
-    asked = c.classify(plain, _for(_claims(name)), vocabulary, hints, (), MAX_OPTIONS, "classify")
+    asked = _classify(plain, _for(_claims(name)), vocabulary, hints, (), MAX_OPTIONS, "classify")
     assert asked.request is not None
     assert {"location", "photo"} <= set(asked.request.questions["column spatiallocation"].options)
     columns = dict(plain.columns or {})
     columns["spatiallocation"] = columns["spatiallocation"].model_copy(update={"encoding": "sqlserver_geography"})
     encoded = plain.model_copy(update={"columns": columns})
-    asked = c.classify(encoded, _for(_claims(name)), vocabulary, hints, (), MAX_OPTIONS, "classify")
+    asked = _classify(encoded, _for(_claims(name)), vocabulary, hints, (), MAX_OPTIONS, "classify")
     assert asked.request is not None
     assert set(asked.request.questions["column spatiallocation"].options) - {c.NEW, c.UNCLEAR} == {"location"}
     named = c.Named((c.NamedType(name="spot", description="位置", columns=["spatiallocation"], values_evidence=[]),), ())
@@ -248,7 +262,7 @@ def _relation_question(name: str, target: str, extra: Sequence[Claim] = ()) -> t
     claims = [*_claims(name), *extra]
     fk = next(x for x in claims if x.predicate == "references" and x.target is not None
               and qualify(x.target.schema_name, x.target.table) == target)
-    asked = c.classify(table, _for(claims), VOCABULARY, v1.meaning_hints(SEEDED, table, GROUPS),
+    asked = _classify(table, _for(claims), VOCABULARY, v1.meaning_hints(SEEDED, table, GROUPS),
                        v1.shared_key_foreign_keys(table, claims, SEEDED), MAX_OPTIONS, "classify")
     assert asked.request is not None
     question = asked.request.questions[f"relation {fk.id}"]
@@ -278,7 +292,7 @@ def test_is_a_is_offered_only_for_foreign_keys_that_share_the_primary_key() -> N
     undeclared = [x for x in _claims(name)
                   if not (x.predicate in ("not_null", "nullable") and x.subject.column == "salespersonid")]
     fk = next(x for x in undeclared if x.predicate == "references" and x.columns == ["salespersonid"])
-    asked = c.classify(_table(name), _for(undeclared), VOCABULARY, {}, (), MAX_OPTIONS, "classify")
+    asked = _classify(_table(name), _for(undeclared), VOCABULARY, {}, (), MAX_OPTIONS, "classify")
     assert asked.request is not None
     instructions = asked.request.questions[f"relation {fk.id}"].instructions
     assert isinstance(instructions, dict) and "NULL" not in _facts(instructions)
@@ -312,7 +326,7 @@ def test_coverage_in_the_data_is_told_to_the_decision_model() -> None:
 
 def test_kind_questions_tell_what_the_primary_key_is_made_of() -> None:
     def facts(name: str) -> str:
-        asked = c.classify(_table(name).model_copy(update={"kind": None}), _for(_claims(name)), VOCABULARY, {}, (),
+        asked = _classify(_table(name).model_copy(update={"kind": None}), _for(_claims(name)), VOCABULARY, {}, (),
                            MAX_OPTIONS, "classify")
         assert asked.request is not None
         instructions = asked.request.questions["kind"].instructions
@@ -356,8 +370,8 @@ def test_time_role_types_of_other_tables_are_not_offered() -> None:
     name = "humanresources.employeedepartmenthistory"
     table = _table(name)
     hints = v1.meaning_hints(SEEDED, table, GROUPS)
-    plain = c.classify(table, _for(_claims(name)), vocabulary, hints, (), MAX_OPTIONS, "classify")
-    guarded = c.classify(table, _for(_claims(name)), vocabulary, hints, (), MAX_OPTIONS, "classify",
+    plain = _classify(table, _for(_claims(name)), vocabulary, hints, (), MAX_OPTIONS, "classify")
+    guarded = _classify(table, _for(_claims(name)), vocabulary, hints, (), MAX_OPTIONS, "classify",
                          elsewhere_only={"hire_date", "birth_date"})
     assert plain.request is not None and guarded.request is not None
     assert "hire_date" in plain.request.questions["column startdate"].options
@@ -382,3 +396,51 @@ def test_decided_facts_go_to_the_llm_only_when_decided() -> None:
     assert "decided by the classification" not in c.naming_prompt(_for(claims), VOCABULARY, "event", {}, ["unitprice"])
     final = {"unitprice": SemanticType(name="unit_price", type=ValueType.money, description="単価", requires_unit=True)}
     assert c.decided_lines(classified, _for(claims), VOCABULARY, final)[0] == 'column "unitprice": semantic type unit_price (money)'
+
+
+def test_value_resemblance_is_told_for_the_options_it_concerns() -> None:
+    """値の似た列（T2.6）のうち、選択肢の意味型が付いた列だけを、列の問いに事実として添える。根拠にその主張が入る。
+    値の形（shaped_as）は材料の列に書き、書き方の説明を 1 回だけ添える。"""
+    from mandara.modeler import resemblance as rm
+    from mandara.om.claims import new_claim
+    from mandara.om.model import ClaimPredicate, ClaimSource, ClaimSourceKind, SourceRef
+
+    name = "sales.salesorderdetail"
+
+    def resembles(other_table: str, other: str, method: str, score: float, baseline: float) -> Claim:
+        return new_claim(
+            subject=SourceRef(source="adventureworks", schema_name="production", table=other_table),
+            predicate=ClaimPredicate.resembles, source=ClaimSource(kind=ClaimSourceKind.data, locator=method),
+            extracted_by="t", confidence=1.0, columns=[other],
+            target=SourceRef(source="adventureworks", schema_name="sales", table="salesorderdetail"),
+            target_columns=["unitprice"], method=method, score=score, baseline=baseline, sampled_values=40,
+            target_sampled_values=40)
+
+    close = [resembles("product", "listprice", "pattern 0.1", 0.9, 0.85),
+             resembles("product", "listprice", "ncd 0.1", 0.5, 0.49)]
+    far = resembles("product", "standardcost", "pattern 0.1", 0.1, 0.85)
+    shaped = new_claim(
+        subject=SourceRef(source="adventureworks", schema_name="sales", table="salesorderdetail", column="unitprice"),
+        predicate=ClaimPredicate.shaped_as, source=ClaimSource(kind=ClaimSourceKind.data, locator="values"),
+        extracted_by="t", confidence=1.0, patterns=["9{2}\\.9{4}", "9{3}\\.9{4}"], pattern_shares=[0.6, 0.4],
+        shape_level=1, distinct_values=287, sampled_values=256)
+    table = _table(name)
+    assigned = {("production.product", "listprice"): "unit_price", ("production.product", "standardcost"): "unit_price"}
+    asked = _classify(table, _for([*_claims(name), shaped]), VOCABULARY, v1.meaning_hints(SEEDED, table, GROUPS),
+                       v1.shared_key_foreign_keys(table, _claims(name), SEEDED), MAX_OPTIONS, f"classify {name}",
+                       resemblances=rm.index([*close, far]), assigned=assigned)
+    assert asked.request is not None
+    question = asked.request.questions["column unitprice"]
+    facts = cast(dict[str, object], question.instructions)["facts"]
+    assert isinstance(facts, list) and len(cast(list[str], facts)) == 2  # 近い列 1 つと、同じ形でも別の意味がありうる注意
+    assert "production.product.listprice" in cast(list[str], facts)[0]
+    assert {x.id for x in close} <= set(asked.evidence["column unitprice"])
+    assert far.id not in asked.evidence["column unitprice"]
+    columns = cast(list[dict[str, object]], asked.request.state["columns"])
+    assert next(x for x in columns if x["name"] == "unitprice")["value_shape"] == (
+        "9{2}\\.9{4} 60%, 9{3}\\.9{4} 40% (287 distinct values)")
+    assert asked.request.state["value_shape_notation"] == rm.SHAPE_NOTATION
+    others = _classify(table, _for(_claims(name)), VOCABULARY, v1.meaning_hints(SEEDED, table, GROUPS),
+                        v1.shared_key_foreign_keys(table, _claims(name), SEEDED), MAX_OPTIONS, f"classify {name}")
+    assert others.request is not None and "value_shape_notation" not in others.request.state
+    assert "facts" not in cast(dict[str, object], others.request.questions["column unitprice"].instructions)

@@ -343,6 +343,14 @@ class ClaimPredicate(str, Enum):
     """
     表の columns（NULL を除く）の値を数えた結果：異なる値が distinct_values 個、そのうち target の target_columns （キー）にあるのが matched_values 個。target のキーの値は target_values 個。1 つの値の行は最大 max_repeats 行。 整数の列なら、列の値の最小から最大までの整数の数 value_span と、その範囲にあるキーの値の数 target_values_in_span （整数でない列、値の無い列では持たない）。 実データの測定で、宣言の無い参照（外部キー）の候補の事実。包含が成り立たない組も、否定の証拠として残す（仕様 6.7.2 B / D）
     """
+    shaped_as = "shaped_as"
+    """
+    列の値の形（実データ。T2.6）：NULL を除いた異なる値 distinct_values 個のうち sampled_values 個の見本を、構文パターンに 一般化した上位の patterns と、それぞれに当たる見本の割合 pattern_shares。shape_level は MDL で選んだ一般化の段 （1 = 文字の種類と長さ、2 = 文字の種類、3 = 文字の種類の集合）。 値の文字列は入れない（共通の接頭辞のような定数も）
+    """
+    resembles = "resembles"
+    """
+    表の columns と target の target_columns の値の似かた（実データ。T2.6）：信号 method（名前と版）で測った値 score と、 同じ母集団ならこのくらいという基準 baseline。見本の数は sampled_values と target_sampled_values。 読み方（近いと言えるか）は信号ごとに決まる（mandara.resemblance.signals）。組の向きは名前の順で 1 つ
+    """
 
 
 class GroupView(str, Enum):
@@ -825,6 +833,14 @@ class Claim(ConfiguredBaseModel):
     max_repeats: Optional[int] = Field(default=None, description="""included_in：表の columns の1つの値を持つ行の最大の数（1 なら値は重ならない。1:1 の手がかり）""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     value_span: Optional[int] = Field(default=None, description="""included_in：整数の列だけ。表の columns の値の最小から最大までにある整数の数（最大 − 最小 + 1）""", ge=1, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     target_values_in_span: Optional[int] = Field(default=None, description="""included_in：整数の列だけ。target の target_columns（キー）の値のうち、表の columns の値の最小から最大までにある数。 value_span と比べると、列の値の範囲でのキーの詰まり方が分かる（隙間の多い範囲で全部含まれるなら、偶然ではない）""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
+    patterns: Optional[list[str]] = Field(default=None, description="""shaped_as：構文パターン（多い順）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
+    pattern_shares: Optional[list[float]] = Field(default=None, description="""shaped_as：patterns の順に、そのパターンに当たる見本の割合（0〜1）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
+    shape_level: Optional[int] = Field(default=None, description="""shaped_as：MDL で選んだ一般化の段（1〜3）""", ge=1, le=3, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
+    sampled_values: Optional[int] = Field(default=None, description="""shaped_as / resembles：表の columns の値の見本の数（異なる値）""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
+    target_sampled_values: Optional[int] = Field(default=None, description="""resembles：target の target_columns の値の見本の数（異なる値）""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
+    method: Optional[str] = Field(default=None, description="""resembles：信号の名前と版（\"ncd 0.1\" など）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
+    score: Optional[float] = Field(default=None, description="""resembles：信号の測った値""", json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
+    baseline: Optional[float] = Field(default=None, description="""resembles：同じ母集団ならこのくらい、という基準の値（信号ごとに意味が決まる）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     source: ClaimSource = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Claim', 'SourceRef']} })
     extracted_by: str = Field(default=..., description="""抽出器の名前と版""", json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     valid_at: Optional[date] = Field(default=None, description="""出所の日付（文書の日付など）。鮮度の根拠""", json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })

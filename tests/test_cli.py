@@ -26,9 +26,10 @@ def _run(*argv: str) -> tuple[int, str, str]:
     return code, out.getvalue(), err.getvalue()
 
 
-def _aw(work: Path, *extra: str) -> list[str]:
+def _aw(work: Path, *extra: str, resemblance: bool = False) -> list[str]:
+    """値の似かた（T2.6）は、通しの決定性を見るテストでだけ測る（ほかは --no-resemblance で速く）。"""
     return ["--source", "adventureworks", "--work", str(work), "--conninfo", "dbname=adventureworks",
-            *(a for s in SCHEMAS for a in ("--schema", s)), *extra]
+            *(a for s in SCHEMAS for a in ("--schema", s)), *extra, *(() if resemblance else ("--no-resemblance",))]
 
 
 def _tree(root: Path) -> dict[str, str]:
@@ -36,7 +37,7 @@ def _tree(root: Path) -> dict[str, str]:
 
 
 def test_run_writes_everything_and_is_deterministic(tmp_path: Path) -> None:
-    code, out, err = _run("run", *_aw(tmp_path, "--gold", str(GOLD)))
+    code, out, err = _run("run", *_aw(tmp_path, "--gold", str(GOLD), resemblance=True))
     assert (code, err) == (0, "")
     assert "\033[" not in out  # 端末でなければ色を付けない
     ws = tmp_path / "adventureworks"
@@ -50,7 +51,11 @@ def test_run_writes_everything_and_is_deterministic(tmp_path: Path) -> None:
     assert data["versions"] == {"extractor": "catalog 0.1", "values_extractor": "values 0.1",
                                 "declaration_extractor": "declarations 0.1", "joins_extractor": "joins 0.2",
                                 "modeler": "modeler-rules 0.1", "joins_modeler": "modeler-joins 0.1",
-                                    "nameless_joins_modeler": "modeler-nameless-joins 0.1"}
+                                "nameless_joins_modeler": "modeler-nameless-joins 0.1",
+                                "resemblance_extractor": "resemblance 0.1"}
+    # 値の似かた（T2.6）：比べる列の形と、近い組の信号ごとの主張。並列で測っても 2 回目と同じ主張（下で比べる）
+    assert data["resemblance"]["pairs"] > data["resemblance"]["kept"] > 0 and "主張にした組" in out
+    assert data["claims"]["shaped_as"] > 300 and data["claims"]["resembles"] >= 3 * 1000
     decided = {(e["table"], e["column"]): e["encoding"] for e in data["encodings"]["examined"] if e["encoding"]}
     assert decided == {("person.address", "spatiallocation"): "sqlserver_geography"}
     assert "person.address.spatiallocation → sqlserver_geography" in out
@@ -63,7 +68,7 @@ def test_run_writes_everything_and_is_deterministic(tmp_path: Path) -> None:
     report = json.loads((ws / "eval/report.json").read_text())
     assert [a["aspect"] for a in report["aspects"]][:3] == ["tables", "kind", "primary_key"]
 
-    assert _run("run", *_aw(tmp_path, "--gold", str(GOLD)))[0] == 0
+    assert _run("run", *_aw(tmp_path, "--gold", str(GOLD), resemblance=True))[0] == 0
     assert _tree(ws / "claims") == claims and _tree(ws / "ontology") == ontology
     assert len(list((ws / "runs").iterdir())) == 2
     assert json.loads(next(p for p in (ws / "runs").iterdir() if p.name != record.name).read_text())[

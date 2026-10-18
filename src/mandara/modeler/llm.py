@@ -50,6 +50,7 @@ from mandara.om.model import (
     ValueType,
 )
 from mandara.modeler.joins import InferenceClaims
+from mandara.modeler.resemblance import SHAPE_NOTATION, value_shape
 from mandara.om.names import qualify
 from mandara.om.value_types import UNIT_BEARING, is_boolean_value_set, misfit
 from mandara.om.ontology import SELF, Ontology, is_shared_key
@@ -167,7 +168,10 @@ def brief(table_claims: InferenceClaims, vocabulary: Mapping[str, SemanticType],
     if not declared:
         raise ValueError("declared_as の主張が無い表は要約できない")
     subject = declared[0].subject
-    lines = ["<data>", f"table {_q(qualify(subject.schema_name, subject.table))} — {declared[0].object_kind} "
+    lines = ["<data>"]
+    if by[ClaimPredicate.shaped_as.value]:
+        lines.append(f"note: {SHAPE_NOTATION}")
+    lines += [f"table {_q(qualify(subject.schema_name, subject.table))} — {declared[0].object_kind} "
                        f"({declared[0].id})",
              f"decided kind: {decided_kind or 'none'}"]
     for c in by[ClaimPredicate.described_as.value]:
@@ -188,6 +192,8 @@ def brief(table_claims: InferenceClaims, vocabulary: Mapping[str, SemanticType],
         facts += [f"default {_q(c.text)} ({c.id})" for c in by[ClaimPredicate.defaults_to.value]
                   if c.subject.column == name]
         facts += [f"comment {_q(c.text)} ({c.id})" for c in by[ClaimPredicate.described_as.value]
+                  if c.subject.column == name]
+        facts += [f"value shape {_q(value_shape(c))} ({c.id})" for c in by[ClaimPredicate.shaped_as.value]
                   if c.subject.column == name]
         if (hint := meaning.get(name or "")) is not None:
             facts.append(f"same meaning as {hint.others} other columns (foreign keys); "

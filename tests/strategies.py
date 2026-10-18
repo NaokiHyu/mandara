@@ -315,7 +315,28 @@ def claims(
         payload["fixed_unit"] = draw(st.sampled_from(tuple(Unit)))
     if "encoding" in shape.fields:
         payload["encoding"] = draw(st.sampled_from(tuple(SourceEncoding)))
-    if "distinct_values" in shape.fields:  # 包含の数：含まれる数は値の数とキーの値の数以下、値が無ければ最大の行数も 0
+    if predicate == ClaimPredicate.shaped_as:  # 値の形：割合は多い順で和は 1 以下、見本は異なる値の数以下
+        patterns = draw(st.lists(texts, min_size=1, max_size=5, unique=True))
+        weights = sorted(draw(st.lists(st.integers(1, 100), min_size=len(patterns), max_size=len(patterns))),
+                         reverse=True)
+        total = sum(weights) + draw(st.integers(0, 100))
+        distinct = draw(st.integers(1, 500))
+        payload |= {"patterns": patterns, "pattern_shares": [w / total for w in weights],
+                    "shape_level": draw(st.integers(1, 3)), "distinct_values": distinct,
+                    "sampled_values": draw(st.integers(1, distinct))}
+    if predicate == ClaimPredicate.resembles:  # 値の似かた：1 列どうし、組の向きは名前の順
+        target = SourceRef(source=source, schema_name=draw(column_names), table=draw(column_names))
+        a, b = (subject, [columns[0]]), (target, [draw(column_names)])
+        if (a[0].schema_name, a[0].table, *a[1]) == (b[0].schema_name, b[0].table, *b[1]):
+            b = (b[0], [b[1][0] + "_2"])
+        if (a[0].schema_name, a[0].table, *a[1]) > (b[0].schema_name, b[0].table, *b[1]):
+            a, b = b, a
+        subject = a[0]
+        finite = st.floats(min_value=-10, max_value=10, allow_nan=False)
+        payload |= {"columns": a[1], "target": b[0], "target_columns": b[1], "method": draw(texts.filter(str.strip)),
+                    "score": draw(finite), "baseline": draw(finite), "sampled_values": draw(st.integers(1, 256)),
+                    "target_sampled_values": draw(st.integers(1, 256))}
+    if predicate == ClaimPredicate.included_in:  # 包含の数：含まれる数は値の数とキーの値の数以下、値が無ければ最大の行数も 0
         distinct = draw(st.integers(0, 50))
         target_values = draw(st.integers(0, 60))
         payload["distinct_values"] = distinct

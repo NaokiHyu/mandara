@@ -342,7 +342,7 @@ def test_extract_records_every_examined_column(tmp_path: Path) -> None:
             raise AssertionError(f"見本を読まないはず: {schema}.{table}.{column}")
 
     ws = pipeline.Workspace(tmp_path / "src", "src")
-    extracted = pipeline.extract(ws, Catalogs(), Scope(("s",)), Values(), NoCoverage(), OnlyKeys())
+    extracted = pipeline.extract(ws, Catalogs(), Scope(("s",)), Values(), NoCoverage(), OnlyKeys(), None)
     assert (extracted.joins.columns, extracted.joins.overlapping, extracted.joins.chosen) == (0, 0, 0)
     assert extracted.covered == ()
     found = {e.column: (e.detection.encoding, e.detection.reason, e.detection.values, e.detection.nulls, e.truncated)

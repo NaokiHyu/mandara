@@ -87,7 +87,10 @@ def _changed(value: object, field: str) -> object:
     if isinstance(value, SourceRef):
         return value.model_copy(update={"table": value.table + "x"})
     if isinstance(value, list):
-        return [*cast(list[str], value), "zz_extra"]
+        items = cast(list[object], value)
+        return [*items, 0.5 if items and isinstance(items[0], float) else "zz_extra"]
+    if isinstance(value, float):
+        return value + 0.5
     if isinstance(value, int):
         return value + 1
     if value is None:
@@ -203,7 +206,30 @@ def _inclusion_claim() -> Claim:
     )
 
 
+def _shape_claim() -> Claim:
+    return new_claim(
+        subject=SourceRef(source="src", schema_name="s", table="t", column="c"), predicate=ClaimPredicate.shaped_as,
+        source=ClaimSource(kind=ClaimSourceKind.data, locator="values"), extracted_by="t", confidence=1.0,
+        patterns=['"AW"9{8}', "9{5}"], pattern_shares=[0.75, 0.25], shape_level=1, distinct_values=10, sampled_values=8)
+
+
+def _resembles_claim() -> Claim:
+    return new_claim(
+        subject=SourceRef(source="src", schema_name="s", table="t"), predicate=ClaimPredicate.resembles,
+        source=ClaimSource(kind=ClaimSourceKind.data, locator="resemblance"), extracted_by="t", confidence=1.0,
+        columns=["a"], target=SourceRef(source="src", schema_name="s", table="u"), target_columns=["b"],
+        method="ncd 0.1", score=0.4, baseline=0.38, sampled_values=8, target_sampled_values=9)
+
+
 SHAPE_BREAKS: dict[str, Callable[[], Claim]] = {
+    "shares not in order": lambda: _rehashed(_shape_claim(), pattern_shares=[0.25, 0.75]),
+    "shares and patterns differ in number": lambda: _rehashed(_shape_claim(), pattern_shares=[1.0]),
+    "shares above one in all": lambda: _rehashed(_shape_claim(), pattern_shares=[0.75, 0.5]),
+    "more sampled than distinct": lambda: _rehashed(_shape_claim(), sampled_values=11),
+    "pair in the wrong order": lambda: _rehashed(_resembles_claim(), target=SourceRef(
+        source="src", schema_name="s", table="a")),
+    "score not finite": lambda: _rehashed(_resembles_claim(), score=float("nan")),
+    "no sample on one side": lambda: _rehashed(_resembles_claim(), target_sampled_values=0),
     "extra field": lambda: _rehashed(_column_claim(), text="余計"),
     "missing field": lambda: _rehashed(_reference_claim(), on_delete=None),
     "empty list": lambda: _rehashed(_column_claim(), columns=[]),

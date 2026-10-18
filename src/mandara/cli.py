@@ -22,6 +22,7 @@ from mandara.connectors.postgres.catalog_reader import PostgresCatalogReader
 from mandara.connectors.postgres.column_reader import PostgresColumnReader
 from mandara.connectors.postgres.coverage_reader import PostgresCoverageReader
 from mandara.connectors.postgres.inclusion_reader import PostgresInclusionReader
+from mandara.connectors.postgres.sample_reader import PostgresSampleReader
 from mandara.connectors.postgres.record_reader import PostgresRecordReader
 from mandara.evaluation.score import InvalidForScoringError, Report
 from mandara.llm.claude.model import ClaudeModel
@@ -104,6 +105,8 @@ def _parser() -> argparse.ArgumentParser:
         p.add_argument("--schema", action="append", required=True, help="読むスキーマ（繰り返し指定）")
         p.add_argument("--conninfo", default="",
                        help="libpq の接続文字列。省略時は環境変数（PGHOST、PGDATABASE など）。秘密はここに書かない")
+        p.add_argument("--no-resemblance", action="store_true",
+                       help="値の似かた（T2.6）を測らない（実行の記録に「測っていない」と書く）")
 
     p = commands.add_parser("run", help="抽出 → 提案 → 評価を通しで行い、実行の記録を書く")
     source_args(p)
@@ -146,6 +149,12 @@ def _parser() -> argparse.ArgumentParser:
                    help="外部キーを宣言している元の DB の接続文字列（例 dbname=adventureworks）。秘密はここに書かない")
     p.add_argument("--show", type=int, default=20, help="外れた結合を見せる数（既定 20）")
     p.set_defaults(handler=_eval_joins)
+
+    p = commands.add_parser("eval-resemblance",
+                            help="値の似かた（T2.6）の信号ごとに、近いと言った組を正解 OM の同じ意味型の列の組と突き合わせる")
+    source_args(p)
+    p.add_argument("--gold", type=Path, required=True)
+    p.set_defaults(handler=_eval_resemblance)
 
     p = commands.add_parser("review", help="提案に答える（承認・却下）。答えるたびに OM に書く")
     source_args(p)
@@ -203,7 +212,8 @@ def _run(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
     started = time.monotonic()
     llm = _llm(args.env) if args.llm else None
     result = pipeline.run(workspace, _reader(args), _values(args), PostgresCoverageReader(args.conninfo),
-                          PostgresInclusionReader(args.conninfo), scope, args.gold, _now, llm[0] if llm else None)
+                          PostgresInclusionReader(args.conninfo), _sampler(args), scope, args.gold, _now,
+                          llm[0] if llm else None)
     _extract_line(out, style, result.extracted)
     _propose_line(out, style, result.proposed)
     if result.refined is not None and llm is not None:
@@ -219,7 +229,8 @@ def _extract(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
     scope = Scope(tuple(args.schema))
     _banner(out, style, workspace, scope)
     _extract_line(out, style, pipeline.extract(workspace, _reader(args), scope, _values(args),
-                                               PostgresCoverageReader(args.conninfo), PostgresInclusionReader(args.conninfo)))
+                                               PostgresCoverageReader(args.conninfo), PostgresInclusionReader(args.conninfo),
+                                               _sampler(args)))
     return 0
 
 
@@ -240,6 +251,24 @@ def _propose(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
 
 def _eval(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
     _scoreboard(out, style, pipeline.evaluate(_workspace(args), args.gold), args.gold)
+    return 0
+
+
+def _eval_resemblance(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
+    found = pipeline.evaluate_resemblance(_workspace(args), args.gold)
+
+    def pct(x: float | None) -> str:
+        return "—" if x is None else f"{x * 100:.0f}%"
+
+    print(f"  {style.dim('resemble')}  正解の列 {found.columns} · 兄弟の組 {found.sibling_pairs}（うち外部キー・包含でつながらない "
+          f"{found.unlinked_pairs}、測れる組 {found.comparable_pairs}、兄弟のある列 {found.columns_with_siblings}） · "
+          f"主張にした組 {found.kept_pairs}", file=out)
+    for part in found.parts:
+        print(f"  {style.dim('resemble')}  {part.name:<9} 近い {part.close:>4} · 兄弟 {part.siblings:>3}  "
+              f"適合率 {pct(part.precision()):>4} · 再現率 {pct(found.recall(part)):>4}"
+              f"（測れる組で {pct(found.comparable_recall(part)):>4}） · "
+              f"つながらない兄弟の再現率 {pct(found.unlinked_recall(part)):>4} · "
+              f"兄弟を 1 つ以上当てた列 {pct(found.column_recall(part)):>4}", file=out)
     return 0
 
 
@@ -488,6 +517,10 @@ def _banner(out: TextIO, style: _Style, workspace: Workspace, scope: Scope) -> N
     print(f"{style.accent('◆ MANDARA')}  {workspace.source}  {style.dim(' '.join(scope.schemas))}", file=out)
 
 
+def _sampler(args: argparse.Namespace) -> PostgresSampleReader | None:
+    return None if args.no_resemblance else PostgresSampleReader(args.conninfo)
+
+
 def _extract_line(out: TextIO, style: _Style, extracted: pipeline.Extracted) -> None:
     print(f"  {style.dim('extract')}   {extracted.tables} objects → {len(extracted.claims):,} claims", file=out)
     for e in extracted.examined:
@@ -502,6 +535,12 @@ def _extract_line(out: TextIO, style: _Style, extracted: pipeline.Extracted) -> 
     j = extracted.joins
     print(f"  {style.dim('joins')}     {j.columns} 列 · 型の合う組 {j.typed:,} → 値の数・範囲 {j.narrowed:,} → 見本の重なり "
           f"{j.overlapping:,}（数えた） → 包含 100% {j.included:,} → {style.good(f'参照とみなした {j.chosen}')}", file=out)
+    r = extracted.resemblance
+    if r is None:
+        print(f"  {style.dim('resemble')}  測っていない（--no-resemblance）", file=out)
+    else:
+        print(f"  {style.dim('resemble')}  {r.columns} 列 · 同じ型の群の組 {r.pairs:,} → 重い信号の候補 {r.narrowed:,} → "
+              f"{style.good(f'主張にした組 {r.kept:,}')}  {style.dim(f'{r.workers} プロセス')}", file=out)
     for c in extracted.covered:
         facts = [f"{x.discriminator} ∈ {{{', '.join(x.discriminator_values or [])}}}" if x.discriminator else "すべての行"
                  for x in c.claims]

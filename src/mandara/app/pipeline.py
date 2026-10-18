@@ -23,6 +23,7 @@ from mandara.codecs.detect import Detection, detect
 from mandara.codecs.registry import BY_ENCODING, CodecError
 from mandara.evaluation import joins as joins_evaluation
 from mandara.evaluation.joins import JoinScore
+from mandara.evaluation import resemblance as resemblance_evaluation
 from mandara.evaluation.score import Report, score
 from mandara.extractors import catalog as catalog_extractor
 from mandara.extractors import declarations as declaration_extractor
@@ -80,6 +81,10 @@ from mandara.source.catalog import Table as CatalogTable
 from mandara.source.coverage import CoverageReader
 from mandara.source.inclusion import ColumnProfile, InclusionReader, KeyRef
 from mandara.source.rows import ColumnReader
+from mandara.source.samples import ValueSampler
+from mandara.app.resemblance import ResemblanceMeasured, measure_resemblance
+from mandara.extractors import resemblance as resemblance_extractor
+from mandara.modeler import resemblance as resemblance_modeler
 from mandara.source.values import GeoPoint
 
 Clock = Callable[[], datetime]
@@ -139,6 +144,8 @@ class Extracted:
     not_examined: tuple[values_extractor.NotExamined, ...]
     covered: tuple[Covered, ...]
     joins: "JoinsMeasured"
+    resemblance: ResemblanceMeasured | None
+    """値の似かたの測定（T2.6）。None は測らなかった（呼ぶ側が見本の読み手を渡さなかった。実行の記録にもそう書く）。"""
 
 
 @dataclass(frozen=True)
@@ -168,9 +175,10 @@ class Proposed:
 
 
 def extract(workspace: Workspace, reader: CatalogReader, scope: Scope, values: ColumnReader,
-            coverage: CoverageReader, inclusion: InclusionReader) -> Extracted:
-    """カタログを読み、実データの主張（バイト列の物理的な表現、値の包含、主キーを共有する参照の被覆）を足して、主張台帳を
-    作り直す。主キーを共有する参照は、宣言された外部キーと、値の包含から参照とみなしたもの（mandara.modeler.joins）の両方。"""
+            coverage: CoverageReader, inclusion: InclusionReader, sampler: ValueSampler | None) -> Extracted:
+    """カタログを読み、実データの主張（バイト列の物理的な表現、値の包含、主キーを共有する参照の被覆、値の似かた）を足して、
+    主張台帳を作り直す。主キーを共有する参照は、宣言された外部キーと、値の包含から参照とみなしたもの（mandara.modeler.joins）
+    の両方。値の似かた（T2.6）は sampler があるときだけ測る（None は「測らない」と明示する。測った結果の代わりにはしない）。"""
     catalog = reader.read(scope)
     claims = catalog_extractor.extract(workspace.source, catalog)
     claims += declaration_extractor.extract(workspace.source, catalog, load_declarations(workspace.root))
@@ -201,9 +209,13 @@ def extract(workspace: Workspace, reader: CatalogReader, scope: Scope, values: C
         covered.append(Covered(shared.table.qualified_name, shared.target.qualified_name, counted.rows, counted.covered,
                                tuple(found)))
         claims.extend(found)
+    resembled = measure_resemblance(workspace.source, catalog, sampler) if sampler is not None else None
+    if resembled is not None:
+        claims += resembled.claims
     write_claim_ledger(workspace.claims, workspace.source, catalog.scope.schemas, claims)
     return Extracted(tuple(claims), len(catalog.tables), catalog.scope, tuple(examined), tuple(not_examined),
-                     tuple(covered), replace(joins.measured, chosen=len(joins_modeler.choose(claims))))
+                     tuple(covered), replace(joins.measured, chosen=len(joins_modeler.choose(claims))),
+                     resembled.measured if resembled is not None else None)
 
 
 @dataclass(frozen=True)
@@ -277,6 +289,11 @@ def evaluate_joins(workspace: Workspace, truth: CatalogReader, scope: Scope) -> 
     found = {j for j in joins_evaluation.proposed(ontology) if split_qualified(j[0])[0] in schemas
              and split_qualified(j[2])[0] in schemas}
     return joins_evaluation.score_joins(found, joins_evaluation.truth(truth.read(scope)))
+
+
+def evaluate_resemblance(workspace: Workspace, gold: Path) -> resemblance_evaluation.ResemblanceScore:
+    """値の似かた（T2.6）を、正解 OM の同じ意味型の列の組と突き合わせる。"""
+    return resemblance_evaluation.score(load_claim_ledger(workspace.claims, workspace.source), load_ontology(gold))
 
 
 def read_ontology(root: Path) -> Ontology:
@@ -444,7 +461,8 @@ def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, f
             f"人の判断を含む OM は詰め直さない（{len(decided)} 件。例 {decided[:3]}）。再実行での統合は T6.1")
     by_table: dict[str, list[Claim]] = {}
     for claim in claims:
-        by_table.setdefault(qualify(claim.subject.schema_name, claim.subject.table), []).append(claim)
+        for name in resemblance_modeler.tables_of(claim):
+            by_table.setdefault(name, []).append(claim)
     names = {t.name for t in ontology.tables}
     if unknown := sorted(set(first) - names):
         raise InvalidInputError(f"先に問う表が OM に無い: {unknown}")
@@ -458,6 +476,7 @@ def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, f
     for group in groups.groups:
         meaning.group_semantic_type(ontology, group)  # 入力の OM の組が食い違っていれば、問う前に InconsistentGroupError
     families = meaning.column_families(claims)
+    resemblances = resemblance_modeler.index(claims)  # 古い版の信号の主張があれば、問う前に StaleMethodError
     # 名前の手がかりの無い参照（T2.2 の 3b）：問う前の確かめの後、表の分類の前に決める（決めた参照は、分類と LLM に参照として渡る）
     nameless_by = f"{nameless_joins.MODELER} ({decider.model})"
     decided, nameless, stopped = _decide_nameless(ontology, claims, decider, nameless_by)
@@ -484,7 +503,7 @@ def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, f
                            [t.name for t in order[i:]], defect=True)
         record: dict[str, object] = {}
         try:
-            asked = _ask_table(table, table_claims, ontology, hints, model, decider, record)
+            asked = _ask_table(table, table_claims, ontology, hints, model, decider, record, resemblances)
         except (BudgetExceededError, EstimateViolatedError) as e:
             stopped = str(e)
             if record:  # 途中まで課金済みの答えは記録に残す（この表には当てない）
@@ -531,7 +550,7 @@ class _Asked:
 
 def _ask_table(table: Table, table_claims: joins_modeler.InferenceClaims, ontology: Ontology,
                hints: dict[str, llm_modeler.MeaningHint], model: LanguageModel, decider: DecisionModel,
-               record: dict[str, object]) -> _Asked:
+               record: dict[str, object], resemblances: resemblance_modeler.Resemblances) -> _Asked:
     """1つの表を、分類 → 命名 → 性質 → 単位 → grain の順に問い、従来の答えの形に組み立てる（T3.7）。
 
     答えは段ごとに record に書く（再現のため。答えの形が不正でも、受け取った答えはそのまま残す）。
@@ -551,8 +570,11 @@ def _ask_table(table: Table, table_claims: joins_modeler.InferenceClaims, ontolo
     mine = {c.semantic_type for c in (table.columns or {}).values() if c.semantic_type is not None}
     used = {c.semantic_type for t in ontology.tables if t.id != table.id for c in (t.columns or {}).values()
             if c.semantic_type is not None}
+    assigned = {(t.name, name): c.semantic_type for t in ontology.tables for name, c in (t.columns or {}).items()
+                if c.semantic_type is not None}
     asked = classify.classify(table, table_claims, vocabulary, hints, shared, decider.max_options,
-                              f"classify {table.name}", elsewhere_only=used - mine)
+                              f"classify {table.name}", elsewhere_only=used - mine, resemblances=resemblances,
+                              assigned=assigned)
     response = None
     if asked.request is not None:
         try:
@@ -866,7 +888,7 @@ class Inference:
 
 
 def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, coverage: CoverageReader,
-        inclusion: InclusionReader, scope: Scope, gold: Path | None, clock: Clock,
+        inclusion: InclusionReader, sampler: ValueSampler | None, scope: Scope, gold: Path | None, clock: Clock,
         inference: Inference | None = None) -> RunResult:
     """抽出 → 提案 → （LLM があれば）推論 → （正解があれば）評価を通しで行い、実行の記録を書く。失敗も記録してから伝える。"""
     started = _utc(clock())
@@ -878,11 +900,12 @@ def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, cover
         "versions": {"extractor": catalog_extractor.EXTRACTOR, "values_extractor": values_extractor.EXTRACTOR,
                      "declaration_extractor": declaration_extractor.EXTRACTOR, "joins_extractor": joins_extractor.EXTRACTOR,
                      "modeler": modeler.MODELER, "joins_modeler": joins_modeler.MODELER,
-                     "nameless_joins_modeler": nameless_joins.MODELER},
+                     "nameless_joins_modeler": nameless_joins.MODELER,
+                     "resemblance_extractor": resemblance_extractor.EXTRACTOR},
         "completed": [],
     })
     with log.stage("extract"):
-        extracted = extract(workspace, reader, scope, values, coverage, inclusion)
+        extracted = extract(workspace, reader, scope, values, coverage, inclusion, sampler)
         log.update(scope=list(extracted.scope.schemas), tables=extracted.tables,
                    claims=dict(sorted(Counter(c.predicate for c in extracted.claims).items())),
                    encodings={"examined": [_examined_record(e) for e in extracted.examined],
@@ -890,7 +913,8 @@ def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, cover
                                                for n in extracted.not_examined]},
                    shared_keys=[{"table": c.table, "target": c.target, "rows": c.rows, "covered": c.covered,
                                  "claims": [_coverage_text(x) for x in c.claims]} for c in extracted.covered],
-                   joins=vars(extracted.joins))
+                   joins=vars(extracted.joins),
+                   resemblance=vars(extracted.resemblance) if extracted.resemblance is not None else "not measured")
     with log.stage("propose"):
         proposed = propose(workspace)
         log.update(ledger_hash=proposed.ledger_hash, proposal=_proposal_counts(proposed.proposal.ontology),

@@ -8,6 +8,7 @@ Domain 層。I/O を持たない。読み書きは mandara.omstore（Adapter）�
 
 import hashlib
 import json
+import math
 from collections import Counter
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
@@ -20,7 +21,8 @@ PAYLOAD_FIELDS = (
     "columns", "target", "target_columns", "on_delete", "on_update", "text", "type_name", "family", "position",
     "object_kind", "encoding", "discriminator", "discriminator_values", "fixed_unit",
     "distinct_values", "matched_values", "target_values", "max_repeats", "value_span",
-    "target_values_in_span",
+    "target_values_in_span", "patterns", "pattern_shares", "shape_level", "sampled_values", "target_sampled_values",
+    "method", "score", "baseline",
 )
 """述語によって持つ・持たないが決まる、値のフィールド。"""
 
@@ -59,9 +61,13 @@ SHAPES: dict[str, Shape] = {
                                                   "discriminator_values"),
     ClaimPredicate.included_in.value: _shape("table", "columns", "target", "target_columns", "distinct_values",
                                              "matched_values", "target_values", "max_repeats", optional=("value_span", "target_values_in_span")),
+    ClaimPredicate.shaped_as.value: _shape("column", "patterns", "pattern_shares", "shape_level", "distinct_values",
+                                           "sampled_values"),
+    ClaimPredicate.resembles.value: _shape("table", "columns", "target", "target_columns", "method", "score", "baseline",
+                                           "sampled_values", "target_sampled_values"),
 }
 _REFERRING = {ClaimPredicate.references.value, ClaimPredicate.covers_all.value, ClaimPredicate.discriminated_by.value,
-              ClaimPredicate.included_in.value}
+              ClaimPredicate.included_in.value, ClaimPredicate.resembles.value}
 """参照（columns → target の target_columns）を持つ述語。"""
 
 
@@ -202,4 +208,22 @@ def _check_claim(claim: Claim) -> Iterator[ClaimViolation]:
         elif span is not None and in_span is not None and (
                 distinct == 0 or span < distinct or not matched <= in_span <= min(span, claim.target_values or 0)):
             yield wrong("値の範囲の数が合わない（範囲の整数 ≥ 値の数、含まれる数 ≤ 範囲のキーの値 ≤ 範囲の整数・キーの値の数）")
-
+    if claim.predicate == ClaimPredicate.shaped_as.value and claim.patterns and claim.pattern_shares:
+        shares = claim.pattern_shares
+        if len(claim.patterns) != len(shares):
+            yield wrong("patterns と pattern_shares の数が違う")
+        if any(not 0 < x <= 1 for x in shares) or sum(shares) > 1 + 1e-9 or list(shares) != sorted(shares, reverse=True):
+            yield wrong("pattern_shares は 0 より大きく 1 以下、多い順で、和は 1 以下")
+        if (claim.sampled_values or 0) < 1 or (claim.sampled_values or 0) > (claim.distinct_values or 0):
+            yield wrong("見本の数は 1 以上で、異なる値の数以下")
+    if claim.predicate == ClaimPredicate.resembles.value:
+        if claim.method is not None and not claim.method.strip():
+            yield wrong("method が空")
+        if not all(math.isfinite(x) for x in (claim.score, claim.baseline) if x is not None):
+            yield wrong("score と baseline は有限の数")
+        if (claim.sampled_values or 0) < 1 or (claim.target_sampled_values or 0) < 1:
+            yield wrong("見本の数は両方 1 以上")
+        if claim.target is not None and claim.columns and claim.target_columns and (
+                claim.subject.schema_name, claim.subject.table, *claim.columns) >= (
+                claim.target.schema_name, claim.target.table, *claim.target_columns):
+            yield wrong("組の向きは名前の順で 1 つ（表と列の順で columns の側が先）")

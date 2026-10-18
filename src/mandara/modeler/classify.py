@@ -48,6 +48,8 @@ from mandara.om.model import (
     ValueType,
 )
 from mandara.modeler.joins import InferenceClaims
+from mandara.modeler.meaning import Member
+from mandara.modeler.resemblance import SHAPE_NOTATION, Resemblances, option_facts, value_shape
 from mandara.om.names import qualify
 from mandara.om.value_types import UNIT_BEARING, assignable
 
@@ -174,6 +176,8 @@ def state(table_claims: InferenceClaims) -> dict[str, object]:
                 column["default"] = c.text
             elif c.predicate == ClaimPredicate.aliased_as.value:
                 column["alias_type"] = c.type_name
+            elif c.predicate == ClaimPredicate.shaped_as.value:
+                column["value_shape"] = value_shape(c)
         columns.append(column)
     out: dict[str, object] = {"table": _table_name(table_claims), "object": declared.object_kind}
     comments = [c.text for c in _by(table_claims, ClaimPredicate.described_as) if c.subject.column is None]
@@ -184,6 +188,8 @@ def state(table_claims: InferenceClaims) -> dict[str, object]:
     if unique := [list(c.columns or []) for c in _by(table_claims, ClaimPredicate.unique)]:
         out["unique"] = unique
     out["columns"] = columns
+    if any("value_shape" in c for c in columns):
+        out["value_shape_notation"] = SHAPE_NOTATION
     if fks := [f"({', '.join(c.columns or [])}) -> {_target(c)}({', '.join(c.target_columns or [])})"
                for c in references(table_claims)]:
         out["foreign_keys"] = fks
@@ -320,7 +326,7 @@ class Classify:
 
 def classify(table: Table, table_claims: InferenceClaims, vocabulary: Mapping[str, SemanticType],
              hints: Mapping[str, MeaningHint], shared_keys: Collection[str], max_options: int, purpose: str,
-             elsewhere_only: Collection[str] = ()) -> Classify:
+             *, elsewhere_only: Collection[str], resemblances: Resemblances, assigned: Mapping[Member, str]) -> Classify:
     """分類の問い。表種別（v0 が決めていなければ）、外部キーごとの関係型、辺、列の意味型（組の意味型が決まっていなければ）。
 
     関係型の問いには、外部キーの構造とデータの事実（_fk_facts）を添える。is-a は主キーを共有する外部キー（shared_keys、
@@ -329,6 +335,8 @@ def classify(table: Table, table_claims: InferenceClaims, vocabulary: Mapping[st
     列の意味型の選択肢に、時刻の役割（event_time / valid_from / valid_to）を持ち、別の表でしか使われていない意味型
     （elsewhere_only）は出さない。役割はその表の行にとっての意味（その行の出来事の時刻、その行の期間）なので、別の表の
     時刻の意味型を当てると役割が持ち込まれる（所属の開始日に入社日の event_time など）。外部キーで同じ意味の列は伝播が付ける。
+    列の意味型の問いには、値の似た列のうち選択肢の意味型が付いた列（assigned。列 → 意味型）の事実を添える（T2.6。
+    mandara.modeler.resemblance）。決め手ではなく根拠の 1 つとして。
     """
     questions: dict[str, Choice] = {}
     evidence: dict[str, list[str]] = {}
@@ -410,8 +418,13 @@ def classify(table: Table, table_claims: InferenceClaims, vocabulary: Mapping[st
         if hint is not None:
             instructions["note"] = (f"`column` holds the same values as {hint.others} other columns joined to it by "
                                     "foreign keys, so its meaning is what those values identify.")
+        alike = option_facts(resemblances, (table.name, name), assigned, {d.name for d in compatible})
+        if alike.facts:
+            caution = (["Columns with values of the same shape can still mean different things (an order number and "
+                        "an invoice number)."] if alike.specific else [])
+            instructions["facts"] = [*alike.facts, *caution]
         questions[key] = Choice(instructions, options)
-        evidence[key] = _column_evidence(table_claims, name)
+        evidence[key] = sorted({*_column_evidence(table_claims, name), *alike.evidence})
     for name in new_only:
         evidence[f"column {name}"] = _column_evidence(table_claims, name)
     material = state(table_claims) | ({"semantic_types": dict(sorted(described.items()))} if described else {})

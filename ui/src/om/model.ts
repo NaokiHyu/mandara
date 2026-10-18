@@ -200,6 +200,10 @@ export enum ClaimPredicate {
     discriminated_by = "discriminated_by",
     /** 表の columns（NULL を除く）の値を数えた結果：異なる値が distinct_values 個、そのうち target の target_columns （キー）にあるのが matched_values 個。target のキーの値は target_values 個。1 つの値の行は最大 max_repeats 行。 整数の列なら、列の値の最小から最大までの整数の数 value_span と、その範囲にあるキーの値の数 target_values_in_span （整数でない列、値の無い列では持たない）。 実データの測定で、宣言の無い参照（外部キー）の候補の事実。包含が成り立たない組も、否定の証拠として残す（仕様 6.7.2 B / D） */
     included_in = "included_in",
+    /** 列の値の形（実データ。T2.6）：NULL を除いた異なる値 distinct_values 個のうち sampled_values 個の見本を、構文パターンに 一般化した上位の patterns と、それぞれに当たる見本の割合 pattern_shares。shape_level は MDL で選んだ一般化の段 （1 = 文字の種類と長さ、2 = 文字の種類、3 = 文字の種類の集合）。 値の文字列は入れない（共通の接頭辞のような定数も） */
+    shaped_as = "shaped_as",
+    /** 表の columns と target の target_columns の値の似かた（実データ。T2.6）：信号 method（名前と版）で測った値 score と、 同じ母集団ならこのくらいという基準 baseline。見本の数は sampled_values と target_sampled_values。 読み方（近いと言えるか）は信号ごとに決まる（mandara.resemblance.signals）。組の向きは名前の順で 1 つ */
+    resembles = "resembles",
 };
 /**
 * 近隣の集まりの見せ方。OM（種類、意味型の役割と加法性）と件数から機械的に決める（browse.group_view）
@@ -535,6 +539,22 @@ export interface Claim {
     value_span?: number,
     /** included_in：整数の列だけ。target の target_columns（キー）の値のうち、表の columns の値の最小から最大までにある数。 value_span と比べると、列の値の範囲でのキーの詰まり方が分かる（隙間の多い範囲で全部含まれるなら、偶然ではない） */
     target_values_in_span?: number,
+    /** shaped_as：構文パターン（多い順） */
+    patterns?: string[],
+    /** shaped_as：patterns の順に、そのパターンに当たる見本の割合（0〜1） */
+    pattern_shares?: number[],
+    /** shaped_as：MDL で選んだ一般化の段（1〜3） */
+    shape_level?: number,
+    /** shaped_as / resembles：表の columns の値の見本の数（異なる値） */
+    sampled_values?: number,
+    /** resembles：target の target_columns の値の見本の数（異なる値） */
+    target_sampled_values?: number,
+    /** resembles：信号の名前と版（"ncd 0.1" など） */
+    method?: string,
+    /** resembles：信号の測った値 */
+    score?: number,
+    /** resembles：同じ母集団ならこのくらい、という基準の値（信号ごとに意味が決まる） */
+    baseline?: number,
     source: ClaimSource,
     /** 抽出器の名前と版 */
     extracted_by: string,

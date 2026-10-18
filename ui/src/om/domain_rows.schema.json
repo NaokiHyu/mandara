@@ -222,6 +222,13 @@
             "additionalProperties": false,
             "description": "\u30bd\u30fc\u30b9\u306b\u3064\u3044\u3066\u306e\u4e3b\u5f35\u3002id \u306f\u5185\u5bb9\uff08subject\u3001predicate\u3001\u5024\u306e\u30d5\u30a3\u30fc\u30eb\u30c9\u3001source\uff09\u304b\u3089\u6c7a\u307e\u308a\u3001 \u62bd\u51fa\u5668\u306e\u7248\u30fb\u78ba\u4fe1\u5ea6\u30fb\u5b9f\u884c\u6642\u523b\u306b\u306f\u4f9d\u5b58\u3057\u306a\u3044\u3002\u518d\u751f\u6210\u3057\u3066\u3082\u540c\u3058 id \u306b\u306a\u308b",
             "properties": {
+                "baseline": {
+                    "description": "resembles\uff1a\u540c\u3058\u6bcd\u96c6\u56e3\u306a\u3089\u3053\u306e\u304f\u3089\u3044\u3001\u3068\u3044\u3046\u57fa\u6e96\u306e\u5024\uff08\u4fe1\u53f7\u3054\u3068\u306b\u610f\u5473\u304c\u6c7a\u307e\u308b\uff09",
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                },
                 "columns": {
                     "items": {
                         "type": "string"
@@ -316,6 +323,13 @@
                         "null"
                     ]
                 },
+                "method": {
+                    "description": "resembles\uff1a\u4fe1\u53f7\u306e\u540d\u524d\u3068\u7248\uff08\"ncd 0.1\" \u306a\u3069\uff09",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
                 "object_kind": {
                     "anyOf": [
                         {
@@ -346,6 +360,26 @@
                         }
                     ]
                 },
+                "pattern_shares": {
+                    "description": "shaped_as\uff1apatterns \u306e\u9806\u306b\u3001\u305d\u306e\u30d1\u30bf\u30fc\u30f3\u306b\u5f53\u305f\u308b\u898b\u672c\u306e\u5272\u5408\uff080\u301c1\uff09",
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
+                "patterns": {
+                    "description": "shaped_as\uff1a\u69cb\u6587\u30d1\u30bf\u30fc\u30f3\uff08\u591a\u3044\u9806\uff09",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
                 "position": {
                     "description": "\u5217\u306e\u3001\u8868\u306e\u4e2d\u306e\u4f4d\u7f6e\uff081 \u304b\u3089\uff09",
                     "minimum": 1,
@@ -356,6 +390,30 @@
                 },
                 "predicate": {
                     "$ref": "#/$defs/ClaimPredicate"
+                },
+                "sampled_values": {
+                    "description": "shaped_as / resembles\uff1a\u8868\u306e columns \u306e\u5024\u306e\u898b\u672c\u306e\u6570\uff08\u7570\u306a\u308b\u5024\uff09",
+                    "minimum": 0,
+                    "type": [
+                        "integer",
+                        "null"
+                    ]
+                },
+                "score": {
+                    "description": "resembles\uff1a\u4fe1\u53f7\u306e\u6e2c\u3063\u305f\u5024",
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                },
+                "shape_level": {
+                    "description": "shaped_as\uff1aMDL \u3067\u9078\u3093\u3060\u4e00\u822c\u5316\u306e\u6bb5\uff081\u301c3\uff09",
+                    "maximum": 3,
+                    "minimum": 1,
+                    "type": [
+                        "integer",
+                        "null"
+                    ]
                 },
                 "source": {
                     "$ref": "#/$defs/ClaimSource"
@@ -379,6 +437,14 @@
                     },
                     "type": [
                         "array",
+                        "null"
+                    ]
+                },
+                "target_sampled_values": {
+                    "description": "resembles\uff1atarget \u306e target_columns \u306e\u5024\u306e\u898b\u672c\u306e\u6570\uff08\u7570\u306a\u308b\u5024\uff09",
+                    "minimum": 0,
+                    "type": [
+                        "integer",
                         "null"
                     ]
                 },
@@ -473,7 +539,9 @@
                 "amounts_in",
                 "covers_all",
                 "discriminated_by",
-                "included_in"
+                "included_in",
+                "shaped_as",
+                "resembles"
             ],
             "title": "ClaimPredicate",
             "type": "string"
