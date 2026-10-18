@@ -428,3 +428,42 @@ button.chip.within { font-size: 14px; padding: 2px var(--gap); }
 .hud .density button:hover { background: var(--panel-raised); }
 .hud .density b { color: var(--text-key); text-align: right; font-weight: 600; }
 .hud .density .meter { width: 100%; }
+
+/* ---------------------------------------------------------------- オブジェクト（ドメインのインスタンス。モック 1e） */
+.object { display: flex; flex-direction: column; gap: 18px; }
+.object-head { display: flex; flex-direction: column; gap: 4px; }
+.object-kicker { display: flex; align-items: center; gap: 8px; color: var(--text-soft); flex-wrap: wrap; }
+.object-kicker .link { color: var(--accent); }
+.ctx-dot { width: 9px; height: 9px; flex: none; }
+.object-title { display: flex; align-items: center; gap: 12px; }
+.object-title h1 { margin: 0; font-family: var(--font-heading); font-weight: 600; font-size: 40px; line-height: 1.1; }
+.object-sub { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; color: var(--text-soft); }
+.object-sub .soft { color: var(--text); }
+.kpi-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); border: 1px solid var(--line-strong); }
+.kpi-cell { display: flex; flex-direction: column; gap: 2px; padding: 12px 16px; text-align: left; background: transparent;
+            border: none; border-right: 1px solid var(--line-strong); border-top: 2px solid transparent; cursor: pointer; min-width: 0; }
+.kpi-cell:last-child { border-right: none; }
+.kpi-cell:hover { background: color-mix(in srgb, #d6ebff 4%, transparent); }
+.kpi-cell.on { border-top-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.kpi-cell .eyebrow { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kpi-big { font-family: var(--font-heading); font-weight: 600; font-size: 30px; line-height: 1.1; color: var(--text-key); }
+.kpi-note { font-size: 12px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.object-body { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 24px; align-items: start; }
+.object-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.tabs { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--line-strong); }
+.tabs button { padding: 9px 16px; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; background: none;
+               color: var(--text-soft); cursor: pointer; }
+.tabs button:hover { color: var(--text); }
+.tabs button.on { color: var(--text-key); border-bottom-color: var(--accent); }
+.object-side { display: flex; flex-direction: column; gap: 8px; padding: 16px 20px; background: var(--panel);
+               border: 1px solid var(--line); }
+.object-side .eyebrow { margin-top: 6px; }
+.props { width: 100%; border-collapse: collapse; }
+.props th { width: 42%; text-align: left; font-weight: 400; color: var(--text-soft); padding: 3px 10px 3px 0; vertical-align: top;
+            overflow-wrap: anywhere; }
+.props td { padding: 3px 0; overflow-wrap: anywhere; }
+.props tr.key th, .props tr.key td { color: var(--text-key); font-weight: 600; }
+.refs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.refs li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.drawer .object-body { grid-template-columns: 1fr; }
+.drawer .object-title h1 { font-size: 28px; }

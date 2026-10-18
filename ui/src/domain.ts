@@ -73,3 +73,14 @@ export function linkTexts(links: LinkGroup | undefined): Map<string, string> {
 export function rowKey(key: readonly string[]): string {
   return key.join("\u0000");
 }
+
+/** 数字の帯（KPI）の1つ：近隣の集まりの件数と、合計できる尺度の1つ目（あれば）。値はすべて API の集計（作った数字は無い）。 */
+export type Kpi = { key: string; label: string; mark: string; count: number; measure?: { column: string; value?: string; unit?: string } };
+
+export function kpisOf(groups: readonly RelatedGroup[], limit = 4): Kpi[] {
+  return groups.slice(0, limit).map((g) => {
+    const sum = (g.measures ?? []).find((m) => m.op === "sum");
+    return { key: groupKey(g), label: shortName(g.name), mark: g.kind === RelatedKind.via ? "⇄" : "←", count: g.count,
+             ...(sum === undefined ? {} : { measure: { column: sum.column, value: sum.value, unit: sum.unit_text } }) };
+  });
+}

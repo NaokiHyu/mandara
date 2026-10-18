@@ -2,7 +2,10 @@
 // relation の表は出さずにリンクとしてたどる。値はソースをその場で読む（ゼロコピー）。読めなかったら理由をそのまま見せる。
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, getDomainRows, getDomains, getInstance } from "./api";
-import { emphasized, extendTrail, groupKey, linkTexts, linkTitle, type Place, rowKey, samePlace, type Within } from "./domain";
+import { emphasized, extendTrail, groupKey, kpisOf, linkTexts, linkTitle, type Place, relatedTitle, rowKey, samePlace,
+         type Within } from "./domain";
+import { amountText } from "./groupview";
+import { asKind, KIND } from "./vocabulary";
 import { GroupPanel, Links, Series, Timeline, Totals } from "./GroupPanel";
 import { DomainIcon, Label } from "./parts";
 import { contextColor, shortName } from "./graph";
@@ -274,6 +277,7 @@ export function InstancePane({ ontologyId, domain, instanceKey, known, color, on
   onOpen: (p: Place) => void;
 }) {
   const [shown, setShown] = useState<Load<Instance>>({ state: "loading" });
+  const [picked, setPicked] = useState<string | null>(null); // 選んだタブ（近隣の集まりの鍵）。無ければ先頭
   useEffect(() => {
     let live = true;
     getInstance(ontologyId, domain.table, instanceKey).then(
@@ -294,37 +298,84 @@ export function InstancePane({ ontologyId, domain, instanceKey, known, color, on
     return { table: g.table, key: null, within: { table: it.table, key: it.key, relation: g.relation, via: g.via_relation } };
   };
   const onList = (g: RelatedGroup) => { const p = listOf(g); return p === null ? null : () => onOpen(p); };
-  // 時系列のまとまりを近隣の列の先頭に（詰めた形なので列の幅で読める）。ほかは API の順のまま
+  // 時系列のまとまりを先頭に（数字の帯とタブの先頭に来る）。ほかは API の順のまま
   const groups = [...it.related.filter((g) => g.view === GroupView.time_series),
                   ...it.related.filter((g) => g.view !== GroupView.time_series)];
+  const tab = groups.find((g) => groupKey(g) === picked) ?? groups[0];
+  const isA = it.links.filter((l) => l.relation_type === "is-a" && l.target !== undefined);
   return (
-    <article className="instance" aria-label="インスタンス">
-      <header className="domain-head">
-        <DomainIcon kind={domain.kind} color={color(domain.table)} big />
-        <h1 className="key">{it.label}</h1>
-        <button className="link" style={{ color: `var(${color(domain.table)})` }}
-                onClick={() => onOpen({ table: domain.table, key: null })}>{shortName(it.name)}</button>
-        <span className="key">#{it.key.join("·")}</span>
+    <article className="instance object" aria-label="インスタンス">
+      <header className="object-head">
+        <div className="object-kicker">
+          <span className="ctx-dot" style={{ background: `var(${color(domain.table)})` }} />
+          <span>{domain.context}</span>
+          <span>· {KIND[asKind(domain.kind)].text}</span>
+          {isA.map((l) => (
+            <button key={l.relation} className="link small" onClick={() => l.target !== undefined && open(l.target)}>
+              · is-a {shortName(l.target_name)}
+            </button>
+          ))}
+        </div>
+        <div className="object-title">
+          <DomainIcon kind={domain.kind} color={color(domain.table)} big />
+          <h1 className="key">{it.label}</h1>
+        </div>
+        <div className="object-sub">
+          <button className="link" style={{ color: `var(${color(domain.table)})` }}
+                  onClick={() => onOpen({ table: domain.table, key: null })}>{shortName(it.name)}</button>
+          <span className="key">#{it.key.join("·")}</span>
+          {it.links.filter((l) => l.relation_type !== "is-a" && l.target !== undefined).slice(0, 3).map((l) => (
+            <span key={l.relation} className="dim">· {linkTitle(l)} <span className="soft">{l.target?.label}</span></span>
+          ))}
+        </div>
       </header>
-      <div className="instance-body">
-        <section className="fields" aria-label="値">
-          <table className="grid">
+      {groups.length > 0 && (
+        <div className="kpi-strip" role="list" aria-label="近隣の集まりの数">
+          {kpisOf(groups).map((k) => (
+            <button key={k.key} role="listitem" className={`kpi-cell${tab !== undefined && groupKey(tab) === k.key ? " on" : ""}`}
+                    onClick={() => setPicked(k.key)}>
+              <span className="eyebrow">{k.mark} {k.label}</span>
+              <span className="kpi-big">{count.format(k.count)}</span>
+              <span className="kpi-note">{k.measure === undefined ? "件"
+                : `Σ${k.measure.column} ${amountText(k.measure.value, k.measure.unit, true)}`}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="object-body">
+        <section className="object-main neighbors" aria-label="近隣">
+          {groups.length > 0 && (
+            <nav className="tabs" aria-label="近隣の集まり">
+              {groups.map((g) => (
+                <button key={groupKey(g)} className={tab === g ? "on" : ""} aria-pressed={tab === g}
+                        onClick={() => setPicked(groupKey(g))}>
+                  {relatedTitle(g, it.related).mark} {shortName(g.name)} <span className="dim">{count.format(g.count)}</span>
+                </button>
+              ))}
+            </nav>
+          )}
+          {tab !== undefined && (
+            <GroupPanel key={groupKey(tab)} group={tab} siblings={it.related} target={known.get(tab.table)}
+                        color={color(tab.table)} onOpen={open} onList={onList(tab)} />
+          )}
+          {groups.length === 0 && <p className="dim">近隣の集まりは無い</p>}
+        </section>
+        <aside className="object-side" aria-label="値と参照先">
+          <div className="eyebrow">プロパティ</div>
+          <table className="props">
             <tbody>
               {it.fields.map((f) => (
                 <tr key={f.column} className={emphasized(domain, f.column) ? "key" : undefined}>
-                  <th>{f.column}</th>
+                  <th title={f.semantic_type ?? ""}>{f.column}</th>
                   <td>{f.value ?? <span className="null">—</span>}</td>
-                  <td className="dim small">{f.semantic_type ?? ""}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </section>
-        <section className="neighbors" aria-label="近隣">
           {it.links.length > 0 && (
-            <div className="links">
-              <h2>→ 参照先</h2>
-              <ul>
+            <>
+              <div className="eyebrow">参照先</div>
+              <ul className="refs">
                 {it.links.map((l) => (
                   <li key={l.relation}>
                     <span className="dim">{linkTitle(l)}</span>
@@ -346,13 +397,8 @@ export function InstancePane({ ontologyId, domain, instanceKey, known, color, on
                   </li>
                 ))}
               </ul>
-            </div>
+            </>
           )}
-          {groups.map((g) => (
-            <GroupPanel key={groupKey(g)} group={g} target={known.get(g.table)}
-                        color={color(g.table)} onOpen={open} onList={onList(g)} siblings={it.related} />
-          ))}
-          {it.links.length === 0 && it.related.length === 0 && <p className="dim">近隣は無い</p>}
           {it.omitted.length > 0 && (
             <details className="omitted">
               <summary className="dim">たどらなかった関係 {it.omitted.length}</summary>
@@ -361,7 +407,7 @@ export function InstancePane({ ontologyId, domain, instanceKey, known, color, on
               ))}</ul>
             </details>
           )}
-        </section>
+        </aside>
       </div>
     </article>
   );

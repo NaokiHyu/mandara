@@ -1,6 +1,6 @@
 // ドメインビューワの純粋な部分の性質：たどった道は同じ場所に戻ると切れ、長さは上限まで。
 import { describe, expect, it } from "vitest";
-import { emphasized, extendTrail, groupKey, linkTexts, type Place, relatedTitle, rowKey, samePlace, TRAIL_LIMIT } from "./domain";
+import { emphasized, extendTrail, groupKey, kpisOf, linkTexts, type Place, relatedTitle, rowKey, samePlace, TRAIL_LIMIT } from "./domain";
 
 const p = (table: string, key: string[] | null = null): Place => ({ table, key });
 
@@ -70,5 +70,19 @@ describe("within", () => {
     expect(samePlace(mine, yours)).toBe(false);
     expect(samePlace(mine, { ...mine })).toBe(true);
     expect(extendTrail([all, mine], yours)).toEqual([all, mine, yours]);
+  });
+});
+
+describe("kpisOf", () => {
+  const group = (name: string, count: number, measures?: unknown[]) => ({
+    kind: "children", relation: `rel_${name}`, relation_type: "has", table: `t_${name}`, name: `s.${name}`, columns: ["x"],
+    rows: [], truncated: false, view: "summary", count, ...(measures === undefined ? {} : { measures }) });
+  it("先頭から上限まで、件数はそのまま、合計の尺度は1つ目だけ（平均は使わない）", () => {
+    const groups = [group("a", 10, [{ column: "q", op: "avg", value: "2" }, { column: "amt", op: "sum", value: "99", unit_text: "USD" }]),
+                    group("b", 3), group("c", 1), group("d", 7), group("e", 5)];
+    const k = kpisOf(groups as never, 4);
+    expect(k.map((x) => [x.label, x.count])).toEqual([["a", 10], ["b", 3], ["c", 1], ["d", 7]]);
+    expect(k[0]?.measure).toEqual({ column: "amt", value: "99", unit: "USD" });
+    expect(k[1]?.measure).toBeUndefined();
   });
 });
