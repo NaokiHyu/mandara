@@ -57,14 +57,16 @@ export function periodBars(rows: readonly InstanceSummary[], from: string, to: s
 const CURRENCIES = new Set(["USD", "JPY"]);
 
 /** 尺度の値の表示：通貨は通貨の書式（$16,084,942.55）、ほかは桁区切り（小数は 4 桁まで）。数として読めなければそのまま。 */
-export function amountText(value: string | undefined, unit: string | undefined): string {
+export function amountText(value: string | undefined, unit: string | undefined, compact = false): string {
   if (value === undefined) return "—";
   const n = Number(value);
   if (!Number.isFinite(n)) return value;
+  // compact：狭い場所向けに有効数字3桁の短い表記（$16.1M）。正確な値は呼ぶ側が title などで出す
+  const short: Intl.NumberFormatOptions = compact ? { notation: "compact", maximumSignificantDigits: 3 } : {};
   if (unit !== undefined && CURRENCIES.has(unit)) {
-    return new Intl.NumberFormat("en-US", { style: "currency", currency: unit }).format(n);
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: unit, ...short }).format(n);
   }
-  const text = new Intl.NumberFormat("en-US", { maximumFractionDigits: 4 }).format(n);
+  const text = new Intl.NumberFormat("en-US", compact ? short : { maximumFractionDigits: 4 }).format(n);
   return unit === undefined ? text : `${text} ${unit}`;
 }
 
@@ -91,17 +93,6 @@ export function trend(points: readonly SeriesPoint[]): { last: SeriesPoint; prev
   const previous = points[points.length - 2];
   if (previous === undefined || previous.count === 0) return { last, previous };
   return { last, previous, ratio: (last.count - previous.count) / previous.count };
-}
-
-/** 目盛り：0 から最大までを、切りのよい刻み（1・2・5 × 10^n）で 3〜5 本に分ける。 */
-export function ticks(max: number): number[] {
-  if (max <= 0) return [0];
-  const raw = max / 4;
-  const power = 10 ** Math.floor(Math.log10(raw));
-  const step = [1, 2, 5, 10].map((m) => m * power).find((s) => s >= raw) ?? raw;
-  const out: number[] = [];
-  for (let v = 0; v <= max + 1e-9; v += step) out.push(Math.round(v * 1e6) / 1e6);
-  return out;
 }
 
 /** 区切りの見出し（月なら 2024-05、年なら 2024、日ならそのまま）。 */

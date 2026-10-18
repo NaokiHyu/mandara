@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bucketLabel, measureText, partialBucket, periodBars, seriesLine, ticks, trend } from "./groupview";
+import { amountText, bucketLabel, measureText, partialBucket, periodBars, seriesLine, trend } from "./groupview";
 import { LabelSource, MeasureOp, type InstanceSummary } from "./om/model";
 
 const chart = { width: 100, height: 10 };
@@ -46,6 +46,15 @@ describe("periodBars", () => {
   });
 });
 
+describe("amountText", () => {
+  it("compact は有効数字3桁の短い表記。通貨も同じ", () => {
+    expect(amountText("16084942.55", "USD", true)).toBe("$16.1M");
+    expect(amountText("470647.18", undefined, true)).toBe("471K");
+    expect(amountText("12", "each", true)).toBe("12 each");
+    expect(amountText("16084942.55", "USD")).toBe("$16,084,942.55");
+  });
+});
+
 describe("measureText", () => {
   it("合計・平均と単位", () => {
     expect(measureText({ column: "qty", op: MeasureOp.sum, value: "26", unit_text: "each" })).toBe("qty 合計 26 each");
@@ -56,16 +65,11 @@ describe("measureText", () => {
   });
 });
 
-describe("trend / ticks / bucketLabel / partialBucket", () => {
+describe("trend / bucketLabel / partialBucket", () => {
   it("最後と一つ前の区切りの増減。前が 0 なら率は無し", () => {
     expect(trend([point("2024-01-01", 10), point("2024-02-01", 15)])?.ratio).toBeCloseTo(0.5);
     expect(trend([point("2024-01-01", 0), point("2024-02-01", 5)])?.ratio).toBeUndefined();
     expect(trend([])).toBeNull();
-  });
-  it("目盛りは 0 から最大を覆う、切りのよい刻み", () => {
-    expect(ticks(20)).toEqual([0, 5, 10, 15, 20]);
-    expect(ticks(358)).toEqual([0, 100, 200, 300]);
-    expect(ticks(0)).toEqual([0]);
   });
   it("区切りの見出し", () => {
     expect(bucketLabel("2024-05-01", "month")).toBe("2024-05");

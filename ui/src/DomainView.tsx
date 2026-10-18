@@ -272,13 +272,13 @@ function InstancePane({ ontologyId, domain, instanceKey, known, color, onOpen }:
   if (shown.state === "error") return <ErrorText error={shown.error} />;
   const it = shown.value;
   const open = (s: InstanceSummary) => onOpen({ table: s.table, key: s.key });
-  // 時系列のまとまりは全幅で上に（線グラフは幅があるほど読める）。ほかは右の列に
-  const hero = it.related.filter((g) => g.view === GroupView.time_series);
   // 「一覧 →」：1:n の子は、このインスタンスで絞った集合（部分集合）を開く。n:m はまだ絞れない（ドメイン全体を開く）
   const listOf = (g: RelatedGroup): Place => g.kind === RelatedKind.children
     ? { table: g.table, key: null, within: { table: it.table, key: it.key, relation: g.relation } }
     : { table: g.table, key: null };
-  const rest = it.related.filter((g) => g.view !== GroupView.time_series);
+  // 時系列のまとまりを近隣の列の先頭に（詰めた形なので列の幅で読める）。ほかは API の順のまま
+  const groups = [...it.related.filter((g) => g.view === GroupView.time_series),
+                  ...it.related.filter((g) => g.view !== GroupView.time_series)];
   return (
     <article className="instance" aria-label="インスタンス">
       <header className="domain-head">
@@ -288,14 +288,6 @@ function InstancePane({ ontologyId, domain, instanceKey, known, color, onOpen }:
                 onClick={() => onOpen({ table: domain.table, key: null })}>{shortName(it.name)}</button>
         <span className="key">#{it.key.join("·")}</span>
       </header>
-      {hero.length > 0 && (
-        <section className="hero neighbors" aria-label="時系列">
-          {hero.map((g) => (
-            <GroupPanel key={groupKey(g)} group={g} target={known.get(g.table)}
-                        color={color(g.table)} onOpen={open} onList={() => onOpen(listOf(g))} />
-          ))}
-        </section>
-      )}
       <div className="instance-body">
         <section className="fields" aria-label="値">
           <table className="grid">
@@ -338,7 +330,7 @@ function InstancePane({ ontologyId, domain, instanceKey, known, color, onOpen }:
               </ul>
             </div>
           )}
-          {rest.map((g) => (
+          {groups.map((g) => (
             <GroupPanel key={groupKey(g)} group={g} target={known.get(g.table)}
                         color={color(g.table)} onOpen={open} onList={() => onOpen(listOf(g))} />
           ))}

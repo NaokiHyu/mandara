@@ -268,13 +268,6 @@ button.chip { display: inline-flex; align-items: center; gap: var(--gap-small); 
 .totals .breakdown { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--gap-small); }
 .chip-static { border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 0 var(--gap-small); font-size: var(--size-small); }
 .chip-static b { color: var(--text-key); font-weight: 600; margin-left: 2px; }
-.series { margin: var(--gap) 0; }
-.series svg { width: 100%; height: 88px; display: block; }
-.series .axis { stroke: var(--line-strong); stroke-width: 1; }
-.series .line { fill: none; stroke-width: 1.6; vector-effect: non-scaling-stroke; }
-.series .line.second { stroke: var(--text-dim); stroke-dasharray: 3 3; stroke-width: 1.2; }
-.series figcaption { display: flex; justify-content: space-between; gap: var(--gap); flex-wrap: wrap; }
-.series .second-legend { color: var(--text-dim); }
 .rows-caption { margin: var(--gap-small) 0 0; }
 .timeline ul li { display: grid; grid-template-columns: minmax(120px, 34%) 1fr; align-items: center; gap: var(--gap); }
 .timeline-scale { display: flex; justify-content: space-between; margin-left: calc(34% + var(--gap)); }
@@ -282,40 +275,49 @@ button.chip { display: inline-flex; align-items: center; gap: var(--gap-small); 
 .timeline .period-bar { position: absolute; top: 0; bottom: 0; border-radius: 2px; opacity: 0.85; }
 .timeline .period-bar.open { border-right: 2px solid var(--text-key); }
 
-/* 時系列（GroupPanel の Series） */
-.kpis { display: flex; gap: calc(var(--gap) * 3); margin: var(--gap) 0 var(--gap-small); flex-wrap: wrap; }
-.kpi { display: flex; align-items: baseline; gap: var(--gap-small); }
-.kpi-label { color: var(--text-dim); font-size: var(--size-small); letter-spacing: 0.04em; margin-right: 2px; }
-.kpi-value { color: var(--text-key); font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
-.kpi-unit { color: var(--text-dim); font-size: var(--size-small); }
-.kpi-delta { font-size: var(--size-small); font-weight: 600; }
+/* 時系列（GroupPanel の Series）：詰めた形。数字の帯1行 + 高さ 40px の面グラフ + 端の日付1行 */
+.series { margin: 2px 0 0; }
+.kpis { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px calc(var(--gap) * 1.5); margin-bottom: 2px;
+        font-variant-numeric: tabular-nums; }
+.kpi { display: inline-flex; align-items: baseline; gap: 3px; white-space: nowrap; }
+.kpi b { color: var(--text-key); font-size: 13px; font-weight: 700; letter-spacing: -0.01em; }
+.kpi i { font-style: normal; color: var(--text-dim); font-size: 10px; letter-spacing: 0.02em; }
+.kpi-delta { font-size: 10px; font-weight: 600; }
 .kpi-delta.up { color: var(--ok); }
 .kpi-delta.down { color: var(--bad); }
 .chart-box { position: relative; width: 100%; }
-.series svg { display: block; overflow: visible; height: auto; }
-.series .grid { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 4; }
-.series .axis { stroke: var(--line-strong); }
-.series .tick { fill: var(--text-dim); font-size: 10px; font-family: var(--font); }
-.series .line { stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.08)); }
+.series svg { display: block; overflow: visible; cursor: crosshair; }
+.series .grid { stroke: var(--line); stroke-width: 1; stroke-dasharray: 1 3; }
+.series .axis { stroke: var(--line-strong); stroke-width: 1; }
+.series .tick { fill: var(--text-dim); font-size: 9px; font-family: var(--font); font-variant-numeric: tabular-nums; }
+.series .line { fill: none; stroke-width: 1.4; stroke-linejoin: round; stroke-linecap: round;
+                filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.12)); }
+.series .line.second { stroke: var(--text-dim); stroke-dasharray: 2 2; stroke-width: 1; filter: none; opacity: 0.8; }
 .series .pulse { opacity: 0.25; animation: pulse 1.8s ease-out infinite; transform-box: fill-box; transform-origin: center; }
-@keyframes pulse { 0% { transform: scale(0.6); opacity: 0.45; } 100% { transform: scale(1.8); opacity: 0; } }
-.series .hover line { stroke: var(--text-dim); stroke-dasharray: 3 3; }
-.series .hover circle { fill: var(--bg); stroke-width: 2; }
-.series .tooltip { position: absolute; top: 4px; transform: translateX(-50%); pointer-events: none; display: flex; gap: var(--gap);
-                   background: var(--panel-raised); border: 1px solid var(--line-strong); border-radius: var(--radius);
-                   padding: 2px var(--gap); font-size: var(--size-small); white-space: nowrap; }
+@keyframes pulse { 0% { transform: scale(0.6); opacity: 0.5; } 100% { transform: scale(2); opacity: 0; } }
+.series .hover line { stroke: var(--text-dim); stroke-dasharray: 2 2; }
+.series .hover circle { fill: var(--bg); stroke-width: 1.5; }
+.series .tooltip { position: absolute; top: -2px; transform: translate(-50%, -100%); pointer-events: none; display: flex;
+                   gap: var(--gap); background: var(--panel-raised); border: 1px solid var(--line-strong);
+                   border-radius: var(--radius); padding: 0 var(--gap-small); font-size: 10px; white-space: nowrap; z-index: 2; }
 .series .tooltip b { color: var(--text-key); }
-.series figcaption { display: flex; gap: calc(var(--gap) * 2); flex-wrap: wrap; margin-top: var(--gap-small); }
-.swatch-line { display: inline-block; width: 14px; height: 2px; vertical-align: middle; margin-right: 4px; }
-.swatch-line.dashed { background: repeating-linear-gradient(90deg, var(--text-dim) 0 3px, transparent 3px 6px); }
+.series figcaption { display: flex; justify-content: space-between; gap: var(--gap); margin-right: 30px;
+                     font-size: 9px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.series .legend-mini { display: flex; gap: var(--gap); overflow: hidden; white-space: nowrap; }
+.swatch-line { display: inline-block; width: 10px; height: 2px; vertical-align: middle; margin-right: 3px; }
+.swatch-line.dashed { background: repeating-linear-gradient(90deg, var(--text-dim) 0 2px, transparent 2px 4px); }
 @media (prefers-reduced-motion: reduce) { .series .pulse { animation: none; } }
-.hero { display: flex; flex-direction: column; gap: calc(var(--gap) * 2); }
-.hero .group { padding: calc(var(--gap) * 1.5) calc(var(--gap) * 2); background:
-  linear-gradient(180deg, var(--panel-raised) 0%, var(--panel) 100%); }
-.hero .group h2 { font-size: var(--size); }
-.hero .kpi-value { font-size: 28px; }
-.hero { margin-top: var(--gap); }
-.hero .group > ul { columns: 2; column-gap: calc(var(--gap) * 4); }
+.row-chips { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--gap-small); margin: 3px 0 0;
+             font-size: 10px; }
+.row-chip { border: 1px solid var(--line); background: none; padding: 0 4px; line-height: 1.4; cursor: pointer;
+            font-size: 10px; }
+.row-chip:hover { border-color: var(--accent); }
+.view-time_series.group { background: linear-gradient(180deg, var(--panel-raised) 0%, var(--panel) 100%); }
+.collection-profile { padding: var(--gap-small) var(--gap); }
+.view-time_series .totals p { margin: 0; font-size: 10px; line-height: 1.5; }
+.view-time_series .totals { display: flex; flex-wrap: wrap; column-gap: var(--gap); }
+.view-time_series .totals .measures { gap: 0 var(--gap); }
 .count-badge { margin-right: auto; }
-.collection-profile { margin: var(--gap) 0; }
+.collection-profile { margin: var(--gap) 0; max-width: 720px; }
 button.chip.within { font-size: 14px; padding: 2px var(--gap); }
+.instance-body { margin-top: var(--gap); }

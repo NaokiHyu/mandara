@@ -2,11 +2,12 @@
 // 一覧 / 集計の頭出し / 時系列の線グラフ / 期間の帯。どの見せ方でも、件数・集計・最新の日・行への入り口を出す。
 import { groupKey, relatedTitle } from "./domain";
 import { useEffect, useRef, useState } from "react";
-import { amountText, bucketLabel, measureText, partialBucket, periodBars, seriesLine, ticks, trend } from "./groupview";
-import { GroupView, type DomainSummary, type GroupProfile, type InstanceSummary, type RelatedGroup } from "./om/model";
+import { amountText, bucketLabel, measureText, partialBucket, periodBars, seriesLine, trend } from "./groupview";
+import { GroupView, MeasureOp, type DomainSummary, type GroupProfile, type InstanceSummary, type RelatedGroup } from "./om/model";
 import { DomainIcon, Label } from "./parts";
 
 const count = new Intl.NumberFormat("en-US");
+const compact = new Intl.NumberFormat("en-US", { notation: "compact", maximumSignificantDigits: 3 });
 
 /** 集合の見せ方と集計（契約の GroupProfile。近隣の集まり RelatedGroup と、ドメインの集合 DomainRows が持つ）と、その行。 */
 export type Profiled = GroupProfile & Pick<RelatedGroup, "rows" | "truncated">;
@@ -44,10 +45,12 @@ export function GroupPanel({ group: g, target, color, onOpen, onList }: {
 
 /** 集計の頭出し：尺度の集計、最新の日（今日でなければ基準日を明示）、enum の内訳、集計しなかった尺度。 */
 export function Totals({ group: g }: { group: Profiled }) {
+  // 時系列では合計は数字の帯に出るので、ここには合計以外（平均など）だけ
+  const measures = (g.measures ?? []).filter((m) => g.view !== GroupView.time_series || m.op !== MeasureOp.sum);
   return (
     <div className="totals">
-      {(g.measures ?? []).length > 0 && (
-        <p className="measures">{(g.measures ?? []).map((m) => <span key={m.column}>{measureText(m)}</span>)}</p>
+      {measures.length > 0 && (
+        <p className="measures">{measures.map((m) => <span key={m.column}>{measureText(m)}</span>)}</p>
       )}
       {g.latest !== undefined && (g.view !== GroupView.time_series || (g.latest.measures ?? []).length > 0
                                    || (g.latest.snapshot ?? []).length > 0) && ( // 時系列では件数は数字の帯に出る
@@ -83,8 +86,9 @@ export function Totals({ group: g }: { group: Profiled }) {
   );
 }
 
-/** 時系列：件数の面グラフ（カテゴリの色のグラデーション）、合計できる尺度の1つ目を点線で別の目盛りに重ねる。
- *  幅は枠に合わせて描き直す（伸び縮みで線が歪まない）。ホバーで十字線とその区切りの値。最新の区切りを強調し、前の区切りとの増減を出す。 */
+/** 時系列（詰めた形）：数字の帯1行と、高さ 40px の件数の面グラフ（カテゴリの色のグラデーション）。合計できる尺度の1つ目を点線で
+ *  別の目盛りに重ねる。幅は枠に合わせて描き直す（伸び縮みで線が歪まない）。ホバーで十字線とその区切りの値。最新の区切りを強調し、
+ *  前の区切りとの増減を出す。金額は短い表記（$16.1M）で、正確な値は title に出す。 */
 export function Series({ group: g, color, chartId }: { group: Profiled; color: string; chartId: string }) {
   const points = g.series ?? [];
   const box = useRef<HTMLDivElement>(null);
@@ -98,8 +102,8 @@ export function Series({ group: g, color, chartId }: { group: Profiled; color: s
     return () => observer.disconnect();
   }, []);
   if (points.length === 0) return <p className="dim small">時系列の点が無い</p>;
-  const pad = { left: 4, right: 44, top: 14, bottom: 22 };
-  const chart = { width: Math.max(0, width - pad.left - pad.right), height: 132 };
+  const pad = { left: 0, right: 30, top: 4, bottom: 2 };
+  const chart = { width: Math.max(0, width - pad.left - pad.right), height: 38 };
   const counts = seriesLine(points, (p) => p.count, chart);
   const measure = (g.series_measures ?? [])[0];
   const sums = measure === undefined ? null : seriesLine(points, (p) => p.sums[0]?.value, chart);
@@ -109,7 +113,7 @@ export function Series({ group: g, color, chartId }: { group: Profiled; color: s
     `${line(path)} L${path[path.length - 1]?.[0].toFixed(1)},${chart.height} L${path[0]?.[0].toFixed(1)},${chart.height} Z`).join(" ");
   const last = flat[flat.length - 1];
   const t = trend(points);
-  const headline = (g.measures ?? []).find((m) => m.op === "sum" && m.column === measure);
+  const sumsShown = (g.measures ?? []).filter((m) => m.op === MeasureOp.sum);
   const measureUnit = (g.measures ?? []).find((m) => m.column === measure)?.unit_text;
   const partial = t !== null && partialBucket(t.last.start, g.series_unit, g.latest?.day);
   const gradient = `grad-${chartId}`.replace(/[^a-zA-Z0-9_-]/g, "_");
@@ -120,73 +124,62 @@ export function Series({ group: g, color, chartId }: { group: Profiled; color: s
   };
   const shown = hover === null ? null : points[hover];
   const hx = hover === null ? 0 : flat[hover]?.[0] ?? 0;
+  const per = unitName(g.series_unit);
   return (
     <figure className="series">
       <div className="kpis">
-        <div className="kpi"><span className="kpi-label">合計</span><span className="kpi-value">{count.format(g.count)}</span>
-          <span className="kpi-unit">件</span></div>
+        <span className="kpi" title="件数の合計"><b>{count.format(g.count)}</b><i>件</i></span>
         {t !== null && (
-          <div className="kpi">
-            <span className="kpi-label">最新の{unitName(g.series_unit)} {bucketLabel(t.last.start, g.series_unit)}</span>
-            <span className="kpi-value" style={{ color: `var(${color})` }}>{count.format(t.last.count)}</span>
-            {partial && <span className="kpi-unit" title={`最新の日 ${g.latest?.day ?? ""} までの途中の値。前の区切りとは比べない`}>
-              途中（〜{g.latest?.day.slice(5)}）</span>}
+          <span className="kpi" title={`最新の${per}（${g.time_column ?? ""}）`}>
+            <i>{bucketLabel(t.last.start, g.series_unit)}</i>
+            <b style={{ color: `var(${color})` }}>{count.format(t.last.count)}</b>
+            {partial && <i title={`最新の日 ${g.latest?.day ?? ""} までの途中の値。前の区切りとは比べない`}>途中〜{g.latest?.day.slice(5)}</i>}
             {!partial && t.ratio !== undefined && (
               <span className={`kpi-delta ${t.ratio >= 0 ? "up" : "down"}`}>
-                {t.ratio >= 0 ? "▲" : "▼"} {Math.abs(t.ratio * 100).toFixed(0)}%
+                {t.ratio >= 0 ? "▲" : "▼"}{Math.abs(t.ratio * 100).toFixed(0)}%
               </span>
             )}
-          </div>
+          </span>
         )}
-        <div className="kpi"><span className="kpi-label">ピーク</span><span className="kpi-value">{count.format(counts.max)}</span>
-          <span className="kpi-unit">件 / {unitName(g.series_unit)}</span></div>
-        {headline !== undefined && (
-          <div className="kpi"><span className="kpi-label">{headline.column} 合計</span>
-            <span className="kpi-value">{amountText(headline.value, headline.unit_text)}</span></div>
-        )}
+        <span className="kpi" title={`${per}あたりの件数の最大`}><i>peak</i><b>{count.format(counts.max)}</b><i>/{per}</i></span>
+        {sumsShown.map((m) => (
+          <span key={m.column} className="kpi" title={measureText(m)}>
+            <i>Σ{m.column}</i><b>{amountText(m.value, m.unit_text, true)}</b>
+          </span>
+        ))}
       </div>
       <div ref={box} className="chart-box">
         {width > 0 && (
           <svg width={width} height={chart.height + pad.top + pad.bottom} role="img"
-               aria-label={`${g.time_column ?? ""} の${unitName(g.series_unit)}ごとの件数`}
+               aria-label={`${g.time_column ?? ""} の${per}ごとの件数`}
                onMouseMove={(e) => at(e.clientX, e.currentTarget)} onMouseLeave={() => setHover(null)}>
             <defs>
               <linearGradient id={gradient} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" style={{ stopColor: `var(${color})`, stopOpacity: 0.45 }} />
-                <stop offset="100%" style={{ stopColor: `var(${color})`, stopOpacity: 0 }} />
+                <stop offset="0%" style={{ stopColor: `var(${color})`, stopOpacity: 0.5 }} />
+                <stop offset="100%" style={{ stopColor: `var(${color})`, stopOpacity: 0.02 }} />
               </linearGradient>
             </defs>
             <g transform={`translate(${pad.left},${pad.top})`}>
-              {ticks(counts.max).map((v) => {
-                const y = counts.max === 0 ? chart.height : chart.height - (v / counts.max) * chart.height;
-                return (
-                  <g key={v}>
-                    <line x1={0} x2={chart.width} y1={y} y2={y} className={v === 0 ? "axis" : "grid"} />
-                    <text x={chart.width + 6} y={y + 3} className="tick">{count.format(v)}</text>
-                  </g>
-                );
-              })}
+              <line x1={0} x2={chart.width} y1={0} y2={0} className="grid" />
+              <line x1={0} x2={chart.width} y1={chart.height / 2} y2={chart.height / 2} className="grid" />
+              <line x1={0} x2={chart.width} y1={chart.height} y2={chart.height} className="axis" />
+              <text x={chart.width + 4} y={6} className="tick">{compact.format(counts.max)}</text>
+              <text x={chart.width + 4} y={chart.height} className="tick">0</text>
               <path d={area} fill={`url(#${gradient})`} />
               {sums !== null && <path d={sums.segments.map(line).join(" ")} className="line second" />}
               <path d={counts.segments.map(line).join(" ")} className="line" style={{ stroke: `var(${color})` }} />
               {last !== undefined && (
                 <>
-                  <circle cx={last[0]} cy={last[1]} r={7} className="pulse" style={{ fill: `var(${color})` }} />
-                  <circle cx={last[0]} cy={last[1]} r={3.2} style={{ fill: `var(${color})` }} />
+                  <circle cx={last[0]} cy={last[1]} r={5} className="pulse" style={{ fill: `var(${color})` }} />
+                  <circle cx={last[0]} cy={last[1]} r={2.2} style={{ fill: `var(${color})` }} />
                 </>
               )}
               {shown !== null && shown !== undefined && (
                 <g className="hover">
                   <line x1={hx} x2={hx} y1={0} y2={chart.height} />
-                  <circle cx={hx} cy={flat[hover ?? 0]?.[1] ?? 0} r={3.5} style={{ stroke: `var(${color})` }} />
+                  <circle cx={hx} cy={flat[hover ?? 0]?.[1] ?? 0} r={2.5} style={{ stroke: `var(${color})` }} />
                 </g>
               )}
-              {[0, Math.floor((points.length - 1) / 2), points.length - 1].filter((i, k, a) => a.indexOf(i) === k).map((i) => (
-                <text key={i} x={points.length > 1 ? i * step : chart.width / 2} y={chart.height + 15}
-                      className="tick" textAnchor={i === 0 ? "start" : i === points.length - 1 ? "end" : "middle"}>
-                  {bucketLabel(points[i]?.start ?? "", g.series_unit)}
-                </text>
-              ))}
             </g>
           </svg>
         )}
@@ -199,9 +192,14 @@ export function Series({ group: g, color, chartId }: { group: Profiled; color: s
           </div>
         )}
       </div>
-      <figcaption className="dim small">
-        <span><span className="swatch-line" style={{ background: `var(${color})` }} /> 件数（{unitName(g.series_unit)}ごと、{g.time_column}）</span>
-        {sums !== null && <span><span className="swatch-line dashed" /> {measure} の合計（別の目盛り。最大 {amountText(String(sums.max), measureUnit)}）</span>}
+      <figcaption>
+        <span>{bucketLabel(points[0]?.start ?? "", g.series_unit)}</span>
+        <span className="legend-mini">
+          <span><span className="swatch-line" style={{ background: `var(${color})` }} />件/{per} · {g.time_column}</span>
+          {sums !== null && <span title={`別の目盛り。最大 ${amountText(String(sums.max), measureUnit)}`}>
+            <span className="swatch-line dashed" />{measure}</span>}
+        </span>
+        <span>{bucketLabel(points[points.length - 1]?.start ?? "", g.series_unit)}</span>
       </figcaption>
     </figure>
   );
@@ -245,6 +243,19 @@ export function Timeline({ group: g, color, onOpen, note }: {
 }
 
 function Rows({ group: g, onOpen }: { group: RelatedGroup; onOpen: (r: InstanceSummary) => void }) {
+  if (g.view === GroupView.time_series) { // 時系列ではグラフが主役。新しい行は見出しだけを1行に並べ、値は title に
+    return (
+      <p className="row-chips">
+        <span className="dim">新しい {g.rows.length}</span>
+        {g.rows.map((r, i) => (
+          <button key={`${r.key.join("/")}#${i}`} className="row-chip" onClick={() => onOpen(r)}
+                  title={r.cells.filter((c) => c.value !== undefined).map((c) => `${c.column} ${c.value ?? ""}`).join("\n")}>
+            <Label summary={r} />
+          </button>
+        ))}
+      </p>
+    );
+  }
   const caption = g.view === GroupView.list ? null
     : g.time_column !== undefined ? `新しい ${g.rows.length} 件` : `先頭 ${g.rows.length} 件`;
   return (
