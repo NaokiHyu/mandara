@@ -464,7 +464,12 @@ def _refine_line(out: TextIO, style: _Style, refined: pipeline.Refined, inferenc
             print(style.dim(f"            {c}"), file=out)
     if failures := sum(len(o.stage_failures) for o in refined.outcomes):
         print(f"            {style.bad(f'{failures} stage failures')}  (the items of those stages were dropped)", file=out)
+    if views := [o.table for o in refined.outcomes if o.status == "not_asked"]:
+        print(style.dim(f"            not_asked {len(views)} 表：導出された表（ビュー）は問わない（T4.1 で導出を読むまで）"),
+              file=out)
     for o in refined.outcomes:
+        if o.status == "not_asked":
+            continue
         if o.status != "refined" or o.stage_failures:
             print(style.dim(f"            {o.status:<7} {o.table}  {o.detail or (o.dropped[0].reason if o.dropped else '')}"),
                   file=out)

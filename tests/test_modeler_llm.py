@@ -822,3 +822,15 @@ def test_same_meaning_is_asked_after_classifying_and_gives_the_type_to_the_other
     column = (table.columns or {})["rowguid"]
     assert column.semantic_type == "row_guid" and {c.id for c in pair} <= set(column.evidence or [])
     assert column.inferred_by == "modeler-same-meaning 0.1 (fakejev)" and column.confidence == pytest.approx(0.7)
+
+
+def test_views_are_not_asked_and_say_so(workspace: Workspace) -> None:
+    """導出された表（ビュー）は判断モデルにも LLM にも問わない。記録には not_asked と理由が残る（T4.1 で導出を読むまで）。"""
+    decider, model = ScriptedDecider({}), ScriptedModel({})
+    view = "humanresources.vemployee"
+    refined = _refine(workspace, model, decider, [view])
+    outcome = next(o for o in refined.outcomes if o.table == view)
+    assert outcome.status == "not_asked" and "ビュー" in outcome.detail
+    assert not any(view in p for p in decider.asked) and not any(view in p for p in model.asked)
+    views = {t.name for t in load_ontology(workspace.ontology).tables if t.derived}
+    assert {o.table for o in refined.outcomes if o.status == "not_asked"} == views

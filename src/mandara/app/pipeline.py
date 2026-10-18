@@ -387,7 +387,8 @@ class TableOutcome:
     table: str
     status: str
     """"refined"（1つ以上当たった）/ "nothing_applied"（答えは得たが、当たる項目が無かった）/
-    "kept"（当てると検証を通らないので v0 のまま）/ "failed"（答えを得られなかった）。"""
+    "kept"（当てると検証を通らないので v0 のまま）/ "failed"（答えを得られなかった）/
+    "not_asked"（導出された表＝ビュー。問わない。導出を読む T4.1 まで）。"""
     detail: str
     applied: tuple[str, ...]
     dropped: tuple[llm_modeler.Dropped, ...]
@@ -524,6 +525,10 @@ def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, f
     stopped: str | None = None
     defects = (meaning.InconsistentGroupError, meaning.PropagationError)
     for i, table in enumerate(order):
+        if table.derived:  # ビューは問わない（2026-10-19、ユーザーと合意。元の表の列の写しで、導出は T4.1 で読む）
+            outcomes.append(TableOutcome(table.name, "not_asked", "導出された表（ビュー）。導出を読むまで（T4.1）問わない",
+                                         (), ()))
+            continue
         table_claims = joins_modeler.claims_for(table, by_table.get(table.name, []))
         try:
             hints = llm_modeler.meaning_hints(ontology, table, groups)
