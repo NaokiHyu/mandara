@@ -2,7 +2,7 @@
 // relation の表は出さずにリンクとしてたどる。値はソースをその場で読む（ゼロコピー）。読めなかったら理由をそのまま見せる。
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, getDomainRows, getDomains, getInstance } from "./api";
-import { emphasized, extendTrail, groupKey, linkTitle, type Place, samePlace, type Within } from "./domain";
+import { emphasized, extendTrail, groupKey, linkTexts, linkTitle, type Place, rowKey, samePlace, type Within } from "./domain";
 import { GroupPanel, Links, Series, Timeline, Totals } from "./GroupPanel";
 import { DomainIcon, Label } from "./parts";
 import { contextColor, shortName } from "./graph";
@@ -166,6 +166,7 @@ function Collection({ ontologyId, domain, within, known, color, onOpen }: {
     }, query === "" ? 0 : SEARCH_DELAY_MS);
     return () => { live = false; clearTimeout(timer); };
   }, [ontologyId, domain.table, query, within]);
+  const linked = linkTexts(rows.state === "ok" ? rows.value.links : undefined);  // n:m で絞ったとき、つながりの値を行に添える
 
   return (
     <article className="collection" aria-label="ドメイン">
@@ -230,7 +231,8 @@ function Collection({ ontologyId, domain, within, known, color, onOpen }: {
                 <tr key={r.key.join("/")} onClick={() => onOpen({ table: r.table, key: r.key })} tabIndex={0}
                     onKeyDown={(e) => { if (e.key === "Enter") onOpen({ table: r.table, key: r.key }); }}>
                   <td className="key">{r.key.join("·")}</td>
-                  <td><Label summary={r} /></td>
+                  <td><Label summary={r} />
+                    {linked.has(rowKey(r.key)) && <span className="link-cells"> {linked.get(rowKey(r.key))}</span>}</td>
                   {r.cells.map((c) => <td key={c.column} className={emphasized(domain, c.column) ? "key" : undefined}>
                     {c.value ?? <span className="null">—</span>}</td>)}
                 </tr>
@@ -342,7 +344,7 @@ function InstancePane({ ontologyId, domain, instanceKey, known, color, onOpen }:
           )}
           {groups.map((g) => (
             <GroupPanel key={groupKey(g)} group={g} target={known.get(g.table)}
-                        color={color(g.table)} onOpen={open} onList={onList(g)} />
+                        color={color(g.table)} onOpen={open} onList={onList(g)} siblings={it.related} />
           ))}
           {it.links.length === 0 && it.related.length === 0 && <p className="dim">近隣は無い</p>}
           {it.omitted.length > 0 && (

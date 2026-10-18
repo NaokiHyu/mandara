@@ -1,5 +1,5 @@
 // ドメインビューワの純粋な部分：たどった道（パンくず）と、近隣の集まりの見出し。
-import { type DomainSummary, type InstanceLink, type RelatedGroup, RelatedKind } from "./om/model";
+import { type DomainSummary, type InstanceLink, type LinkGroup, type RelatedGroup, RelatedKind } from "./om/model";
 import { shortName } from "./graph";
 
 /** 集合を絞る親のインスタンス（table の key の行）と、その親への関係。1:n なら relation は子の表から親への関係。
@@ -27,13 +27,15 @@ export function extendTrail(trail: readonly Place[], next: Place): Place[] {
   return [...kept, next].slice(-TRAIL_LIMIT);
 }
 
-/** 近隣の集まりの見出し：1:n なら「← 表 参照の列」、n:m なら「⇄ 表 こちらを指す列 から」。relation の表（中間の表）は見出しに
- *  出さない（ドメインのように見せない。つながりの段に控えめに出す）。こちらを指す列は、同じ relation の表を別の側から見た集まり
- *  （部品表の組立品と部品）を見分けるために出す。 */
-export function relatedTitle(group: RelatedGroup): { mark: string; name: string; detail: string } {
+/** 近隣の集まりの見出し：1:n なら「← 表 参照の列」、n:m なら「⇄ 表」。relation の表はリンクであって物ではないので、
+ *  ドメインビューワには出さない。ただし同じ relation の表を別の側から見た集まり（部品表の組立品と部品）が siblings にあれば、
+ *  見分けるために「こちらを指す列 から」を添える。 */
+export function relatedTitle(group: RelatedGroup, siblings: readonly RelatedGroup[] = []): { mark: string; name: string; detail: string } {
   if (group.kind === RelatedKind.via) {
+    const twin = siblings.some((s) => s.kind === RelatedKind.via && s.table === group.table
+      && s.via_table === group.via_table && s.via_relation !== group.via_relation);
     const from = (group.via_columns ?? []).join(", ");
-    return { mark: "⇄", name: shortName(group.name), detail: from === "" ? "" : `${from} から` };
+    return { mark: "⇄", name: shortName(group.name), detail: twin && from !== "" ? `${from} から` : "" };
   }
   return { mark: "←", name: shortName(group.name), detail: group.columns.join(", ") };
 }
@@ -53,4 +55,21 @@ export function emphasized(domain: Pick<DomainSummary, "key_columns" | "label_co
                            column: string): boolean {
   return domain.key_columns.includes(column) || domain.label_columns.includes(column)
     || domain.natural_keys.includes(column);
+}
+
+/** n:m のつながりの値（期間、数量など。relation の行の link_cells）を、つながる先の行（キー）ごとの1行の文字にする。
+ *  同じ先に2本以上つながっていれば「 / 」で並べる。値が NULL の列は出さない。つながりは先の行の属性として見せる。 */
+export function linkTexts(links: LinkGroup | undefined): Map<string, string> {
+  const texts = new Map<string, string[]>();
+  for (const r of links?.rows ?? []) {
+    const text = (r.link_cells ?? []).filter((c) => c.value !== undefined).map((c) => `${c.column} ${c.value ?? ""}`).join(" · ");
+    if (text === "") continue;
+    const k = r.key.join("\u0000");
+    texts.set(k, [...(texts.get(k) ?? []), text]);
+  }
+  return new Map([...texts].map(([k, v]) => [k, v.join(" / ")]));
+}
+
+export function rowKey(key: readonly string[]): string {
+  return key.join("\u0000");
 }

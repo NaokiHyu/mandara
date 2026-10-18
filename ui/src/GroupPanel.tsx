@@ -1,11 +1,10 @@
 // 近隣の集まり（1:n の子、relation を挟んだ n:m）。見せ方（GroupView）は API が OM と件数から決めたものに従う：
 // 一覧 / 集計の頭出し / 時系列の線グラフ / 期間の帯。どの見せ方でも、件数・集計・最新の日・行への入り口を出す。
-import { groupKey, relatedTitle } from "./domain";
+import { groupKey, linkTexts, relatedTitle, rowKey } from "./domain";
 import { useEffect, useRef, useState } from "react";
 import { amountText, bucketLabel, measureText, partialBucket, periodBars, seriesLine, trend } from "./groupview";
 import { GroupView, MeasureOp, type DomainSummary, type GroupProfile, type InstanceSummary, type LinkGroup,
          type RelatedGroup } from "./om/model";
-import { shortName } from "./graph";
 import { DomainIcon, Label } from "./parts";
 
 const count = new Intl.NumberFormat("en-US");
@@ -14,14 +13,17 @@ const compact = new Intl.NumberFormat("en-US", { notation: "compact", maximumSig
 /** 集合の見せ方と集計（契約の GroupProfile。近隣の集まり RelatedGroup と、ドメインの集合 DomainRows が持つ）と、その行。 */
 export type Profiled = GroupProfile & Pick<RelatedGroup, "rows" | "truncated">;
 
-export function GroupPanel({ group: g, target, color, onOpen, onList }: {
+export function GroupPanel({ group: g, siblings, target, color, onOpen, onList }: {
   group: RelatedGroup;
+  siblings: readonly RelatedGroup[];
   target: DomainSummary | undefined;
   color: string;
   onOpen: (r: InstanceSummary) => void;
   onList: (() => void) | null;
 }) {
-  const title = relatedTitle(g);
+  const title = relatedTitle(g, siblings);
+  // 先の行が少なく、つながりが期間の帯なら、帯が行の代わり（帯のラベルが先の行で、開ける）
+  const barsAsRows = g.view === GroupView.list && g.links?.view === GroupView.timeline;
   return (
     <div className={`group view-${g.view}`} style={{ borderLeftColor: `var(${color})` }}>
       <h2>
@@ -37,7 +39,7 @@ export function GroupPanel({ group: g, target, color, onOpen, onList }: {
       {g.view === GroupView.time_series && <Series group={g} color={color} chartId={groupKey(g)} />}
       {g.view !== GroupView.list && <Totals group={g} />}
       {g.view === GroupView.timeline && <Timeline group={g} color={color} onOpen={onOpen} />}
-      {g.view !== GroupView.timeline && <Rows group={g} onOpen={onOpen} />}
+      {g.view !== GroupView.timeline && !barsAsRows && <Rows group={g} onOpen={onOpen} linked={linkTexts(g.links)} />}
       {g.links !== undefined && <Links links={g.links} color={color} onOpen={onOpen} chartId={`${groupKey(g)}/links`} />}
     </div>
   );
@@ -242,28 +244,30 @@ export function Timeline({ group: g, color, onOpen, note }: {
   );
 }
 
-/** n:m のつながり（relation の行）：ドメインの属性のように、小さく控えめに。見せ方は同じ規則（期間の帯、時系列、集計、一覧）で、
- *  行は relation の行ごとの先とその属性（link_cells）。インスタンスの n:m の集まりと、n:m で絞った集合が同じこれを出す。 */
+/** n:m のつながり（relation の行）の見せ方。relation はリンクであって物ではないので、表の名前も件数も出さない。つながりの期間は
+ *  先の行ごとの帯（ラベルは先の行）、出来事なら時系列、ほかは集計だけ。値（数量など）は先の行の横に添える（linkTexts）。
+ *  インスタンスの n:m の集まりと、n:m で絞った集合が同じこれを出す。 */
 export function Links({ links: l, color, onOpen, chartId }: {
   links: LinkGroup; color: string; onOpen: (r: InstanceSummary) => void; chartId: string;
 }) {
   return (
     <div className="links-strip">
-      <p className="links-head">
-        <span>つながり</span> <span title={`relation の表 ${l.name}`}>{shortName(l.name)}</span>
-        <b>{count.format(l.count)}</b>
-        {l.missing > 0 && <span className="failure"> 先の行が無い {l.missing}</span>}
-        {l.unlinked > 0 && <span title="relation の行の、先を指す列が NULL"> 先が NULL {l.unlinked}</span>}
-      </p>
       {l.view === GroupView.time_series && <Series group={l} color={color} chartId={chartId} />}
-      {l.view !== GroupView.list && <Totals group={l} />}
+      {l.view === GroupView.summary && <Totals group={l} />}
       {l.view === GroupView.timeline && <Timeline group={l} color={color} onOpen={onOpen} />}
-      {l.view !== GroupView.timeline && <Rows group={l} onOpen={onOpen} />}
+      {(l.missing > 0 || l.unlinked > 0) && (
+        <p className="small">
+          {l.missing > 0 && <span className="failure">つながる先の行が無い {l.missing} </span>}
+          {l.unlinked > 0 && <span className="dim">先が NULL のつながり {l.unlinked}</span>}
+        </p>
+      )}
     </div>
   );
 }
 
-function Rows({ group: g, onOpen }: { group: Profiled; onOpen: (r: InstanceSummary) => void }) {
+function Rows({ group: g, onOpen, linked }: {
+  group: Profiled; onOpen: (r: InstanceSummary) => void; linked: Map<string, string>;
+}) {
   if (g.view === GroupView.time_series) { // 時系列ではグラフが主役。新しい行は見出しだけを1行に並べ、値は title に
     return (
       <p className="row-chips">
@@ -283,15 +287,11 @@ function Rows({ group: g, onOpen }: { group: Profiled; onOpen: (r: InstanceSumma
     <>
       {caption !== null && <p className="dim small rows-caption">{caption}</p>}
       <ul>
-        {g.rows.map((r, i) => ( // via の集まりは relation の行ごと（同じ先が2回出ることがある）ので位置も鍵にする
+        {g.rows.map((r, i) => (
           <li key={`${r.key.join("/")}#${i}`}>
             <button className="row-link" onClick={() => onOpen(r)}>
               <Label summary={r} />
-              {r.link_cells !== undefined && r.link_cells.length > 0 && (
-                <span className="link-cells" title="つながり（relation の行）の値。— は NULL">
-                  {r.link_cells.map((c) => `${c.column} ${c.value ?? "—"}`).join(" · ")}
-                </span>
-              )}
+              {linked.has(rowKey(r.key)) && <span className="link-cells">{linked.get(rowKey(r.key))}</span>}
               <span className="dim cells">
                 {r.cells.filter((c) => c.value !== undefined).slice(0, 3)
                   .map((c) => `${c.column} ${c.value ?? ""}`).join(" · ")}

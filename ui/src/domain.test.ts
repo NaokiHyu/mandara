@@ -1,6 +1,6 @@
 // ドメインビューワの純粋な部分の性質：たどった道は同じ場所に戻ると切れ、長さは上限まで。
 import { describe, expect, it } from "vitest";
-import { emphasized, extendTrail, groupKey, type Place, relatedTitle, samePlace, TRAIL_LIMIT } from "./domain";
+import { emphasized, extendTrail, groupKey, linkTexts, type Place, relatedTitle, rowKey, samePlace, TRAIL_LIMIT } from "./domain";
 
 const p = (table: string, key: string[] | null = null): Place => ({ table, key });
 
@@ -42,8 +42,22 @@ describe("groupKey / relatedTitle", () => {
     const a = { ...base, via_relation: "rel_assembly", via_columns: ["productassemblyid"] };
     const b = { ...base, via_relation: "rel_component", via_columns: ["componentid"] };
     expect(groupKey(a)).not.toBe(groupKey(b));
-    expect(relatedTitle(a).detail).toBe("productassemblyid から");  // relation の表の名前は、つながりの段に控えめに出す
-    expect(relatedTitle(b).detail).toBe("componentid から");
+    expect(relatedTitle(a, [a, b]).detail).toBe("productassemblyid から");  // 同じ表を2つの側から見るときだけ
+    expect(relatedTitle(b, [a, b]).detail).toBe("componentid から");
+    expect(relatedTitle(a, [a]).detail).toBe("");  // relation の表はリンク。名前も列も出さない
+    expect(JSON.stringify(relatedTitle(a, [a, b]))).not.toContain("billofmaterials");
+  });
+  it("つながりの値は先の行ごとにまとめ、2本なら並べる。NULL の列と空の行は出さない", () => {
+    const row = (key: string, cells: [string, string | undefined][]) => ({
+      table: "t", key: [key], label: key, label_source: "own", cells: [],
+      link_cells: cells.map(([column, value]) => ({ column, ...(value === undefined ? {} : { value }) })) });
+    const links = { table: "m", name: "m", rows: [row("1", [["startdate", "2020-01-01"], ["enddate", undefined]]),
+                    row("1", [["startdate", "2022-01-01"]]), row("2", [["enddate", undefined]])],
+                    truncated: false, missing: 0, unlinked: 0, view: "list", count: 3 };
+    const texts = linkTexts(links as never);
+    expect(texts.get(rowKey(["1"]))).toBe("startdate 2020-01-01 / startdate 2022-01-01");
+    expect(texts.has(rowKey(["2"]))).toBe(false);
+    expect(linkTexts(undefined).size).toBe(0);
   });
 });
 
