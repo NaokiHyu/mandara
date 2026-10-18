@@ -4,7 +4,7 @@ import cytoscape, { type Core, type ElementDefinition, type StylesheetJson } fro
 import { useEffect, useRef } from "react";
 import { CONTEXT_COLORS, contextColor, type GraphEdge, type GraphNode } from "./graph";
 import type { RelationType } from "./om/model";
-import { RELATION } from "./vocabulary";
+import { asKind, KIND, RELATION } from "./vocabulary";
 
 
 function token(style: CSSStyleDeclaration, name: string): string {
@@ -29,9 +29,9 @@ function stylesheet(contextCount: number): StylesheetJson {
     {
       selector: "node",
       style: {
-        shape: "round-rectangle", width: "label", height: 18, padding: "6px",
-        "background-color": t("--panel"), "border-width": 1, "border-color": t("--line-strong"),
-        label: "data(label)", color: t("--text"), "font-family": t("--font"), "font-size": 10,
+        shape: "rectangle", width: "label", height: 18, padding: "6px",
+        "background-color": t("--panel-raised"), "border-width": 1, "border-color": t("--line-strong"),
+        label: "data(display)", color: t("--text"), "font-family": t("--font"), "font-size": 11,
         "text-valign": "center", "text-halign": "center",
       },
     },
@@ -43,7 +43,13 @@ function stylesheet(contextCount: number): StylesheetJson {
     { selector: "node[status = 'rejected']", style: { opacity: 0.35 } },
     { selector: "node[!kind]", style: { color: t("--text-dim") } },
     { selector: "node[?derived]", style: { "font-style": "italic" } },
-    { selector: "node:selected", style: { "border-width": 2, "border-color": t("--accent"), color: t("--text-strong") } },
+    { selector: "node:selected", style: { "border-width": 2, "border-color": t("--text-key"), color: t("--text-key"),
+                                          "underlay-color": t("--accent"), "underlay-opacity": 0.25, "underlay-padding": 5 } },
+    // 選んだ表の近く（隣の表と、そこへの関係）だけを明るく残す
+    { selector: ".faded", style: { opacity: 0.28 } },
+    { selector: "edge.hot", style: { width: 2, label: "data(type)", color: t("--text-soft"), "font-size": 9,
+                                     "font-family": t("--font"), "text-background-color": t("--bg"),
+                                     "text-background-opacity": 1, "text-background-padding": "2px" } },
     {
       selector: "edge",
       style: {
@@ -76,7 +82,8 @@ export function GraphView({ nodes, edges, contexts, selected, onSelect }: {
   useEffect(() => {
     if (container.current === null) return;
     const elements: ElementDefinition[] = [
-      ...nodes.map((n) => ({ data: { ...n, colorIndex: n.contextIndex % CONTEXT_COLORS } })),
+      ...nodes.map((n) => ({ data: { ...n, colorIndex: n.contextIndex % CONTEXT_COLORS,
+                                     display: `${n.kind === undefined ? "?" : KIND[asKind(n.kind)].mark}  ${n.label}` } })),
       ...edges.map((e) => ({ data: { ...e } })),
     ];
     const instance = cytoscape({
@@ -101,19 +108,45 @@ export function GraphView({ nodes, edges, contexts, selected, onSelect }: {
     <div className="graph-frame">
       <div ref={container} className="graph" role="img"
            aria-label="表と関係のグラフ。キーボードでは list の表示から表を選ぶ" />
-      <ul className="legend" aria-label="凡例">
+    </div>
+  );
+}
+
+/** グラフの凡例（左の帯）：コンテキストと表の数、関係型の線、表の種類。 */
+export function GraphLegend({ contexts, counts }: { contexts: readonly string[]; counts: ReadonlyMap<string, number> }) {
+  return (
+    <aside className="graph-side" aria-label="凡例">
+      <div className="eyebrow">コンテキスト</div>
+      <ul>
         {contexts.map((c, i) => (
-          <li key={c}><span className="swatch" style={{ borderColor: `var(${contextColor(i)})` }} />{c}</li>
+          <li key={c}><span className="sq" style={{ background: `var(${contextColor(i)})` }} /><span className="grow">{c}</span>
+            <span className="dim">{counts.get(c) ?? 0}</span></li>
         ))}
+      </ul>
+      <div className="eyebrow">関係型</div>
+      <ul>
         {(Object.entries(RELATION) as [RelationType, (typeof RELATION)[RelationType]][]).map(([type, s]) => (
           <li key={type}><span className="line" style={{ borderTopColor: `var(${s.color})`, borderTopStyle: s.line }} />{type}</li>
         ))}
       </ul>
-    </div>
+      <div className="eyebrow">表の種類</div>
+      <ul>
+        {Object.values(KIND).map((k) => <li key={k.mark}><span className="kind-box">{k.mark}</span>{k.text}</li>)}
+        <li className="dim"><span className="kind-box dashed" />提案中（未承認）</li>
+      </ul>
+    </aside>
   );
 }
 
 function applySelection(instance: Core, selected: string | null): void {
   instance.nodes().unselect();
-  if (selected !== null) instance.getElementById(selected).select();
+  instance.elements().removeClass("faded hot");
+  if (selected === null) return;
+  const node = instance.getElementById(selected);
+  if (node.empty()) return;
+  node.select();
+  const near = node.closedNeighborhood();
+  instance.elements().not(near).addClass("faded");
+  near.edges().addClass("hot");
+  instance.animate({ fit: { eles: near, padding: 90 } }, { duration: 450 }); // 選んだ表の近くに寄る
 }

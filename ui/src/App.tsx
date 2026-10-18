@@ -1,8 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { ApiError, getOntology, listOntologies } from "./api";
-import type { OntologyDocument, OntologyListing, Table } from "./om/model";
+import { ApiError, getDomains, getOntology, listOntologies } from "./api";
+import type { DomainIndex, OntologyDocument, OntologyListing, Table } from "./om/model";
 import { geoColumns, type GeoColumn } from "./geo";
-import { GraphView } from "./GraphView";
+import { GraphLegend, GraphView } from "./GraphView";
 import type { Place, Within } from "./domain";
 import { contextColor } from "./graph";
 import { shortName, toGraph } from "./graph";
@@ -188,12 +188,31 @@ function Workspace({ ontologyId, doc, view, table, onSelect, onChanged, onOpenTa
   const current = doc.tables.find((t) => t.id === table);
   const contexts = useMemo(() => [...new Set(doc.tables.map((t) => t.context))].sort(), [doc]);
   const geo = useMemo(() => geoColumns(doc), [doc]);
+  const counts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const t of doc.tables) m.set(t.context, (m.get(t.context) ?? 0) + 1);
+    return m;
+  }, [doc]);
+  // どの表をドメインビューワで開けるか（API が決める。承認の後で変わるので OM を読み直すたびに）
+  const [domains, setDomains] = useState<Load<DomainIndex>>({ state: "loading" });
+  useEffect(() => {
+    getDomains(ontologyId).then((value) => setDomains({ state: "ok", value }),
+                                (error: unknown) => setDomains({ state: "error", error }));
+  }, [ontologyId, doc]);
+  const objects = (id: string) => {
+    if (domains.state !== "ok") return undefined;
+    if (domains.value.domains.some((d) => d.table === id)) return { open: () => onOpenDomain({ table: id, key: null }) };
+    const hidden = domains.value.hidden.find((h) => h.table === id);
+    return hidden === undefined ? undefined : { reason: hidden.reason };
+  };
   if (view === "review") {
     return <ReviewView ontologyId={ontologyId} doc={doc} onChanged={onChanged} onOpenTable={onOpenTable} />;
   }
   return (
     <div className="workspace">
-      <div className="canvas">
+      {view === "graph" && <GraphLegend contexts={contexts} counts={counts} />}
+      <div className={`canvas${view === "graph" ? " graph-canvas" : ""}`}>
+        {domains.state === "error" && <Failure error={domains.error} />}
         {table !== null && current === undefined && (
           <p className="failure">表 {table} はこの OM に無い（URL の table を確かめる）</p>
         )}
@@ -205,7 +224,7 @@ function Workspace({ ontologyId, doc, view, table, onSelect, onChanged, onOpenTa
                      onSelect={onSelect} />
         )}
       </div>
-      {current !== undefined && <TableDetail doc={doc} table={current} onSelect={onSelect} />}
+      {current !== undefined && <TableDetail doc={doc} table={current} onSelect={onSelect} objects={objects(current.id)} />}
     </div>
   );
 }

@@ -3,11 +3,14 @@
 import type { OntologyDocument, Relation, SemanticType, Table } from "./om/model";
 import { GraphError, joins, resolveTarget, shortName } from "./graph";
 import { asKind, asRelationType, KIND, RELATION } from "./vocabulary";
+import { Corners } from "./parts";
 
-export function TableDetail({ doc, table, onSelect }: {
+export function TableDetail({ doc, table, onSelect, objects }: {
   doc: OntologyDocument;
   table: Table;
   onSelect: (tableId: string) => void;
+  /** ドメインビューワで開けるか（open）、開けない理由（reason）。渡さなければ出さない */
+  objects?: { open: () => void } | { reason: string };
 }) {
   const byId = new Map(doc.tables.map((t) => [t.id, t]));
   const semanticTypes = doc.vocabulary.semantic_types ?? {};
@@ -17,6 +20,10 @@ export function TableDetail({ doc, table, onSelect }: {
       <header>
         <h1>{shortName(table.name)}</h1>
         <div className="dim">{table.name} · {table.source}</div>
+        {objects !== undefined && "open" in objects && (
+          <button className="primary blueprint open-objects" onClick={objects.open}><Corners />オブジェクトを開く →</button>
+        )}
+        {objects !== undefined && "reason" in objects && <p className="dim small">ドメインではない：{objects.reason}</p>}
       </header>
 
       <dl className="facts">

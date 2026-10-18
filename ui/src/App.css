@@ -71,15 +71,16 @@
 .grid th { text-align: left; font-weight: normal; color: var(--text-dim); font-size: var(--size-small); }
 
 .detail {
-  width: 420px; flex-shrink: 0; overflow: auto;
-  border-left: 1px solid var(--line); background: var(--panel); padding: calc(var(--gap) * 2);
+  width: 380px; flex-shrink: 0; overflow: auto;
+  border-left: 1px solid var(--line); background: var(--panel); padding: 18px 20px;
 }
-.detail h1 { margin: 0; font-size: 16px; color: var(--text-strong); font-weight: 600; }
+.detail header { padding-bottom: 14px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
+.detail h1 { margin: 0; font-family: var(--font-heading); font-size: 28px; line-height: 1.1; color: var(--text-key); font-weight: 600; }
 .detail h2 {
-  margin: calc(var(--gap) * 2) 0 var(--gap-small); font-size: var(--size-small); font-weight: 600;
-  text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-strong);
-  border-bottom: 1px solid var(--line); padding-bottom: 2px;
+  margin: 18px 0 8px; font-family: var(--font-heading); font-size: 12px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-dim);
 }
+.open-objects { align-self: stretch; margin-top: 10px; padding: 8px; }
 .facts { display: grid; grid-template-columns: 5em 1fr; gap: 2px var(--gap); margin: var(--gap) 0 0; }
 .facts dt { color: var(--text-dim); }
 .facts dd { margin: 0; }
@@ -467,3 +468,19 @@ button.chip.within { font-size: 14px; padding: 2px var(--gap); }
 .refs li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .drawer .object-body { grid-template-columns: 1fr; }
 .drawer .object-title h1 { font-size: 28px; }
+
+/* ---------------------------------------------------------------- グラフ（モック 1b） */
+.graph-side { width: 250px; flex: none; overflow: auto; padding: 18px 16px; display: flex; flex-direction: column; gap: 8px;
+              background: var(--panel); border-right: 1px solid var(--line); }
+.graph-side ul { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.graph-side li { display: flex; align-items: center; gap: 10px; }
+.graph-side .grow { flex: 1; }
+.graph-side .sq { width: 10px; height: 10px; flex: none; }
+.graph-side .line { width: 34px; flex: none; border-top-width: 1.6px; }
+.kind-box { width: 18px; height: 18px; flex: none; display: inline-flex; align-items: center; justify-content: center;
+            border: 1px solid var(--line-strong); font-weight: 600; font-size: 11px; }
+.kind-box.dashed { border: 1px dashed var(--accent); }
+.graph-canvas { padding: 0; background-color: var(--bg);
+  background-image: linear-gradient(color-mix(in srgb, #d6ebff 3.5%, transparent) 1px, transparent 1px),
+                    linear-gradient(90deg, color-mix(in srgb, #d6ebff 3.5%, transparent) 1px, transparent 1px);
+  background-size: 32px 32px; }
