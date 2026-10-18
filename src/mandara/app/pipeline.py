@@ -14,16 +14,19 @@ Application 層。Domain の純粋な関数（抽出器、モデラー、評価�
 import hashlib
 from collections import Counter
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
 from mandara.codecs.detect import Detection, detect
 from mandara.codecs.registry import BY_ENCODING, CodecError
+from mandara.evaluation import joins as joins_evaluation
+from mandara.evaluation.joins import JoinScore
 from mandara.evaluation.score import Report, score
 from mandara.extractors import catalog as catalog_extractor
 from mandara.extractors import declarations as declaration_extractor
+from mandara.extractors import joins as joins_extractor
 from mandara.extractors import values as values_extractor
 from mandara.llm.decision import BudgetedDecisionModel, DecisionModel, DecisionResponse
 from mandara.llm.model import (
@@ -36,13 +39,14 @@ from mandara.llm.model import (
     StructuredRequest,
     summarize,
 )
+from mandara.modeler import joins as joins_modeler
 from mandara.modeler import classify
 from mandara.modeler import llm as llm_modeler
 from mandara.modeler import meaning
 from mandara.modeler import rules as modeler
 from mandara.om.invariants import Violation, check
 from mandara.om.encoding_traits import ENCODING_TARGETS
-from mandara.om.model import Claim, ClaimPredicate, ReviewStatus, SemanticType, Table, Unit, ValueType
+from mandara.om.model import Claim, ClaimPredicate, ReviewStatus, SemanticType, SourceRef, Table, Unit, ValueType
 from mandara.om.names import qualify, split_qualified
 from mandara.om.ontology import Ontology
 from mandara.omstore.declaration_store import load_declarations
@@ -68,8 +72,11 @@ from mandara.review.decisions import (
     is_table_batch_member,
     questions,
 )
-from mandara.source.catalog import CatalogReader, Scope
+from mandara.source.catalog import Catalog, CatalogReader, Scope
+from mandara.source.catalog import Column as CatalogColumn
+from mandara.source.catalog import Table as CatalogTable
 from mandara.source.coverage import CoverageReader
+from mandara.source.inclusion import ColumnProfile, InclusionReader, KeyRef
 from mandara.source.rows import ColumnReader
 from mandara.source.values import GeoPoint
 
@@ -129,6 +136,25 @@ class Extracted:
     examined: tuple[Examined, ...]
     not_examined: tuple[values_extractor.NotExamined, ...]
     covered: tuple[Covered, ...]
+    joins: "JoinsMeasured"
+
+
+@dataclass(frozen=True)
+class JoinsMeasured:
+    """宣言の無い参照の測定（T2.2）：候補の組の数を、足切りの段ごとに。足切りで落とした組は主張にしないので、ここに残す。"""
+
+    columns: int
+    """参照元の候補の列の数（型の合うキーが1つ以上ある列）。"""
+    typed: int
+    """型の合う組の数。"""
+    narrowed: int
+    """値の数と範囲で残った組の数。"""
+    overlapping: int
+    """見本の重なりで残り、全部数えた組の数（= included_in の主張の数）。"""
+    included: int
+    """そのうち包含が 100% の組の数。"""
+    chosen: int
+    """参照とみなした組の数（mandara.modeler.joins。宣言された外部キーと同じ結合を含む）。"""
 
 
 @dataclass(frozen=True)
@@ -140,8 +166,9 @@ class Proposed:
 
 
 def extract(workspace: Workspace, reader: CatalogReader, scope: Scope, values: ColumnReader,
-            coverage: CoverageReader) -> Extracted:
-    """カタログを読み、実データの主張（バイト列の物理的な表現、主キーを共有する参照の被覆）を足して、主張台帳を作り直す。"""
+            coverage: CoverageReader, inclusion: InclusionReader) -> Extracted:
+    """カタログを読み、実データの主張（バイト列の物理的な表現、値の包含、主キーを共有する参照の被覆）を足して、主張台帳を
+    作り直す。主キーを共有する参照は、宣言された外部キーと、値の包含から参照とみなしたもの（mandara.modeler.joins）の両方。"""
     catalog = reader.read(scope)
     claims = catalog_extractor.extract(workspace.source, catalog)
     claims += declaration_extractor.extract(workspace.source, catalog, load_declarations(workspace.root))
@@ -154,8 +181,16 @@ def extract(workspace: Workspace, reader: CatalogReader, scope: Scope, values: C
         examined.append(Examined(target.table.qualified_name, target.column.name, detection, sample.truncated))
         if (claim := values_extractor.encoding_claim(workspace.source, target, detection)) is not None:
             claims.append(claim)
+    joins = measure_joins(workspace.source, catalog, inclusion)
+    claims += joins.claims
+    # 主キーを共有する参照の被覆：宣言された外部キーと、事実だけで決めた候補（選び方に依らない。joins.shared_key_candidates）
+    declared = {joins_modeler.join_of(t.schema, t.name, fk.columns, fk.target_schema, fk.target_table, fk.target_columns)
+                for t in catalog.tables for fk in t.foreign_keys}
+    inferred = [(c.subject.schema_name, c.subject.table, values_extractor.InferredReference(
+        c.source.locator, tuple(c.columns or []), _ref(c).schema_name, _ref(c).table, tuple(c.target_columns or [])))
+                for c in joins_modeler.shared_key_candidates(joins.claims) if joins_modeler.claim_join(c) not in declared]
     covered: list[Covered] = []
-    for shared in values_extractor.shared_keys(catalog):
+    for shared in values_extractor.shared_keys(catalog, inferred):
         fk = shared.foreign_key
         counted = coverage.coverage(shared.table.schema, shared.table.name, fk.columns, shared.target.schema,
                                     shared.target.name, fk.target_columns, shared.split_by,
@@ -166,7 +201,54 @@ def extract(workspace: Workspace, reader: CatalogReader, scope: Scope, values: C
         claims.extend(found)
     write_claim_ledger(workspace.claims, workspace.source, catalog.scope.schemas, claims)
     return Extracted(tuple(claims), len(catalog.tables), catalog.scope, tuple(examined), tuple(not_examined),
-                     tuple(covered))
+                     tuple(covered), replace(joins.measured, chosen=len(joins_modeler.choose(claims))))
+
+
+@dataclass(frozen=True)
+class MeasuredJoins:
+    claims: list[Claim]
+    measured: JoinsMeasured
+
+
+def _ref(claim: Claim) -> SourceRef:
+    if claim.target is None:
+        raise AssertionError(f"included_in に target が無い（主張の検証を通ったはず）: {claim.id}")
+    return claim.target
+
+
+def measure_joins(source: str, catalog: Catalog, inclusion: InclusionReader) -> MeasuredJoins:
+    """値の包含を測る（mandara.extractors.joins の段の順に足切り）。列の様子は1列1回だけ読む。"""
+    profiles: dict[KeyRef, ColumnProfile] = {}
+
+    def profile(table: CatalogTable, column: CatalogColumn) -> ColumnProfile:
+        ref = KeyRef(table.schema, table.name, column.name)
+        if ref not in profiles:
+            profiles[ref] = inclusion.profile(table.schema, table.name, column.name,
+                                              column.family in joins_extractor.ORDERED_FAMILIES)
+        return profiles[ref]
+
+    found = joins_extractor.keys(catalog)
+    for key in found:
+        profile(key.table, key.column)
+    candidates = joins_extractor.candidates(catalog, found)
+    claims: list[Claim] = []
+    narrowed = overlapping = 0
+    for candidate in candidates:
+        kept = joins_extractor.narrow(candidate, profile(candidate.table, candidate.column), profiles)
+        narrowed += len(kept)
+        if not kept:
+            continue
+        table, column = candidate.table, candidate.column
+        probed = inclusion.probe(table.schema, table.name, column.name, [k.ref for k in kept], joins_extractor.PROBE_SAMPLE)
+        overlap = [k for k, n in zip(kept, probed, strict=True) if n > 0]
+        overlapping += len(overlap)
+        if not overlap:
+            continue
+        counted = inclusion.inclusion(table.schema, table.name, column.name, [k.ref for k in overlap])
+        claims += joins_extractor.claims(source, candidate, overlap, counted)
+    included = sum(1 for c in claims if c.distinct_values and c.matched_values == c.distinct_values)
+    return MeasuredJoins(claims, JoinsMeasured(len(candidates), sum(len(c.keys) for c in candidates), narrowed, overlapping,
+                                        included, 0))
 
 
 def propose(workspace: Workspace) -> Proposed:
@@ -183,6 +265,15 @@ def evaluate(workspace: Workspace, gold: Path) -> Report:
     report = score(load_ontology(workspace.ontology), gold_ontology)
     write_json(workspace.eval_report, {"gold": _gold_record(gold, gold_ontology), **report_to_json(report)})
     return report
+
+
+def evaluate_joins(workspace: Workspace, truth: CatalogReader, scope: Scope) -> JoinScore:
+    """提案した OM の結合を、元の DB で宣言されていた外部キーと突き合わせる（T2.2。範囲は scope の表だけ）。"""
+    ontology = load_ontology(workspace.ontology)
+    schemas = set(scope.schemas)
+    found = {j for j in joins_evaluation.proposed(ontology) if split_qualified(j[0])[0] in schemas
+             and split_qualified(j[2])[0] in schemas}
+    return joins_evaluation.score_joins(found, joins_evaluation.truth(truth.read(scope)))
 
 
 def read_ontology(root: Path) -> Ontology:
@@ -351,7 +442,7 @@ def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, f
     stopped: str | None = None
     defects = (meaning.InconsistentGroupError, meaning.PropagationError)
     for i, table in enumerate(order):
-        table_claims = by_table.get(table.name, [])
+        table_claims = joins_modeler.claims_for(table, by_table.get(table.name, []))
         try:
             hints = llm_modeler.meaning_hints(ontology, table, groups)
         except defects as e:
@@ -404,7 +495,7 @@ class _Asked:
     """答えを得られなかった段（命名・性質・単位・grain）。その段に関わる項目だけを落として続けた。"""
 
 
-def _ask_table(table: Table, table_claims: Sequence[Claim], ontology: Ontology,
+def _ask_table(table: Table, table_claims: joins_modeler.InferenceClaims, ontology: Ontology,
                hints: dict[str, llm_modeler.MeaningHint], model: LanguageModel, decider: DecisionModel,
                record: dict[str, object]) -> _Asked:
     """1つの表を、分類 → 命名 → 性質 → 単位 → grain の順に問い、従来の答えの形に組み立てる（T3.7）。
@@ -659,8 +750,24 @@ def approve_table(workspace: Workspace, table_id: str, locations: Sequence[str],
 
 
 def _describe(claim: Claim) -> str:
+    if claim.predicate == ClaimPredicate.included_in.value:
+        return _inclusion_text(claim)
     detail = f" · {claim.text[:60]}" if claim.text else ""
     return f"{claim.predicate} · {claim.source.locator}{detail}"
+
+
+def _inclusion_text(claim: Claim) -> str:
+    """値の包含の1行：何個の値のうち何個が参照先のキーにあるか、参照先のキーのどれだけを使うか、値の重なり。"""
+    target = _ref(claim)
+    distinct, matched, keys, repeats = (claim.distinct_values, claim.matched_values, claim.target_values, claim.max_repeats)
+    if distinct is None or matched is None or keys is None or repeats is None:
+        raise AssertionError(f"included_in に数が無い（主張の検証を通ったはず）: {claim.id}")
+    column, key = ", ".join(claim.columns or []), ", ".join(claim.target_columns or [])
+    found = "すべて" if matched == distinct else f"{matched:,}"
+    used = "（キーの値が無い）" if keys == 0 else f"（キー {keys:,} 値の {matched / keys * 100:.0f}% を使う）"
+    shape = "1 値は 1 行（1:1 の形）" if repeats == 1 else f"1 値あたり最大 {repeats:,} 行"
+    return (f"値の包含 · {column} の {distinct:,} 値の{found}が {qualify(target.schema_name, target.table)}({key}) に"
+            f"ある{used} · {shape}")
 
 
 @dataclass(frozen=True)
@@ -688,8 +795,9 @@ class Inference:
         return self.model.budget
 
 
-def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, coverage: CoverageReader, scope: Scope,
-        gold: Path | None, clock: Clock, inference: Inference | None = None) -> RunResult:
+def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, coverage: CoverageReader,
+        inclusion: InclusionReader, scope: Scope, gold: Path | None, clock: Clock,
+        inference: Inference | None = None) -> RunResult:
     """抽出 → 提案 → （LLM があれば）推論 → （正解があれば）評価を通しで行い、実行の記録を書く。失敗も記録してから伝える。"""
     started = _utc(clock())
     log = _RunLog(workspace.runs / f"{started.strftime('%Y%m%dT%H%M%S%fZ')}.json", clock, {
@@ -698,19 +806,20 @@ def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, cover
         "source": workspace.source,
         "requested_scope": list(scope.schemas),
         "versions": {"extractor": catalog_extractor.EXTRACTOR, "values_extractor": values_extractor.EXTRACTOR,
-                     "declaration_extractor": declaration_extractor.EXTRACTOR,
-                     "modeler": modeler.MODELER},
+                     "declaration_extractor": declaration_extractor.EXTRACTOR, "joins_extractor": joins_extractor.EXTRACTOR,
+                     "modeler": modeler.MODELER, "joins_modeler": joins_modeler.MODELER},
         "completed": [],
     })
     with log.stage("extract"):
-        extracted = extract(workspace, reader, scope, values, coverage)
+        extracted = extract(workspace, reader, scope, values, coverage, inclusion)
         log.update(scope=list(extracted.scope.schemas), tables=extracted.tables,
                    claims=dict(sorted(Counter(c.predicate for c in extracted.claims).items())),
                    encodings={"examined": [_examined_record(e) for e in extracted.examined],
                               "not_examined": [{"table": n.table, "column": n.column, "reason": n.reason}
                                                for n in extracted.not_examined]},
                    shared_keys=[{"table": c.table, "target": c.target, "rows": c.rows, "covered": c.covered,
-                                 "claims": [_coverage_text(x) for x in c.claims]} for c in extracted.covered])
+                                 "claims": [_coverage_text(x) for x in c.claims]} for c in extracted.covered],
+                   joins=vars(extracted.joins))
     with log.stage("propose"):
         proposed = propose(workspace)
         log.update(ledger_hash=proposed.ledger_hash, proposal=_proposal_counts(proposed.proposal.ontology),

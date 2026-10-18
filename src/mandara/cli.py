@@ -21,6 +21,7 @@ from mandara.app.pipeline import Workspace
 from mandara.connectors.postgres.catalog_reader import PostgresCatalogReader
 from mandara.connectors.postgres.column_reader import PostgresColumnReader
 from mandara.connectors.postgres.coverage_reader import PostgresCoverageReader
+from mandara.connectors.postgres.inclusion_reader import PostgresInclusionReader
 from mandara.connectors.postgres.record_reader import PostgresRecordReader
 from mandara.evaluation.score import InvalidForScoringError, Report
 from mandara.llm.claude.model import ClaudeModel
@@ -138,6 +139,14 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--gold", type=Path, required=True)
     p.set_defaults(handler=_eval)
 
+    p = commands.add_parser("eval-joins", help="提案した OM の結合を、元の DB で宣言されていた外部キーと突き合わせる（T2.2）")
+    source_args(p)
+    p.add_argument("--schema", action="append", required=True, help="比べるスキーマ（繰り返し指定）")
+    p.add_argument("--truth", required=True, metavar="CONNINFO",
+                   help="外部キーを宣言している元の DB の接続文字列（例 dbname=adventureworks）。秘密はここに書かない")
+    p.add_argument("--show", type=int, default=20, help="外れた結合を見せる数（既定 20）")
+    p.set_defaults(handler=_eval_joins)
+
     p = commands.add_parser("review", help="提案に答える（承認・却下）。答えるたびに OM に書く")
     source_args(p)
     p.add_argument("--reviewer", required=True, help="レビューする人の名前（reviewed_by に書く）")
@@ -193,7 +202,8 @@ def _run(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
     _banner(out, style, workspace, scope)
     started = time.monotonic()
     llm = _llm(args.env) if args.llm else None
-    result = pipeline.run(workspace, _reader(args), _values(args), PostgresCoverageReader(args.conninfo), scope, args.gold, _now, llm[0] if llm else None)
+    result = pipeline.run(workspace, _reader(args), _values(args), PostgresCoverageReader(args.conninfo),
+                          PostgresInclusionReader(args.conninfo), scope, args.gold, _now, llm[0] if llm else None)
     _extract_line(out, style, result.extracted)
     _propose_line(out, style, result.proposed)
     if result.refined is not None and llm is not None:
@@ -208,7 +218,8 @@ def _extract(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
     workspace = _workspace(args)
     scope = Scope(tuple(args.schema))
     _banner(out, style, workspace, scope)
-    _extract_line(out, style, pipeline.extract(workspace, _reader(args), scope, _values(args), PostgresCoverageReader(args.conninfo)))
+    _extract_line(out, style, pipeline.extract(workspace, _reader(args), scope, _values(args),
+                                               PostgresCoverageReader(args.conninfo), PostgresInclusionReader(args.conninfo)))
     return 0
 
 
@@ -229,6 +240,27 @@ def _propose(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
 
 def _eval(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
     _scoreboard(out, style, pipeline.evaluate(_workspace(args), args.gold), args.gold)
+    return 0
+
+
+def _eval_joins(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
+    score = pipeline.evaluate_joins(_workspace(args), PostgresCatalogReader(args.truth), Scope(tuple(args.schema)))
+
+    def pct(x: float | None) -> str:
+        return "—" if x is None else f"{x * 100:.0f}%"
+
+    for name, part in (("1 列", score.single), ("複合", score.composite)):
+        print(f"  {style.dim('joins')}  {name}  正解 {part.truth} · 提案 {part.proposed} · 当たり {part.correct}  "
+              f"再現率 {pct(part.recall)} · 適合率 {pct(part.precision)}", file=out)
+
+    def text(j: tuple[str, tuple[tuple[str, str], ...], str]) -> str:
+        return f"{j[0]}({', '.join(a for a, _ in j[1])}) → {j[2]}({', '.join(b for _, b in j[1])})"
+
+    for label, joins in (("取り逃し", score.missed), ("誤り", score.wrong)):
+        for j in joins[:args.show]:
+            print(f"  {style.dim(label)}  {text(j)}", file=out)
+        if len(joins) > args.show:
+            print(f"  {style.dim(label)}  ほか {len(joins) - args.show} 件", file=out)
     return 0
 
 
@@ -459,6 +491,9 @@ def _extract_line(out: TextIO, style: _Style, extracted: pipeline.Extracted) -> 
             print(f"  {style.dim('encoding')}  {where} → 決まらない: {e.detection.reason}", file=out)
     for n in extracted.not_examined:
         print(f"  {style.dim('encoding')}  {n.table}.{n.column} → 見ていない: {n.reason}", file=out)
+    j = extracted.joins
+    print(f"  {style.dim('joins')}     {j.columns} 列 · 型の合う組 {j.typed:,} → 値の数・範囲 {j.narrowed:,} → 見本の重なり "
+          f"{j.overlapping:,}（数えた） → 包含 100% {j.included:,} → {style.good(f'参照とみなした {j.chosen}')}", file=out)
     for c in extracted.covered:
         facts = [f"{x.discriminator} ∈ {{{', '.join(x.discriminator_values or [])}}}" if x.discriminator else "すべての行"
                  for x in c.claims]

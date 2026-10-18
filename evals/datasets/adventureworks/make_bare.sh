@@ -55,8 +55,11 @@ fi
 # 確かめる：外部キーが 0、（段 2 なら）コメントが 0
 fks=$(psql -X -At -d "$DB" -c "SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace
                                WHERE c.contype = 'f' AND n.nspname IN ($SCHEMAS)")
+# 確かめる範囲は消す範囲と同じ（表・ビュー・マテリアライズドビューとその列のコメント）
 comments=$(psql -X -At -d "$DB" -c "SELECT count(*) FROM pg_description d JOIN pg_class c ON c.oid = d.objoid
-                                    JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname IN ($SCHEMAS)")
+                                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                                    WHERE d.classoid = 'pg_class'::regclass AND c.relkind IN ('r', 'v', 'm')
+                                      AND n.nspname IN ($SCHEMAS)")
 echo "$DB: 外部キー $fks · コメント $comments"
 [ "$fks" = 0 ] || { echo "外部キーが残っている" >&2; exit 1; }
 if [ "$LEVEL" = 2 ]; then [ "$comments" = 0 ] || { echo "コメントが残っている" >&2; exit 1; }; fi

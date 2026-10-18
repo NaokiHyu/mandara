@@ -304,6 +304,7 @@ def test_extract_records_every_examined_column(tmp_path: Path) -> None:
     from mandara.app import pipeline
     from mandara.codecs.geography import encode_sqlserver_geography
     from mandara.source.coverage import Coverage
+    from mandara.source.inclusion import ColumnProfile, Inclusion, KeyRef
     from mandara.source.rows import ColumnRow, ColumnSample
     from mandara.source.values import GeoPoint
 
@@ -329,8 +330,20 @@ def test_extract_records_every_examined_column(tmp_path: Path) -> None:
                      target_columns: Sequence[str], split_by: Sequence[str], max_values: int) -> Coverage:
             raise AssertionError(f"読まないはず: {schema}.{table}")
 
+    class OnlyKeys:  # キーは t.id だけで、型族の合う参照元の列が無いので、包含は数えない（キーの様子だけ読む）
+        def profile(self, schema: str, table: str, column: str, ordered: bool) -> ColumnProfile:
+            assert (schema, table, column, ordered) == ("s", "t", "id", True)
+            return ColumnProfile(3, 3, 0, 2)
+
+        def inclusion(self, schema: str, table: str, column: str, keys: Sequence[KeyRef]) -> Inclusion:
+            raise AssertionError(f"数えないはず: {schema}.{table}.{column}")
+
+        def probe(self, schema: str, table: str, column: str, keys: Sequence[KeyRef], sample: int) -> tuple[int, ...]:
+            raise AssertionError(f"見本を読まないはず: {schema}.{table}.{column}")
+
     ws = pipeline.Workspace(tmp_path / "src", "src")
-    extracted = pipeline.extract(ws, Catalogs(), Scope(("s",)), Values(), NoCoverage())
+    extracted = pipeline.extract(ws, Catalogs(), Scope(("s",)), Values(), NoCoverage(), OnlyKeys())
+    assert (extracted.joins.columns, extracted.joins.overlapping, extracted.joins.chosen) == (0, 0, 0)
     assert extracted.covered == ()
     found = {e.column: (e.detection.encoding, e.detection.reason, e.detection.values, e.detection.nulls, e.truncated)
              for e in extracted.examined}

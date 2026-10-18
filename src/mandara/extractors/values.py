@@ -12,13 +12,14 @@ Domain 層の純粋な関数。値を読むのは呼ぶ側（ColumnReader）。�
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Protocol
 
 from mandara.codecs.detect import Detection
 from mandara.extractors.catalog import quote
 from mandara.om.claims import new_claim
 from mandara.om.ontology import is_shared_key
 from mandara.om.model import Claim, ClaimPredicate, ClaimSource, ClaimSourceKind, SourceRef, TypeFamily
-from mandara.source.catalog import Catalog, Column, ForeignKey, Table
+from mandara.source.catalog import Catalog, Column, Table
 from mandara.source.coverage import Coverage, value_text
 
 EXTRACTOR = "values 0.1"
@@ -86,12 +87,38 @@ def key_columns(target: Target) -> Sequence[str]:
 # ---------------------------------------------------------------- 参照の被覆（is-a の手がかり）
 
 
+class Reference(Protocol):
+    """参照：宣言された外部キー（ForeignKey）か、値の包含から推定した参照（InferredReference）。name は主張の出所に使う。"""
+
+    @property
+    def name(self) -> str: ...
+    @property
+    def columns(self) -> tuple[str, ...]: ...
+    @property
+    def target_schema(self) -> str: ...
+    @property
+    def target_table(self) -> str: ...
+    @property
+    def target_columns(self) -> tuple[str, ...]: ...
+
+
+@dataclass(frozen=True)
+class InferredReference:
+    """値の包含から推定した参照（宣言の無い外部キー）。name は推定の根拠の主張の出所。"""
+
+    name: str
+    columns: tuple[str, ...]
+    target_schema: str
+    target_table: str
+    target_columns: tuple[str, ...]
+
+
 @dataclass(frozen=True)
 class SharedKey:
-    """主キーを共有する外部キー：表の主キーの列が、ちょうど target の主キーの列を参照する。"""
+    """主キーを共有する参照：表の主キーの列が、ちょうど target の主キーの列を参照する。"""
 
     table: Table
-    foreign_key: ForeignKey
+    foreign_key: Reference
     target: Table
 
     @property
@@ -101,14 +128,18 @@ class SharedKey:
         return [c.name for c in self.target.columns if c.family in _DISCRIMINATOR_FAMILIES and c.name not in key]
 
 
-def shared_keys(catalog: Catalog) -> list[SharedKey]:
-    """範囲内の表同士の、主キーを共有する外部キー（範囲外の参照先は読まない）。"""
+def shared_keys(catalog: Catalog, inferred: Sequence[tuple[str, str, InferredReference]] = ()) -> list[SharedKey]:
+    """範囲内の表同士の、主キーを共有する参照（範囲外の参照先は読まない）。宣言された外部キーと、inferred（表のスキーマ、
+    表の名前、推定した参照）の両方から。"""
     tables = {(t.schema, t.name): t for t in catalog.tables}
+    extra: dict[tuple[str, str], list[Reference]] = {}
+    for schema, name, ref in inferred:
+        extra.setdefault((schema, name), []).append(ref)
     found: list[SharedKey] = []
     for table in catalog.tables:
         if table.primary_key is None:
             continue
-        for fk in table.foreign_keys:
+        for fk in [*table.foreign_keys, *extra.get((table.schema, table.name), [])]:
             target = tables.get((fk.target_schema, fk.target_table))
             if target is None or target.primary_key is None or target is table:
                 continue

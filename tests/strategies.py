@@ -315,6 +315,13 @@ def claims(
         payload["fixed_unit"] = draw(st.sampled_from(tuple(Unit)))
     if "encoding" in shape.fields:
         payload["encoding"] = draw(st.sampled_from(tuple(SourceEncoding)))
+    if "distinct_values" in shape.fields:  # 包含の数：含まれる数は値の数とキーの値の数以下、値が無ければ最大の行数も 0
+        distinct = draw(st.integers(0, 50))
+        target_values = draw(st.integers(0, 60))
+        payload["distinct_values"] = distinct
+        payload["matched_values"] = draw(st.integers(0, min(distinct, target_values)))
+        payload["target_values"] = target_values
+        payload["max_repeats"] = 0 if distinct == 0 else draw(st.integers(1, 9))
     return new_claim(
         subject=subject,
         predicate=predicate,

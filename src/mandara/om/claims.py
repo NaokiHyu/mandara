@@ -19,6 +19,7 @@ from mandara.om.model import Claim, ClaimPredicate, ClaimSource, ClaimSourceKind
 PAYLOAD_FIELDS = (
     "columns", "target", "target_columns", "on_delete", "on_update", "text", "type_name", "family", "position",
     "object_kind", "encoding", "discriminator", "discriminator_values", "fixed_unit",
+    "distinct_values", "matched_values", "target_values", "max_repeats",
 )
 """述語によって持つ・持たないが決まる、値のフィールド。"""
 
@@ -53,8 +54,11 @@ SHAPES: dict[str, Shape] = {
     ClaimPredicate.covers_all.value: _shape("table", "columns", "target", "target_columns"),
     ClaimPredicate.discriminated_by.value: _shape("table", "columns", "target", "target_columns", "discriminator",
                                                   "discriminator_values"),
+    ClaimPredicate.included_in.value: _shape("table", "columns", "target", "target_columns", "distinct_values",
+                                             "matched_values", "target_values", "max_repeats"),
 }
-_REFERRING = {ClaimPredicate.references.value, ClaimPredicate.covers_all.value, ClaimPredicate.discriminated_by.value}
+_REFERRING = {ClaimPredicate.references.value, ClaimPredicate.covers_all.value, ClaimPredicate.discriminated_by.value,
+              ClaimPredicate.included_in.value}
 """参照（columns → target の target_columns）を持つ述語。"""
 
 
@@ -182,4 +186,11 @@ def _check_claim(claim: Claim) -> Iterator[ClaimViolation]:
             yield wrong("参照はソースをまたがない")
         if len(claim.columns or []) != len(claim.target_columns or []):
             yield wrong("columns と target_columns の数が違う")
+    if claim.predicate == ClaimPredicate.included_in.value and None not in (
+            claim.distinct_values, claim.matched_values, claim.target_values, claim.max_repeats):
+        distinct, matched = claim.distinct_values or 0, claim.matched_values or 0
+        if matched > distinct or matched > (claim.target_values or 0):
+            yield wrong("参照先にある値の数が、値の数か参照先の値の数を超える")
+        if (distinct == 0) != (claim.max_repeats == 0):
+            yield wrong("値が無いときだけ、1 つの値の最大の行数は 0")
 

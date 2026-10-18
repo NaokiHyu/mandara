@@ -20,6 +20,7 @@ from mandara.llm.decision import ChoiceAnswer, DecisionResponse
 from mandara.llm.model import Usage
 from mandara.modeler import classify as c
 from mandara.modeler import llm as v1
+from mandara.modeler.joins import InferenceClaims
 from mandara.modeler.meaning import same_meaning_groups
 from mandara.modeler.rules import propose
 from mandara.om.invariants import check
@@ -48,13 +49,19 @@ def _claims(name: str) -> list[Claim]:
     return [x for x in CLAIMS if qualify(x.subject.schema_name, x.subject.table) == name]
 
 
+def _for(claims: Sequence[Claim]) -> InferenceClaims:
+    """推論の材料にする表の主張。この台帳はカタログの主張だけ（値の包含の測定が無い）なので、絞らずにそのまま使える。"""
+    assert not any(x.predicate == "included_in" for x in claims)
+    return InferenceClaims(tuple(claims))
+
+
 def _table(name: str) -> Table:
     return next(t for t in SEEDED.tables if t.name == name)
 
 
 def _asked(name: str) -> c.Classify:
     table = _table(name)
-    return c.classify(table, _claims(name), VOCABULARY, v1.meaning_hints(SEEDED, table, GROUPS),
+    return c.classify(table, _for(_claims(name)), VOCABULARY, v1.meaning_hints(SEEDED, table, GROUPS),
                       v1.shared_key_foreign_keys(table, _claims(name), SEEDED), MAX_OPTIONS,
                       f"classify {name}")
 
@@ -156,7 +163,7 @@ def test_enum_is_a_candidate_only_when_values_are_named() -> None:
     with_values = c.NamedType(name="gender_code", description="性別", columns=["gender"],
                               values=[v1.EnumValueAnswer(code="M", label="男性")], values_evidence=[])
     without = c.NamedType(name="job_title", description="職名", columns=["jobtitle"], values_evidence=[])
-    asked = c.properties(_table(name), claims, c.Named((with_values, without), ()), "properties")
+    asked = c.properties(_table(name), _for(claims), c.Named((with_values, without), ()), "properties")
     assert asked.candidates["gender_code"] == ("enum",)
     assert "enum" not in asked.candidates["job_title"]
 
@@ -165,7 +172,7 @@ def test_unit_column_evidence_is_included() -> None:
     name = "sales.salesorderdetail"
     asked = _asked(name)
     classified = c.Classified(columns={"unitprice": c.Picked("unit_price", 0.9)})
-    units = c.units(_claims(name), ["unitprice"], ["unitprice"], ["carriertrackingnumber"], "units")
+    units = c.units(_for(_claims(name)), ["unitprice"], ["unitprice"], ["carriertrackingnumber"], "units")
     answer, _ = c.assemble(_table(name), _claims(name), asked, classified, [], None,
                            {"unitprice": (None, "carriertrackingnumber", 0.8)}, units.evidence, None)
     unit_column = {x.id for x in _claims(name) if x.subject.column == "carriertrackingnumber"}
@@ -187,7 +194,7 @@ def test_vocabulary_is_described_once_in_the_state() -> None:
 
 def test_naming_prompt_lists_vocabulary_names_without_descriptions() -> None:
     name = "sales.salesorderdetail"
-    text = c.naming_prompt(_claims(name), VOCABULARY, None, {}, ["unitprice"])
+    text = c.naming_prompt(_for(_claims(name)), VOCABULARY, None, {}, ["unitprice"])
     assert "product_id" in text and "製品" not in text
 
 
@@ -195,7 +202,7 @@ def test_named_types_are_capped_below_measured_confidence() -> None:
     name = "humanresources.employee"
     t = c.NamedType(name="job_title", description="職名", columns=["jobtitle"], values_evidence=[])
     named = c.Named((t,), ())
-    asked = c.properties(_table(name), _claims(name), named, "properties")
+    asked = c.properties(_table(name), _for(_claims(name)), named, "properties")
     assert asked.request is not None
     answers = {k: ChoiceAnswer(list(q.options)[0], {o: 1.0 if i == 0 else 0.0 for i, o in enumerate(q.options)})
                for k, q in asked.request.questions.items()}
@@ -211,18 +218,18 @@ def test_encoded_columns_are_offered_only_the_types_the_encoding_decodes_to() ->
     name = "person.address"
     plain = _table(name)
     hints = v1.meaning_hints(SEEDED, plain, GROUPS)
-    asked = c.classify(plain, _claims(name), vocabulary, hints, (), MAX_OPTIONS, "classify")
+    asked = c.classify(plain, _for(_claims(name)), vocabulary, hints, (), MAX_OPTIONS, "classify")
     assert asked.request is not None
     assert {"location", "photo"} <= set(asked.request.questions["column spatiallocation"].options)
     columns = dict(plain.columns or {})
     columns["spatiallocation"] = columns["spatiallocation"].model_copy(update={"encoding": "sqlserver_geography"})
     encoded = plain.model_copy(update={"columns": columns})
-    asked = c.classify(encoded, _claims(name), vocabulary, hints, (), MAX_OPTIONS, "classify")
+    asked = c.classify(encoded, _for(_claims(name)), vocabulary, hints, (), MAX_OPTIONS, "classify")
     assert asked.request is not None
     assert set(asked.request.questions["column spatiallocation"].options) - {c.NEW, c.UNCLEAR} == {"location"}
     named = c.Named((c.NamedType(name="spot", description="位置", columns=["spatiallocation"], values_evidence=[]),), ())
-    assert c.properties(encoded, _claims(name), named, "properties").candidates["spot"] == ("geo.point",)
-    assert "media.image" in c.properties(plain, _claims(name), named, "properties").candidates["spot"]
+    assert c.properties(encoded, _for(_claims(name)), named, "properties").candidates["spot"] == ("geo.point",)
+    assert "media.image" in c.properties(plain, _for(_claims(name)), named, "properties").candidates["spot"]
 
 
 def test_an_encoding_that_contradicts_the_column_family_is_an_error() -> None:
@@ -241,7 +248,7 @@ def _relation_question(name: str, target: str, extra: Sequence[Claim] = ()) -> t
     claims = [*_claims(name), *extra]
     fk = next(x for x in claims if x.predicate == "references" and x.target is not None
               and qualify(x.target.schema_name, x.target.table) == target)
-    asked = c.classify(table, claims, VOCABULARY, v1.meaning_hints(SEEDED, table, GROUPS),
+    asked = c.classify(table, _for(claims), VOCABULARY, v1.meaning_hints(SEEDED, table, GROUPS),
                        v1.shared_key_foreign_keys(table, claims, SEEDED), MAX_OPTIONS, "classify")
     assert asked.request is not None
     question = asked.request.questions[f"relation {fk.id}"]
@@ -271,7 +278,7 @@ def test_is_a_is_offered_only_for_foreign_keys_that_share_the_primary_key() -> N
     undeclared = [x for x in _claims(name)
                   if not (x.predicate in ("not_null", "nullable") and x.subject.column == "salespersonid")]
     fk = next(x for x in undeclared if x.predicate == "references" and x.columns == ["salespersonid"])
-    asked = c.classify(_table(name), undeclared, VOCABULARY, {}, (), MAX_OPTIONS, "classify")
+    asked = c.classify(_table(name), _for(undeclared), VOCABULARY, {}, (), MAX_OPTIONS, "classify")
     assert asked.request is not None
     instructions = asked.request.questions[f"relation {fk.id}"].instructions
     assert isinstance(instructions, dict) and "NULL" not in _facts(instructions)
@@ -305,7 +312,7 @@ def test_coverage_in_the_data_is_told_to_the_decision_model() -> None:
 
 def test_kind_questions_tell_what_the_primary_key_is_made_of() -> None:
     def facts(name: str) -> str:
-        asked = c.classify(_table(name).model_copy(update={"kind": None}), _claims(name), VOCABULARY, {}, (),
+        asked = c.classify(_table(name).model_copy(update={"kind": None}), _for(_claims(name)), VOCABULARY, {}, (),
                            MAX_OPTIONS, "classify")
         assert asked.request is not None
         instructions = asked.request.questions["kind"].instructions
@@ -329,7 +336,7 @@ def test_declared_currency_is_told_for_money_columns_only() -> None:
     declared = [x for x in declarations.extract("adventureworks", catalog, SourceDeclarations(default_currency=Unit.USD))
                 if qualify(x.subject.schema_name, x.subject.table) == name]
     assert len(declared) == 1 and declared[0].source.kind == "declaration"
-    asked = c.units([*_claims(name), *declared], ["unitprice", "orderqty"], ["unitprice"], [], "units")
+    asked = c.units(_for([*_claims(name), *declared]), ["unitprice", "orderqty"], ["unitprice"], [], "units")
     assert asked.request is not None
     money, quantity = asked.request.questions["unit unitprice"], asked.request.questions["unit orderqty"]
     assert isinstance(money.instructions, dict) and isinstance(quantity.instructions, dict)
@@ -349,8 +356,8 @@ def test_time_role_types_of_other_tables_are_not_offered() -> None:
     name = "humanresources.employeedepartmenthistory"
     table = _table(name)
     hints = v1.meaning_hints(SEEDED, table, GROUPS)
-    plain = c.classify(table, _claims(name), vocabulary, hints, (), MAX_OPTIONS, "classify")
-    guarded = c.classify(table, _claims(name), vocabulary, hints, (), MAX_OPTIONS, "classify",
+    plain = c.classify(table, _for(_claims(name)), vocabulary, hints, (), MAX_OPTIONS, "classify")
+    guarded = c.classify(table, _for(_claims(name)), vocabulary, hints, (), MAX_OPTIONS, "classify",
                          elsewhere_only={"hire_date", "birth_date"})
     assert plain.request is not None and guarded.request is not None
     assert "hire_date" in plain.request.questions["column startdate"].options
@@ -366,12 +373,12 @@ def test_decided_facts_go_to_the_llm_only_when_decided() -> None:
     fk = next(x for x in claims if x.predicate == "references" and x.columns == ["salesorderid"])
     classified = c.Classified(columns={"productid": c.Picked("product_id", 0.9), "unitprice": c.Picked(c.NEW, 1.0)},
                               relations={fk.id: c.Picked("part-of", 0.88)})
-    lines = c.decided_lines(classified, claims, VOCABULARY)
+    lines = c.decided_lines(classified, _for(claims), VOCABULARY)
     assert lines == ['column "productid": semantic type product_id (identifier), probability 0.90',
                      "foreign key (salesorderid) -> sales.salesorderheader: relation part-of, probability 0.88"]
-    prompt = c.naming_prompt(claims, VOCABULARY, "event", {}, ["unitprice"], lines)
+    prompt = c.naming_prompt(_for(claims), VOCABULARY, "event", {}, ["unitprice"], lines)
     body = prompt.split("<data>")[1].split("</data>")[0]
     assert "decided by the classification" in body and "relation part-of" in body  # データの区画の中
-    assert "decided by the classification" not in c.naming_prompt(claims, VOCABULARY, "event", {}, ["unitprice"])
+    assert "decided by the classification" not in c.naming_prompt(_for(claims), VOCABULARY, "event", {}, ["unitprice"])
     final = {"unitprice": SemanticType(name="unit_price", type=ValueType.money, description="単価", requires_unit=True)}
-    assert c.decided_lines(classified, claims, VOCABULARY, final)[0] == 'column "unitprice": semantic type unit_price (money)'
+    assert c.decided_lines(classified, _for(claims), VOCABULARY, final)[0] == 'column "unitprice": semantic type unit_price (money)'

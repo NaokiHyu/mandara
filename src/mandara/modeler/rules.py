@@ -38,6 +38,7 @@ from mandara.om.model import (
 )
 from mandara.om.names import qualify
 from mandara.om.ontology import SELF, Ontology
+from mandara.modeler import joins
 
 MODELER = "modeler-rules 0.1"
 
@@ -98,11 +99,15 @@ def propose(source: str, schemas: Collection[str], claims: Sequence[Claim]) -> P
     if missing := sorted(key for key, group in by_table.items() if _one(group, ClaimPredicate.declared_as) is None):
         raise InvalidInputError(f"declared_as の主張が無い表がある（台帳が不完全）: {missing}")
     table_ids = {key: "tbl_" + _stable_hash(source, *key) for key in by_table}
+    # 宣言の無い参照：値の包含の測定から、参照とみなす組（全体を見て1列に1つ。mandara.modeler.joins）
+    inferred: dict[_TableKey, list[joins.Chosen]] = defaultdict(list)
+    for chosen in joins.choose(claims):
+        inferred[(chosen.claim.subject.schema_name, chosen.claim.subject.table)].append(chosen)
 
     tables: list[Table] = []
     skipped: list[Skipped] = []
     for key in sorted(by_table):
-        table, table_skipped = _table(source, set(schemas), key, by_table[key], table_ids)
+        table, table_skipped = _table(source, set(schemas), key, by_table[key], table_ids, inferred.get(key, []))
         tables.append(table)
         skipped.extend(table_skipped)
 
@@ -113,7 +118,8 @@ def propose(source: str, schemas: Collection[str], claims: Sequence[Claim]) -> P
 
 
 def _table(
-    source: str, schemas: set[str], key: _TableKey, claims: list[Claim], table_ids: dict[_TableKey, str]
+    source: str, schemas: set[str], key: _TableKey, claims: list[Claim], table_ids: dict[_TableKey, str],
+    inferred: Sequence[joins.Chosen] = (),
 ) -> tuple[Table, list[Skipped]]:
     schema, name = key
     declared = _one(claims, ClaimPredicate.declared_as)
@@ -139,12 +145,15 @@ def _table(
         )
     nulls_evidence = sorted({not_null[col].id for c in alternates for col in _columns(c)})
 
-    kind, kind_evidence = _kind(declared, primary, references)
+    # 宣言された外部キーと同じ結合の推定は、関係にしない（宣言が根拠として強い）
+    declared_joins = {joins.claim_join(fk) for fk in references}
+    inferred = [c for c in inferred if joins.claim_join(c.claim) not in declared_joins]
+    kind, kind_evidence = _kind(declared, primary, [*references, *(c.claim for c in inferred)])
     confidence = min([CONTEXT_CONFIDENCE, *([KIND_CONFIDENCE] if kind is not None else list[float]())])
     evidence = [declared.id, *(c.id for c in [primary, *alternates] if c is not None), *nulls_evidence, *kind_evidence]
 
     # 中身が同じ外部キー（名前だけ違う冗長な制約）は、1つの関係にまとめて根拠を併記する
-    joins: dict[tuple[_TableKey, tuple[tuple[str, str], ...]], list[Claim]] = {}
+    by_join: dict[tuple[_TableKey, tuple[tuple[str, str], ...]], list[Claim]] = {}
     skipped: list[Skipped] = []
     for fk in sorted(references, key=lambda c: c.source.locator):
         target = _present(fk.target, fk)
@@ -155,7 +164,7 @@ def _table(
             skipped.append(Skipped(fk.id, f"参照先 {qualify(*target_key)} が範囲外"))
             continue
         pairs = tuple(sorted(zip(_columns(fk), _present(fk.target_columns, fk), strict=True)))
-        joins.setdefault((target_key, pairs), []).append(fk)
+        by_join.setdefault((target_key, pairs), []).append(fk)
     relations = [
         Relation(
             id="rel_" + _stable_hash(source, schema, name, fks[0].source.locator),
@@ -167,8 +176,24 @@ def _table(
             cardinality=Cardinality("n:1"),
             **_proposed(REFERENCE_CONFIDENCE, [fk.id for fk in fks]),
         )
-        for (target_key, _), fks in joins.items()
+        for (target_key, _), fks in by_join.items()
     ]
+    for chosen in inferred:
+        c = chosen.claim
+        target = _present(c.target, c)
+        target_key = (target.schema_name, target.table)
+        if target_key not in table_ids:
+            raise InvalidInputError(f"推定した参照の参照先 {qualify(*target_key)} の表が台帳に無い（台帳が不完全）: {c.id}")
+        relations.append(Relation(
+            id="rel_" + _stable_hash(source, schema, name, c.source.locator),
+            type=RelationType.has,
+            has_kind=HasKind.reference,
+            target=SELF if target_key == key else table_ids[target_key],
+            via=[ColumnPair.model_validate({"from": a, "to": b})
+                 for a, b in zip(_columns(c), _present(c.target_columns, c), strict=True)],
+            cardinality=Cardinality("1:1" if chosen.one_to_one else "n:1"),
+            status=ReviewStatus.proposed, confidence=chosen.confidence, evidence=[c.id], inferred_by=joins.MODELER,
+        ))
 
     typed = sorted(_all(claims, ClaimPredicate.typed_as), key=lambda c: _present(c.position, c))
     encoded_claims = _all(claims, ClaimPredicate.encoded_as)

@@ -48,14 +48,17 @@ def test_run_writes_everything_and_is_deterministic(tmp_path: Path) -> None:
     data = json.loads(record.read_text())
     assert data["status"] == "succeeded" and data["completed"] == ["extract", "propose", "evaluate"]
     assert data["versions"] == {"extractor": "catalog 0.1", "values_extractor": "values 0.1",
-                                "declaration_extractor": "declarations 0.1",
-                                "modeler": "modeler-rules 0.1"}
+                                "declaration_extractor": "declarations 0.1", "joins_extractor": "joins 0.1",
+                                "modeler": "modeler-rules 0.1", "joins_modeler": "modeler-joins 0.1"}
     decided = {(e["table"], e["column"]): e["encoding"] for e in data["encodings"]["examined"] if e["encoding"]}
     assert decided == {("person.address", "spatiallocation"): "sqlserver_geography"}
     assert "person.address.spatiallocation → sqlserver_geography" in out
     assert data["gold"]["tables"] == 14 and len(data["gold"]["hash"]) == 16
-    assert data["proposal"]["relations"] == 90 and data["skipped"] == []
-    assert data["evaluation"]["relation_endpoints"] == {"correct": 15, "gold": 17, "proposed": 15}
+    # 宣言された外部キー 90 本と、値の包含から推定した宣言の無い結合 4 本（archive の productid → product など。T2.2）
+    assert data["proposal"]["relations"] == 94 and data["skipped"] == []
+    assert data["joins"]["chosen"] >= 4 and data["joins"]["overlapping"] >= data["joins"]["included"]
+    # 正解 OM の関係のうち 1 本は宣言されていない結合で、値の包含から戻る（T2.2 の前は 15/17）
+    assert data["evaluation"]["relation_endpoints"] == {"correct": 16, "gold": 17, "proposed": 16}
     report = json.loads((ws / "eval/report.json").read_text())
     assert [a["aspect"] for a in report["aspects"]][:3] == ["tables", "kind", "primary_key"]
 

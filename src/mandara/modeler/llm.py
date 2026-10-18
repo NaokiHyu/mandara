@@ -48,6 +48,7 @@ from mandara.om.model import (
     UnitSource,
     ValueType,
 )
+from mandara.modeler.joins import InferenceClaims
 from mandara.om.names import qualify
 from mandara.om.value_types import UNIT_BEARING, assignable
 from mandara.om.ontology import SELF, Ontology, is_shared_key
@@ -102,7 +103,7 @@ class ColumnAnswer(_Answer):
 
 class RelationAnswer(_Answer):
     foreign_key: str
-    """外部キーの主張 ID（references）。"""
+    """外部キーの主張 ID（宣言の references、または値の包含から推定した included_in）。"""
     type: Literal["has", "part-of", "is-a", "classified-as"]
     role: str | None = None
     confidence: float = Field(ge=0, le=1)
@@ -156,7 +157,7 @@ def meaning_hints(ontology: Ontology, table: Table, groups: MeaningGroups) -> di
     return hints
 
 
-def brief(table_claims: Sequence[Claim], vocabulary: Mapping[str, SemanticType], decided_kind: str | None,
+def brief(table_claims: InferenceClaims, vocabulary: Mapping[str, SemanticType], decided_kind: str | None,
           meaning: Mapping[str, MeaningHint], decided: Sequence[str] = ()) -> str:
     """表の主張を、根拠の ID つきで読める形にする。自由文はすべて JSON の文字列で、データの区画の中。
     decided は前の段（判断モデルの分類）で決まったこと（classify.decided_lines。閾値を超えたものだけ）。"""
@@ -197,6 +198,12 @@ def brief(table_claims: Sequence[Claim], vocabulary: Mapping[str, SemanticType],
         lines.append(f"foreign key {c.id}: ({', '.join(map(_q, c.columns or []))}) -> "
                      f"{_q(qualify(target.schema_name, target.table))}({', '.join(map(_q, c.target_columns or []))})"
                      f" on delete {c.on_delete}")
+    for c in by[ClaimPredicate.included_in.value]:  # 宣言の無い参照（値の包含から推定。関係の根拠になったものだけが来る）
+        target = c.target
+        assert target is not None
+        lines.append(f"foreign key {c.id} (not declared; inferred from the data: all {c.distinct_values} distinct values "
+                     f"appear in the target key): ({', '.join(map(_q, c.columns or []))}) -> "
+                     f"{_q(qualify(target.schema_name, target.table))}({', '.join(map(_q, c.target_columns or []))})")
     for c in by[ClaimPredicate.checks.value]:
         lines.append(f"check {c.id}: {_q(c.text)}")
     if decided:
@@ -539,7 +546,7 @@ def _foreign_key_relations(table: Table, relations: list[Relation], table_claims
     """外部キーの主張 ID → それを実現している関係の位置。結合（参照先の表と列の対応）で引く（根拠の並びに頼らない）。"""
     out: dict[str, int] = {}
     for c in table_claims:
-        if c.predicate != ClaimPredicate.references.value or c.target is None:
+        if c.predicate not in (ClaimPredicate.references.value, ClaimPredicate.included_in.value) or c.target is None:
             continue
         target_name = qualify(c.target.schema_name, c.target.table)
         pairs = sorted(zip(c.columns or [], c.target_columns or [], strict=True))

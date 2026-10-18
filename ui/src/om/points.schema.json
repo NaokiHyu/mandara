@@ -253,6 +253,14 @@
                         "null"
                     ]
                 },
+                "distinct_values": {
+                    "description": "included_in\uff1a\u8868\u306e columns \u306e\u3001NULL \u3092\u9664\u3044\u305f\u7570\u306a\u308b\u5024\u306e\u6570",
+                    "minimum": 0,
+                    "type": [
+                        "integer",
+                        "null"
+                    ]
+                },
                 "encoding": {
                     "anyOf": [
                         {
@@ -291,6 +299,22 @@
                 "id": {
                     "pattern": "^clm_[0-9a-f]{16}$",
                     "type": "string"
+                },
+                "matched_values": {
+                    "description": "included_in\uff1a\u305d\u306e\u3046\u3061 target \u306e target_columns \u306b\u3042\u308b\u5024\u306e\u6570",
+                    "minimum": 0,
+                    "type": [
+                        "integer",
+                        "null"
+                    ]
+                },
+                "max_repeats": {
+                    "description": "included_in\uff1a\u8868\u306e columns \u306e1\u3064\u306e\u5024\u3092\u6301\u3064\u884c\u306e\u6700\u5927\u306e\u6570\uff081 \u306a\u3089\u5024\u306f\u91cd\u306a\u3089\u306a\u3044\u30021:1 \u306e\u624b\u304c\u304b\u308a\uff09",
+                    "minimum": 0,
+                    "type": [
+                        "integer",
+                        "null"
+                    ]
                 },
                 "object_kind": {
                     "anyOf": [
@@ -355,6 +379,14 @@
                     },
                     "type": [
                         "array",
+                        "null"
+                    ]
+                },
+                "target_values": {
+                    "description": "included_in\uff1atarget \u306e target_columns\uff08\u30ad\u30fc\uff09\u306e\u5024\u306e\u6570",
+                    "minimum": 0,
+                    "type": [
+                        "integer",
                         "null"
                     ]
                 },
@@ -424,7 +456,8 @@
                 "encoded_as",
                 "amounts_in",
                 "covers_all",
-                "discriminated_by"
+                "discriminated_by",
+                "included_in"
             ],
             "title": "ClaimPredicate",
             "type": "string"

@@ -25,6 +25,7 @@ from mandara.app.pipeline import Workspace
 from mandara.connectors.postgres.catalog_reader import PostgresCatalogReader
 from mandara.connectors.postgres.column_reader import PostgresColumnReader
 from mandara.connectors.postgres.coverage_reader import PostgresCoverageReader
+from mandara.connectors.postgres.inclusion_reader import PostgresInclusionReader
 from mandara.review.decisions import Approve, Decision, Reject, ReviewError
 from mandara.om.model import TableKind
 from mandara.omstore.yaml_store import load_ontology
@@ -52,7 +53,8 @@ def prepared() -> Iterator[Path]:
         work = Path(tmp) / "work"
         ws = Workspace(work / "adventureworks", "adventureworks")
         pipeline.extract(ws, PostgresCatalogReader("dbname=adventureworks"), SCOPE,
-                         PostgresColumnReader("dbname=adventureworks"), PostgresCoverageReader("dbname=adventureworks"))
+                         PostgresColumnReader("dbname=adventureworks"), PostgresCoverageReader("dbname=adventureworks"),
+                         PostgresInclusionReader("dbname=adventureworks"))
         pipeline.propose(ws)
         yield work
 

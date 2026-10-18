@@ -47,6 +47,7 @@ from mandara.om.model import (
     Unit,
     ValueType,
 )
+from mandara.modeler.joins import InferenceClaims
 from mandara.om.names import qualify
 from mandara.om.value_types import UNIT_BEARING, assignable
 
@@ -137,6 +138,12 @@ def _by(table_claims: Sequence[Claim], predicate: ClaimPredicate) -> list[Claim]
     return [c for c in table_claims if c.predicate == predicate.value]
 
 
+def references(table_claims: InferenceClaims) -> list[Claim]:
+    """表の参照：宣言された外部キー（references）と、値の包含から推定した参照（included_in）。表の主張は
+    mandara.modeler.joins.claims_for が作ったもの（型 InferenceClaims。included_in は参照とみなしたものだけ）。"""
+    return [c for c in table_claims if c.predicate in (ClaimPredicate.references.value, ClaimPredicate.included_in.value)]
+
+
 def _table_name(table_claims: Sequence[Claim]) -> str:
     declared = _by(table_claims, ClaimPredicate.declared_as)
     if not declared:
@@ -149,7 +156,7 @@ def _target(claim: Claim) -> str:
     return qualify(claim.target.schema_name, claim.target.table)
 
 
-def state(table_claims: Sequence[Claim]) -> dict[str, object]:
+def state(table_claims: InferenceClaims) -> dict[str, object]:
     """判断の材料：表の主張を、ID を除いた読める形にする（判断モデルには ID は雑音）。"""
     declared = _by(table_claims, ClaimPredicate.declared_as)[0]
     columns: list[dict[str, object]] = []
@@ -178,17 +185,17 @@ def state(table_claims: Sequence[Claim]) -> dict[str, object]:
         out["unique"] = unique
     out["columns"] = columns
     if fks := [f"({', '.join(c.columns or [])}) -> {_target(c)}({', '.join(c.target_columns or [])})"
-               for c in _by(table_claims, ClaimPredicate.references)]:
+               for c in references(table_claims)]:
         out["foreign_keys"] = fks
     if checks := [c.text for c in _by(table_claims, ClaimPredicate.checks)]:
         out["checks"] = checks
     return out
 
 
-def _table_evidence(table_claims: Sequence[Claim]) -> list[str]:
+def _table_evidence(table_claims: InferenceClaims) -> list[str]:
     """表の判断の根拠：表としての宣言、表のコメント、キー、外部キー。"""
     wanted = {ClaimPredicate.declared_as.value, ClaimPredicate.identified_by.value, ClaimPredicate.unique.value,
-              ClaimPredicate.references.value}
+              ClaimPredicate.references.value, ClaimPredicate.included_in.value}
     return sorted(c.id for c in table_claims if c.predicate in wanted
                   or (c.predicate == ClaimPredicate.described_as.value and c.subject.column is None))
 
@@ -215,6 +222,10 @@ def _fk_facts(fk: Claim, table_claims: Sequence[Claim], shared: bool) -> tuple[l
     facts: list[str] = []
     evidence: list[str] = []
     columns = set(fk.columns or [])
+    if fk.predicate == ClaimPredicate.included_in.value:  # 宣言の無い参照：値の包含から推定した（数は事実。値は埋め込まない）
+        facts.append(f"This reference is not declared in the source; it is inferred from the data: all "
+                     f"{fk.distinct_values} distinct values of the column appear in the target key "
+                     f"({fk.target_values} key values; each column value is in at most {fk.max_repeats} rows).")
     primary = next(iter(_by(table_claims, ClaimPredicate.identified_by)), None)
     if shared and primary is not None:
         facts.append("The foreign key columns are the whole primary key of the `table` and point to the primary key of "
@@ -247,13 +258,13 @@ def _fk_facts(fk: Claim, table_claims: Sequence[Claim], shared: bool) -> tuple[l
     return facts, evidence, data
 
 
-def _key_facts(table_claims: Sequence[Claim]) -> list[str]:
+def _key_facts(table_claims: InferenceClaims) -> list[str]:
     """表の種類の手がかり：主キーが、どの表への外部キーと、ほかのどの列でできているか。"""
     primary = next(iter(_by(table_claims, ClaimPredicate.identified_by)), None)
     if primary is None:
         return ["The `table` has no declared primary key."]
     key = list(primary.columns or [])
-    inside = [fk for fk in _by(table_claims, ClaimPredicate.references) if set(fk.columns or []) <= set(key)]
+    inside = [fk for fk in references(table_claims) if set(fk.columns or []) <= set(key)]
     covered = {c for fk in inside for c in fk.columns or []}
     rest = [c for c in key if c not in covered]
     if not inside:
@@ -307,7 +318,7 @@ class Classify:
     """当てうる既存の意味型が無い列（問わずに命名へ回す）。"""
 
 
-def classify(table: Table, table_claims: Sequence[Claim], vocabulary: Mapping[str, SemanticType],
+def classify(table: Table, table_claims: InferenceClaims, vocabulary: Mapping[str, SemanticType],
              hints: Mapping[str, MeaningHint], shared_keys: Collection[str], max_options: int, purpose: str,
              elsewhere_only: Collection[str] = ()) -> Classify:
     """分類の問い。表種別（v0 が決めていなければ）、外部キーごとの関係型、辺、列の意味型（組の意味型が決まっていなければ）。
@@ -328,7 +339,7 @@ def classify(table: Table, table_claims: Sequence[Claim], vocabulary: Mapping[st
         questions["kind"] = Choice({"question": "What does one row of the `table` represent?",
                                     **({"facts": key_facts} if key_facts else {})}, _KIND)
         evidence["kind"] = table_evidence
-    fks = _by(table_claims, ClaimPredicate.references)
+    fks = references(table_claims)
     for fk in fks:
         key = f"relation {fk.id}"
         facts, fact_evidence, discriminators = _fk_facts(fk, table_claims, fk.id in shared_keys)
@@ -501,7 +512,7 @@ class NamingAnswer(_Strict):
     semantic_types: list[NamedType]
 
 
-def decided_lines(classified: Classified, table_claims: Sequence[Claim], vocabulary: Mapping[str, SemanticType],
+def decided_lines(classified: Classified, table_claims: InferenceClaims, vocabulary: Mapping[str, SemanticType],
                   types: Mapping[str, SemanticType] | None = None) -> list[str]:
     """判断モデルが決めたこと（閾値を超えたものだけ）を、後の LLM の材料にする行。決められなかったものは入れない
     （不確かなことを事実として渡すと、LLM がそれを補強してしまう）。
@@ -517,7 +528,7 @@ def decided_lines(classified: Classified, table_claims: Sequence[Claim], vocabul
             if picked.value != NEW and d is not None:
                 lines.append(f"column {_qs(name)}: semantic type {d.name} ({d.type}"
                              + (f", role {d.role}" if d.role else "") + f"), probability {picked.probability:.2f}")
-    fks = {c.id: c for c in _by(table_claims, ClaimPredicate.references)}
+    fks = {c.id: c for c in references(table_claims)}
     for fk_id, picked in sorted(classified.relations.items()):
         if (fk := fks.get(fk_id)) is not None:
             lines.append(f"foreign key {_fk_label(fk)}: relation {picked.value}, probability {picked.probability:.2f}")
@@ -532,7 +543,7 @@ def _qs(text: str) -> str:
     return json.dumps(text, ensure_ascii=False)
 
 
-def naming_prompt(table_claims: Sequence[Claim], vocabulary: Mapping[str, SemanticType], kind: str | None,
+def naming_prompt(table_claims: InferenceClaims, vocabulary: Mapping[str, SemanticType], kind: str | None,
                   hints: Mapping[str, MeaningHint], columns: Sequence[str], decided: Sequence[str] = ()) -> str:
     """語彙は名前だけを渡す（使ってはいけない名前として。説明まで渡すと問いの大半が語彙になる）。
     名前は NAME の形（小文字・数字・_）に検証済みなので、データの区画の外に置いてよい。"""
@@ -597,7 +608,7 @@ class Properties:
     not_asked: tuple[Dropped, ...]
 
 
-def properties(table: Table, table_claims: Sequence[Claim], named: Named, purpose: str) -> Properties:
+def properties(table: Table, table_claims: InferenceClaims, named: Named, purpose: str) -> Properties:
     """列に当ててよい値の型は、型族（主張）と OM の列の encoding から（型の主張の無い列には何も当てられない）。"""
     families = _families(table_claims)
     columns = table.columns or {}
@@ -688,7 +699,7 @@ class Units:
     evidence: Mapping[str, list[str]]
 
 
-def units(table_claims: Sequence[Claim], needs_unit: Sequence[str], money: Collection[str], code_columns: Sequence[str],
+def units(table_claims: InferenceClaims, needs_unit: Sequence[str], money: Collection[str], code_columns: Sequence[str],
           purpose: str) -> Units:
     """単位の要る列の単位。選択肢は固定の単位と、同じ表の code の列。
     金額の列（money）には、ソースの宣言（amounts_in：行が別の単位を言わない限りその通貨）を事実として添える。"""
@@ -740,7 +751,7 @@ class GrainAnswer(_Strict):
     grain: str = Field(min_length=1)
 
 
-def grain_prompt(table_claims: Sequence[Claim], kind: str | None, hints: Mapping[str, MeaningHint],
+def grain_prompt(table_claims: InferenceClaims, kind: str | None, hints: Mapping[str, MeaningHint],
                  decided: Sequence[str] = ()) -> str:
     return brief(table_claims, {}, kind, hints, decided)
 

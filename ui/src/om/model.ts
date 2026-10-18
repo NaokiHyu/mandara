@@ -198,6 +198,8 @@ export enum ClaimPredicate {
     covers_all = "covers_all",
     /** 表の columns で target の target_columns を参照される target の行は、ちょうど target の列 discriminator が discriminator_values のどれかである行（実データ。区分の列。値の一部だけが参照され、残りは参照されない） */
     discriminated_by = "discriminated_by",
+    /** 表の columns（NULL を除く）の値を数えた結果：異なる値が distinct_values 個、そのうち target の target_columns （キー）にあるのが matched_values 個。target のキーの値は target_values 個。1 つの値の行は最大 max_repeats 行。 実データの測定で、宣言の無い参照（外部キー）の候補の事実。包含が成り立たない組も、否定の証拠として残す（仕様 6.7.2 B / D） */
+    included_in = "included_in",
 };
 /**
 * 近隣の集まりの見せ方。OM（種類、意味型の役割と加法性）と件数から機械的に決める（browse.group_view）
@@ -521,6 +523,14 @@ export interface Claim {
     discriminator?: string,
     /** 区分の列の値（ソースの値の文字列表現。NULL は含めない） */
     discriminator_values?: string[],
+    /** included_in：表の columns の、NULL を除いた異なる値の数 */
+    distinct_values?: number,
+    /** included_in：そのうち target の target_columns にある値の数 */
+    matched_values?: number,
+    /** included_in：target の target_columns（キー）の値の数 */
+    target_values?: number,
+    /** included_in：表の columns の1つの値を持つ行の最大の数（1 なら値は重ならない。1:1 の手がかり） */
+    max_repeats?: number,
     source: ClaimSource,
     /** 抽出器の名前と版 */
     extracted_by: string,
