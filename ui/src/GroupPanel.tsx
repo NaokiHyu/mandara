@@ -217,11 +217,12 @@ export function Timeline({ group: g, color, onOpen, note }: {
 }) {
   if (g.period_from === undefined || g.period_to === undefined) return null;
   const cells = (r: InstanceSummary) => [...(r.link_cells ?? []), ...r.cells];
-  const { bars, unreadable, first, last } = periodBars(g.rows, g.period_from, g.period_to, cells);
+  const { bars, unreadable, first, last, lastIsToday } = periodBars(g.rows, g.period_from, g.period_to, cells,
+                                                                    new Date().toISOString().slice(0, 10)); // 今日（UTC）
   return (
     <div className="timeline">
       {note !== undefined && <p className="dim small">{note}</p>}
-      <div className="timeline-scale dim small"><span>{first}</span><span>{last}</span></div>
+      <div className="timeline-scale dim small"><span>{first}</span><span>{lastIsToday ? `今日 ${last ?? ""}` : last}</span></div>
       <ul>
         {bars.map((b, i) => (
           <li key={`${b.row.key.join("/")}#${i}`}>

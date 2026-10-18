@@ -328,3 +328,70 @@ button.chip.within { font-size: 14px; padding: 2px var(--gap); }
 .links-strip .timeline .track { height: 6px; }
 .collection-links { max-width: 720px; }
 .link-cells { color: var(--text-dim); font-size: var(--size-small); }
+
+/* ---------------------------------------------------------------- 地図：操作、凡例、Drawer */
+.map-controls { position: absolute; top: var(--gap); left: var(--gap); display: flex; flex-direction: column;
+                gap: var(--gap-small); z-index: 2; }
+.map-controls p { margin: 0; padding: 0 var(--gap-small); background: var(--panel); }
+.segmented { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--radius);
+             background: rgba(20, 22, 24, 0.85); backdrop-filter: blur(4px); align-self: flex-start; }
+.segmented button { border: none; border-right: 1px solid var(--line); background: none; border-radius: 0;
+                    padding: 2px calc(var(--gap) * 1.25); font-size: var(--size-small); color: var(--text-dim); cursor: pointer; }
+.segmented button:last-child { border-right: none; }
+.segmented button:hover:not(:disabled) { color: var(--text-strong); }
+.segmented button.on { color: var(--bg); background: var(--accent); }
+.segmented button:disabled { opacity: 0.35; cursor: default; }
+.map-legend { position: absolute; left: var(--gap); bottom: calc(var(--gap) * 4.5); display: flex; align-items: center;
+              gap: var(--gap-small); padding: 2px var(--gap); font-size: 10px; background: rgba(20, 22, 24, 0.85);
+              border: 1px solid var(--line); z-index: 2; }
+.map-legend .ramp { display: inline-block; width: 96px; height: 6px; border-radius: 3px; }
+.map-status { z-index: 2; }
+.drawer { position: absolute; top: 0; right: 0; bottom: 0; width: min(520px, 45vw); z-index: 3; display: flex;
+          flex-direction: column; background: rgba(27, 30, 33, 0.96); border-left: 1px solid var(--line-strong);
+          box-shadow: -12px 0 32px rgba(0, 0, 0, 0.45); animation: drawer-in 0.18s ease-out; }
+@keyframes drawer-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .drawer { animation: none; } }
+.drawer-head { display: flex; align-items: center; gap: var(--gap); padding: var(--gap) calc(var(--gap) * 1.5);
+               border-bottom: 1px solid var(--line); }
+.drawer-head .link { margin-left: auto; }
+.drawer-head .close { border: none; background: none; color: var(--text-dim); cursor: pointer; padding: 0 var(--gap-small); }
+.drawer-head .close:hover { color: var(--text-strong); }
+.drawer-body { flex: 1; overflow: auto; padding: 0 calc(var(--gap) * 1.5) var(--gap); }
+.drawer .instance-body { grid-template-columns: 1fr; gap: calc(var(--gap) * 2); }
+.drawer .domain-head h1 { font-size: 18px; }
+
+/* 地図の計器（HUD）：司令室の計器盤。等幅、細い線、琥珀とカテゴリの色、うっすらした走査線 */
+.hud-frame { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.hud-frame .corner { position: absolute; width: 18px; height: 18px; border: 0 solid var(--accent); opacity: 0.7; }
+.hud-frame .tl { top: 6px; left: 6px; border-top-width: 1px; border-left-width: 1px; }
+.hud-frame .tr { top: 6px; right: 6px; border-top-width: 1px; border-right-width: 1px; }
+.hud-frame .bl { bottom: 6px; left: 6px; border-bottom-width: 1px; border-left-width: 1px; }
+.hud-frame .br { bottom: 6px; right: 6px; border-bottom-width: 1px; border-right-width: 1px; }
+.hud-frame .crosshair { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; transform: translate(-50%, -50%);
+  background: linear-gradient(var(--accent), var(--accent)) center / 1px 100% no-repeat,
+              linear-gradient(var(--accent), var(--accent)) center / 100% 1px no-repeat; opacity: 0.35; }
+.hud-frame .scanlines { position: absolute; inset: 0;
+  background: repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 3px); }
+.hud { position: absolute; top: var(--gap); right: var(--gap); z-index: 2; width: 330px; overflow: hidden; padding: var(--gap-small) var(--gap);
+       font-size: 10px; line-height: 1.5; letter-spacing: 0.04em; font-variant-numeric: tabular-nums;
+       background: rgba(20, 22, 24, 0.82); border: 1px solid var(--line-strong); border-top: 2px solid var(--hud-color);
+       backdrop-filter: blur(3px); }
+.hud i { font-style: normal; color: var(--text-dim); }
+.hud-title { color: var(--text-dim); border-bottom: 1px solid var(--line); padding-bottom: 2px; margin-bottom: 2px;
+             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hud-title b { color: var(--text-key); font-weight: 600; }
+.hud .blink { color: var(--hud-color); animation: blink 1.4s steps(2, start) infinite; }
+@keyframes blink { to { visibility: hidden; } }
+@media (prefers-reduced-motion: reduce) { .hud .blink { animation: none; } }
+.hud dl { display: grid; grid-template-columns: 56px 1fr; margin: 0; }
+.hud dt { color: var(--accent); opacity: 0.8; }
+.hud dd { margin: 0; color: var(--text-key); white-space: nowrap; display: flex; align-items: center; gap: 4px; min-width: 0; }
+.hud .meter { display: inline-block; flex: 1; min-width: 0; height: 4px; background: var(--panel-raised); position: relative; }
+.hud .meter span { position: absolute; left: 0; top: 0; bottom: 0; background: var(--hud-color); }
+.hud-sub { margin-top: 4px; padding-top: 2px; border-top: 1px solid var(--line); color: var(--accent); opacity: 0.8; }
+.hud .density { list-style: none; margin: 0; padding: 0; }
+.hud .density button { display: grid; grid-template-columns: 16px auto 40px minmax(0, 1fr); align-items: center; gap: 4px; width: 100%;
+                       border: none; background: none; padding: 0; font-size: 10px; text-align: left; cursor: pointer; }
+.hud .density button:hover { background: var(--panel-raised); }
+.hud .density b { color: var(--text-key); text-align: right; font-weight: 600; }
+.hud .density .meter { width: 100%; }

@@ -34,16 +34,8 @@ export function DomainView({ ontologyId, place, onPlace }: {
   if (index.state === "loading") return <p className="dim pad">loading domains…</p>;
   if (index.state === "error") return <ErrorText error={index.error} />;
   const domains = index.value.domains;
-  const byTable = new Map(domains.map((d) => [d.table, d]));
+  const { byTable, color } = palette(index.value);
   const current = place === null ? undefined : byTable.get(place.table);
-  const colors = new Map(index.value.contexts.map((c, i) => [c, contextColor(i)]));
-  const color = (table: string) => { // ドメインのカテゴリ（コンテキスト）の色。ドメインでない表は地味な色
-    const d = byTable.get(table);
-    if (d === undefined) return "--text-dim";
-    const found = colors.get(d.context);
-    if (found === undefined) throw new Error(`ドメインのコンテキスト ${d.context} が DomainIndex.contexts に無い（契約の誤り）`);
-    return found;
-  };
 
   return (
     <div className="domains">
@@ -84,6 +76,20 @@ export function DomainView({ ontologyId, place, onPlace }: {
       </section>
     </div>
   );
+}
+
+/** ドメインの表引きと、ドメインのカテゴリ（コンテキスト）の色（CSS 変数の名前）。ドメインでない表は地味な色。地図と共通。 */
+export function palette(index: DomainIndex): { byTable: Map<string, DomainSummary>; color: (table: string) => string } {
+  const byTable = new Map(index.domains.map((d) => [d.table, d]));
+  const colors = new Map(index.contexts.map((c, i) => [c, contextColor(i)]));
+  const color = (table: string) => {
+    const d = byTable.get(table);
+    if (d === undefined) return "--text-dim";
+    const found = colors.get(d.context);
+    if (found === undefined) throw new Error(`ドメインのコンテキスト ${d.context} が DomainIndex.contexts に無い（契約の誤り）`);
+    return found;
+  };
+  return { byTable, color };
 }
 
 function DomainList({ domains, filter, selected, color, onOpen }: {
@@ -258,8 +264,8 @@ function labelTitle(domain: DomainSummary): string {
     : `見出しは ${domain.label_columns.join(" + ")}（列の名前からの推定）`;
 }
 
-/** 個（行のイメージ）：値、参照先へのリンク、近隣の集まり。 */
-function InstancePane({ ontologyId, domain, instanceKey, known, color, onOpen }: {
+/** 個（行のイメージ）：値、参照先へのリンク、近隣の集まり。ドメインビューワと地図の Drawer が使う。 */
+export function InstancePane({ ontologyId, domain, instanceKey, known, color, onOpen }: {
   ontologyId: string;
   domain: DomainSummary;
   instanceKey: readonly string[];
@@ -361,6 +367,6 @@ function InstancePane({ ontologyId, domain, instanceKey, known, color, onOpen }:
   );
 }
 
-function ErrorText({ error }: { error: unknown }) {
+export function ErrorText({ error }: { error: unknown }) {
   return <p className="failure pad">{error instanceof ApiError ? error.message : String(error)}</p>;
 }

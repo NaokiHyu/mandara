@@ -148,7 +148,8 @@ export function App() {
                         onPlace={place} />
           ) : (
             <Workspace ontologyId={requireSelected(selected)} doc={doc.value} view={view} table={table} onSelect={select}
-                       onChanged={refresh} onOpenTable={openTable} />
+                       onChanged={refresh} onOpenTable={openTable}
+                       onOpenDomain={(p) => { place(p); setView("domain"); }} />
           )
         )}
       </main>
@@ -162,7 +163,7 @@ function requireSelected(selected: string | null): string {
   return selected;
 }
 
-function Workspace({ ontologyId, doc, view, table, onSelect, onChanged, onOpenTable }: {
+function Workspace({ ontologyId, doc, view, table, onSelect, onChanged, onOpenTable, onOpenDomain }: {
   ontologyId: string;
   doc: OntologyDocument;
   view: View;
@@ -170,6 +171,7 @@ function Workspace({ ontologyId, doc, view, table, onSelect, onChanged, onOpenTa
   onSelect: (id: string | null) => void;
   onChanged: () => void;
   onOpenTable: (id: string) => void;
+  onOpenDomain: (place: Place) => void;
 }) {
   const graph = useMemo((): Load<ReturnType<typeof toGraph>> => {
     try {
@@ -191,7 +193,7 @@ function Workspace({ ontologyId, doc, view, table, onSelect, onChanged, onOpenTa
           <p className="failure">表 {table} はこの OM に無い（URL の table を確かめる）</p>
         )}
         {view === "list" && <TableList tables={doc.tables} contexts={contexts} selected={table} onSelect={onSelect} />}
-        {view === "map" && <MapPane ontologyId={ontologyId} columns={geo} table={table} />}
+        {view === "map" && <MapPane ontologyId={ontologyId} columns={geo} table={table} onOpenDomain={onOpenDomain} />}
         {view === "graph" && graph.state === "error" && <Failure error={graph.error} />}
         {view === "graph" && graph.state === "ok" && (
           <GraphView nodes={graph.value.nodes} edges={graph.value.edges} contexts={contexts} selected={table}
@@ -204,7 +206,9 @@ function Workspace({ ontologyId, doc, view, table, onSelect, onChanged, onOpenTa
 }
 
 /** 地図：選んでいる表に geo.point の列があればそれを出す。無ければそう伝え、出せる列から選んでもらう。 */
-function MapPane({ ontologyId, columns, table }: { ontologyId: string; columns: GeoColumn[]; table: string | null }) {
+function MapPane({ ontologyId, columns, table, onOpenDomain }: {
+  ontologyId: string; columns: GeoColumn[]; table: string | null; onOpenDomain: (place: Place) => void;
+}) {
   const ofTable = columns.filter((c) => c.tableId === table);
   const first = ofTable[0]; // columns は Workspace で memo 済みなので、表が同じなら同じもの
   const [chosen, setChosen] = useState<GeoColumn | undefined>(first);
@@ -225,7 +229,7 @@ function MapPane({ ontologyId, columns, table }: { ontologyId: string; columns: 
       </select>
       {chosen === undefined ? null : (
       <Suspense fallback={<p className="dim">loading map…</p>}>
-        <MapView ontologyId={ontologyId} target={chosen} />
+        <MapView ontologyId={ontologyId} target={chosen} onOpenDomain={onOpenDomain} />
       </Suspense>
       )}
     </div>

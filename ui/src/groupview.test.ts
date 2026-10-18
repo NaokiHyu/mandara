@@ -29,18 +29,24 @@ const row = (key: string, from?: string, to?: string): InstanceSummary => ({
 describe("periodBars", () => {
   const cells = (r: InstanceSummary) => r.link_cells ?? [];
   it("始まりと終わりを全体の幅に並べ、終わりの無い期間は右端まで（今も有効）", () => {
-    const { bars, first, last } = periodBars([row("a", "2020-01-01", "2021-01-01"), row("b", "2021-01-01")],
-                                             "startdate", "enddate", cells);
-    expect(bars.map((b) => [b.from, b.to, b.open])).toEqual([[0, 1, false], [1, 1, true]]);
-    expect([first, last]).toEqual(["2020-01-01", "2021-01-01"]);
+    const { bars, first, last, lastIsToday } = periodBars([row("a", "2020-01-01", "2021-01-01"), row("b", "2021-01-01")],
+                                                          "startdate", "enddate", cells, "2022-01-01");
+    // 今も有効な期間があるので右端は今日。その期間は始まりから今日までの幅を持つ
+    expect(bars.map((b) => [b.from, b.to, b.open])).toEqual([[0, 366 / 731, false], [366 / 731, 1, true]]);
+    expect([first, last, lastIsToday]).toEqual(["2020-01-01", "2022-01-01", true]);
+  });
+  it("今も有効な期間が無ければ、右端はデータの最後の日付", () => {
+    const { last, lastIsToday } = periodBars([row("a", "2020-01-01", "2021-01-01")], "startdate", "enddate", cells,
+                                             "2030-01-01");
+    expect([last, lastIsToday]).toEqual(["2021-01-01", false]);
   });
   it("終わりのセル自体が無い行は、今も有効とはみなさず読めない行にする", () => {
     const noEnd: InstanceSummary = { ...row("c", "2020-01-01"), link_cells: [{ column: "startdate", value: "2020-01-01" }] };
-    expect(periodBars([noEnd], "startdate", "enddate", cells).unreadable.map((r) => r.key[0])).toEqual(["c"]);
+    expect(periodBars([noEnd], "startdate", "enddate", cells, "2030-01-01").unreadable.map((r) => r.key[0])).toEqual(["c"]);
   });
   it("日付として読めない行は帯にせず、別に返す", () => {
     const { bars, unreadable } = periodBars([row("a", "いつか", "2021-01-01"), row("b", "2020-01-01", "2021-01-01")],
-                                            "startdate", "enddate", cells);
+                                            "startdate", "enddate", cells, "2030-01-01");
     expect(bars.map((b) => b.row.key[0])).toEqual(["b"]);
     expect(unreadable.map((r) => r.key[0])).toEqual(["a"]);
   });

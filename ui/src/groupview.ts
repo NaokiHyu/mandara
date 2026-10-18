@@ -28,10 +28,11 @@ export function seriesLine(points: readonly SeriesPoint[], pick: (p: SeriesPoint
 export type Bar = { row: InstanceSummary; from: number; to: number; open: boolean; label: string };
 
 /** 期間の帯：始まりと終わりの日付（表示の文字列 YYYY-MM-DD…）から、0..1 の位置。終わりが NULL なら右端まで（今も有効）。
+ *  今も有効な期間があれば、右端を今日（today。YYYY-MM-DD）まで伸ばす（データの最後の日付で切ると、そこから始まった期間に幅が無い）。
  *  日付として読めない値の行は帯にしない（理由は呼ぶ側が出す）。 */
 export function periodBars(rows: readonly InstanceSummary[], from: string, to: string,
-                           cells: (r: InstanceSummary) => readonly { column: string; value?: string }[]):
-  { bars: Bar[]; unreadable: InstanceSummary[]; first?: string; last?: string } {
+                           cells: (r: InstanceSummary) => readonly { column: string; value?: string }[], today: string):
+  { bars: Bar[]; unreadable: InstanceSummary[]; first?: string; last?: string; lastIsToday?: boolean } {
   const parsed = rows.map((row) => {
     const cell = (c: string) => cells(row).find((x) => x.column === c);
     const start = day(cell(from)?.value);
@@ -44,14 +45,17 @@ export function periodBars(rows: readonly InstanceSummary[], from: string, to: s
   const unreadable = parsed.filter((p) => p.start === undefined || p.end === undefined).map((p) => p.row);
   if (ok.length === 0) return { bars: [], unreadable };
   const times = ok.flatMap((p) => [p.start as number, ...(p.end === null ? [] : [p.end as number])]);
+  const now = day(today);
+  if (now === undefined || now === null) throw new Error(`今日の日付を読めない: ${today}`);
+  const open = ok.some((p) => p.end === null);
   const lo = Math.min(...times);
-  const hi = Math.max(...times);
+  const hi = open ? Math.max(...times, now) : Math.max(...times);
   const span = hi - lo || 1;
   const bars = ok.map((p) => ({
     row: p.row, from: ((p.start as number) - lo) / span, to: p.end === null ? 1 : ((p.end as number) - lo) / span,
     open: p.end === null, label: p.row.label,
   })).sort((a, b) => a.from - b.from || a.to - b.to); // 始まりの順（古いものから）
-  return { bars, unreadable, first: iso(lo), last: iso(hi) };
+  return { bars, unreadable, first: iso(lo), last: iso(hi), lastIsToday: open && hi === now };
 }
 
 const CURRENCIES = new Set(["USD", "JPY"]);
