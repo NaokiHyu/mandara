@@ -3,7 +3,9 @@
 Domain 層の純粋な関数（呼び出しは Application がポート経由で行う）。表ごとに最大 5 回、要らない問いは作らない：
 1. 分類（判断モデル）：表種別、外部キーごとの関係型、辺（relation の表の候補のときだけ）、列ごとの意味型
    （型族で当ててよい既存の語彙 ＋ new）
-2. 命名（LLM）：new になった列の意味型の名前・説明・enum の値
+2. 命名（LLM）：new になった列の意味型の名前・説明・enum の値。答えは意味型ごとに検証し、形の崩れた意味型だけを落とす
+   （parse_naming）。答えに名前の無かった列だけを、1 回だけ問い直す（目的 "name <表> (retry)"。最初の答えの名前は使えない
+   名前として渡す。問い直したことは実行の記録の naming_retry に残る。2026-10-19、ユーザーと合意）
 3. 意味型の性質（判断モデル）：値の型（列の型族で当ててよいものだけ）、役割、加法性。requires_unit は値の型から決める
 4. 単位（判断モデル）：単位の要る意味型の列の単位
 5. grain（LLM）：grain が要る表で、まだ無いときだけ
@@ -20,6 +22,7 @@ Domain 層の純粋な関数（呼び出しは Application がポート経由で
 import json
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -573,21 +576,61 @@ def _qs(text: str) -> str:
     return json.dumps(text, ensure_ascii=False)
 
 
-def naming_prompt(table_claims: InferenceClaims, vocabulary: Mapping[str, SemanticType], kind: str | None,
+def naming_prompt(table_claims: InferenceClaims, taken: Collection[str], kind: str | None,
                   hints: Mapping[str, MeaningHint], columns: Sequence[str], decided: Sequence[str] = ()) -> str:
-    """語彙は名前だけを渡す（使ってはいけない名前として。説明まで渡すと問いの大半が語彙になる）。
-    名前は NAME の形（小文字・数字・_）に検証済みなので、データの区画の外に置いてよい。"""
-    taken = ", ".join(sorted(vocabulary)) or "(none)"
+    """使ってはいけない名前（taken。既存の語彙と、問い直しなら最初の答えの名前）は名前だけを渡す（説明まで渡すと問いの大半が
+    語彙になる）。名前は NAME の形（小文字・数字・_）に検証済みなので、データの区画の外に置いてよい。"""
+    names = ", ".join(sorted(taken)) or "(none)"
     return (brief(table_claims, {}, kind, hints, decided)
-            + f"\nexisting semantic type names (taken, do not reuse): {taken}"
+            + f"\nexisting semantic type names (taken, do not reuse): {names}"
             + "\ncolumns to name: " + ", ".join(f'"{c}"' for c in columns))
 
 
-def parse_naming(data: object) -> NamingAnswer:
-    try:
-        return NamingAnswer.model_validate(data)
-    except ValidationError as e:
-        raise InvalidAnswerError(f"命名の答えの形が違う: {e.error_count()} 件。{e.errors()[:3]}") from e
+@dataclass(frozen=True)
+class ParsedNaming:
+    answer: NamingAnswer
+    """形の正しい意味型だけ。"""
+    broken: tuple[Dropped, ...]
+    """形の崩れた意味型（答えの中の位置と、崩れ方）。その列は答えに無い列として扱う（問い直しの対象になる）。"""
+
+
+def parse_naming(raw: object) -> ParsedNaming:
+    """命名の答えを意味型ごとに検証する。崩れた意味型だけを理由つきで落とし、残りは使う（1 つの崩れで表の命名をまるごと
+    捨てない。答えの各項目は、当たるか理由つきで落ちるか）。答えの外形（semantic_types の一覧）が崩れていれば誤り。"""
+    preview = _preview(raw)
+    envelope = cast(dict[str, object], raw) if isinstance(raw, dict) else None
+    items = envelope.get("semantic_types") if envelope is not None else None
+    if envelope is None or set(envelope) != {"semantic_types"} or not isinstance(items, list):
+        raise InvalidAnswerError(f"命名の答えの形が違う: semantic_types の一覧だけを持つ形ではない（{preview}）")
+    items = cast(list[object], items)
+    kept: list[NamedType] = []
+    broken: list[Dropped] = []
+    for i, item in enumerate(items):
+        try:
+            kept.append(NamedType.model_validate(item))
+        except ValidationError as e:
+            broken.append(Dropped(f"semantic_type #{i}", f"命名の答えの形が違う: {e.error_count()} 件。{e.errors()[:2]}"))
+    return ParsedNaming(NamingAnswer(semantic_types=kept), tuple(broken))
+
+
+def _preview(data: object) -> str:
+    text = json.dumps(data, ensure_ascii=False, default=str)
+    return text[:200] + ("…" if len(text) > 200 else "")
+
+
+def uncovered(named: "Named", asked: Sequence[str]) -> list[str]:
+    """問うた列のうち、当てる意味型の無い列（答えに無い、形の崩れた意味型に入っていた、など）。問い直しの対象。"""
+    covered = {c for t in named.types for c in t.columns}
+    return [c for c in asked if c not in covered]
+
+
+def merge_named(first: "Named", retry: "Named", retried: Sequence[str]) -> "Named":
+    """最初の命名と、答えの無かった列だけの問い直し（1 回だけ）を合わせる。問い直しで名前の付いた列は、最初の答えで落とした
+    理由を消す（当たったので）。名前の付かなかった列は、両方の理由を残す。"""
+    recovered = {c for t in retry.types for c in t.columns}
+    assert recovered <= set(retried), "問い直しは、問い直した列だけを名付ける（read_naming が問うていない列を落とす）"
+    kept = [d for d in first.dropped if not (d.item.startswith("column ") and d.item.removeprefix("column ") in recovered)]
+    return Named((*first.types, *retry.types), (*kept, *retry.dropped))
 
 
 @dataclass(frozen=True)
@@ -597,9 +640,10 @@ class Named:
     dropped: tuple[Dropped, ...]
 
 
-def read_naming(answer: NamingAnswer, asked: Sequence[str], vocabulary: Mapping[str, SemanticType]) -> Named:
+def read_naming(answer: NamingAnswer, asked: Sequence[str], vocabulary: Collection[str]) -> Named:
     """問うた列ごとにちょうど1つの名前。問うていない列、2度出た列、名前の返らなかった列は理由つきで落とす。
-    既存の語彙の名前も落とす（判断モデルが「既存のどれも合わない」と答えた列なので、既存の型を当てると食い違う）。"""
+    既存の語彙の名前（vocabulary。問い直しなら最初の答えの名前も）も落とす（判断モデルが「既存のどれも合わない」と答えた列
+    なので、既存の型を当てると食い違う）。"""
     dropped: list[Dropped] = []
     seen: dict[str, int] = {}
     for t in answer.semantic_types:

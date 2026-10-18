@@ -427,3 +427,48 @@ def test_value_shapes_are_in_the_state_and_resemblance_is_not_in_the_questions()
     others = _classify(table, _for(_claims(name)), VOCABULARY, v1.meaning_hints(SEEDED, table, GROUPS),
                        v1.shared_key_foreign_keys(table, _claims(name), SEEDED), MAX_OPTIONS, f"classify {name}")
     assert others.request is not None and "value_shape_notation" not in others.request.state
+
+
+GOOD_TYPE: st.SearchStrategy[dict[str, object]] = st.fixed_dictionaries({
+    "name": st.from_regex(r"[a-z][a-z_]{2,8}", fullmatch=True), "description": st.just("説明"),
+    "columns": st.lists(st.sampled_from(["a", "b", "c", "d"]), min_size=1, max_size=2, unique=True),
+    "values": st.none(), "values_evidence": st.just(cast(list[str], []))})
+BROKEN_TYPE: st.SearchStrategy[object] = st.sampled_from([
+    {"name": "x_flag", "description": "d", "columns": ["a"], "values": [{"name": "false", "label": "いいえ"}],
+     "values_evidence": []},  # enum の値のキーの間違い（実際に起きた崩れ）
+    {"name": "x_id", "description": "d", "columns": ["b"], "values": None, "values_evidence": [], "extra": 1},
+    {"name": "Bad Name", "description": "d", "columns": ["c"], "values": None, "values_evidence": []},
+    "not an object"])
+
+
+@given(items=st.lists(st.tuples(st.booleans(), GOOD_TYPE, BROKEN_TYPE), max_size=6))
+def test_naming_is_validated_per_semantic_type(items: list[tuple[bool, dict[str, object], object]]) -> None:
+    """命名の答えは意味型ごとに検証する：形の正しい意味型は順に残り、崩れた意味型は位置と理由つきで落ちる（1 つの崩れで
+    表の命名をまるごと捨てない）。"""
+    data = {"semantic_types": [good if ok else bad for ok, good, bad in items]}
+    parsed = c.parse_naming(data)
+    assert [t.name for t in parsed.answer.semantic_types] == [good["name"] for ok, good, _ in items if ok]
+    assert [d.item for d in parsed.broken] == [f"semantic_type #{i}" for i, (ok, _, _) in enumerate(items) if not ok]
+    assert all("命名の答えの形が違う" in d.reason for d in parsed.broken)
+
+
+@pytest.mark.parametrize("data", [None, [], {"semantic_types": "x"}, {"semantic_types": [], "other": 1}])
+def test_a_naming_answer_without_the_list_of_semantic_types_is_an_error(data: object) -> None:
+    with pytest.raises(v1.InvalidAnswerError, match="semantic_types の一覧"):
+        c.parse_naming(data)
+
+
+def test_a_retry_names_only_the_missing_columns_and_clears_their_reasons() -> None:
+    first = c.read_naming(c.NamingAnswer(semantic_types=[
+        c.NamedType(name="order_id", description="受注", columns=["a"], values_evidence=[])]), ["a", "b", "c"], {})
+    assert c.uncovered(first, ["a", "b", "c"]) == ["b", "c"]
+    retry = c.read_naming(c.NamingAnswer(semantic_types=[
+        c.NamedType(name="ship_date", description="出荷日", columns=["b"], values_evidence=[]),
+        c.NamedType(name="order_id", description="重なる名前", columns=["c"], values_evidence=[])]),
+        ["b", "c"], {"order_id"})  # 最初の答えの名前は使えない
+    merged = c.merge_named(first, retry, ["b", "c"])
+    assert [t.name for t in merged.types] == ["order_id", "ship_date"]
+    assert c.uncovered(merged, ["a", "b", "c"]) == ["c"]
+    reasons = [(d.item, d.reason) for d in merged.dropped]
+    assert ("column b", "命名の答えに無い") not in reasons  # 問い直しで名前が付いた
+    assert ("column c", "命名の答えに無い") in reasons and any("既存の語彙の名前" in r for i, r in reasons if i == "column c")

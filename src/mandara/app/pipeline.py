@@ -13,11 +13,11 @@ Application 層。Domain の純粋な関数（抽出器、モデラー、評価�
 
 import hashlib
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from mandara.codecs.detect import Detection, detect
 from mandara.codecs.registry import BY_ENCODING, CodecError
@@ -668,22 +668,46 @@ def _ask_table(table: Table, table_claims: joins_modeler.InferenceClaims, ontolo
     named: classify.Named | None = None
     new_types: list[llm_modeler.SemanticTypeAnswer] = []
     if new_columns:
-        request = StructuredRequest(
-            purpose=f"name {table.name}", system=classify.NAMING_SYSTEM,
-            prompt=classify.naming_prompt(table_claims, vocabulary, kind, hints, new_columns,
-                                          classify.decided_lines(classified, table_claims, vocabulary)),
-            schema=classify.NamingAnswer.model_json_schema(), max_output_tokens=NAMING_MAX_OUTPUT_TOKENS)
-        naming_data: object = None
-        try:
-            naming_data = model.ask(request).data
-            record["naming"] = {"data": naming_data}
-            named = classify.read_naming(classify.parse_naming(naming_data), new_columns, vocabulary)
-        except (BudgetExceededError, EstimateViolatedError):
-            raise
-        except (LlmError, llm_modeler.InvalidAnswerError) as e:
-            detail = failed("命名", e)
-            record["naming"] = {"data": naming_data, "error": detail}
-            notes += [llm_modeler.Dropped(f"column {c}", f"命名を得られなかった: {detail}") for c in new_columns]
+        decided = classify.decided_lines(classified, table_claims, vocabulary)
+
+        def ask_naming(columns: Sequence[str], taken: Collection[str], purpose: str, key: str) -> classify.Named | None:
+            """命名を 1 回問う。答えの形の崩れた意味型だけを理由つきで落とす。答えを得られなければ None（理由は記録）。"""
+            request = StructuredRequest(
+                purpose=purpose, system=classify.NAMING_SYSTEM,
+                prompt=classify.naming_prompt(table_claims, taken, kind, hints, columns, decided),
+                schema=classify.NamingAnswer.model_json_schema(), max_output_tokens=NAMING_MAX_OUTPUT_TOKENS)
+            data: object = None
+            try:
+                data = model.ask(request).data
+                parsed = classify.parse_naming(data)
+                record[key] = {"columns": list(columns), "data": data,
+                               **({"broken": [{"item": d.item, "reason": d.reason} for d in parsed.broken]}
+                                  if parsed.broken else {})}
+                read = classify.read_naming(parsed.answer, columns, taken)
+                return classify.Named(read.types, (*parsed.broken, *read.dropped))
+            except (BudgetExceededError, EstimateViolatedError):
+                raise
+            except (LlmError, llm_modeler.InvalidAnswerError) as e:
+                record[key] = {"columns": list(columns), "data": data,
+                               "error": failed("命名" if key == "naming" else "命名の問い直し", e)}
+                return None
+
+        named = ask_naming(new_columns, vocabulary, f"name {table.name}", "naming")
+        # 答えに無かった列（形の崩れた意味型の列、答えを得られなかったときは全部）だけを、1 回だけ問い直す（2026-10-19、
+        # ユーザーと合意。問い直したことは記録の naming_retry に残る）。最初の答えの名前は使えない名前として渡す
+        missing = classify.uncovered(named, new_columns) if named is not None else list(new_columns)
+        if missing:
+            first_names = {t.name for t in named.types} if named is not None else set[str]()
+            retry = ask_naming(missing, {*vocabulary, *first_names}, f"name {table.name} (retry)", "naming_retry")
+            if named is None and retry is None:
+                detail = str(cast(dict[str, object], record["naming_retry"])["error"])
+                notes += [llm_modeler.Dropped(f"column {c}", f"命名を得られなかった（問い直しても）: {detail}")
+                          for c in new_columns]
+            elif named is None:
+                assert retry is not None
+                named = retry
+            elif retry is not None:
+                named = classify.merge_named(named, retry, missing)
         if named is not None:
             notes += named.dropped
             props = classify.properties(table, table_claims, named, f"properties {table.name}")

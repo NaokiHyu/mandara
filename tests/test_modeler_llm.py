@@ -834,3 +834,32 @@ def test_views_are_not_asked_and_say_so(workspace: Workspace) -> None:
     assert not any(view in p for p in decider.asked) and not any(view in p for p in model.asked)
     views = {t.name for t in load_ontology(workspace.ontology).tables if t.derived}
     assert {o.table for o in refined.outcomes if o.status == "not_asked"} == views
+
+
+def test_naming_asks_once_more_for_the_columns_its_answer_left_out(workspace: Workspace) -> None:
+    """命名の答えに無かった列（ここでは形の崩れた意味型の列と、抜けた列）だけを、1 回だけ問い直す。記録に naming_retry が残る。"""
+    address = "person.address"
+    decider = ScriptedDecider({
+        f"classify {address}": {"column addressid": "new", "column city": "new", "column postalcode": "new"},
+        f"properties {address}": {"role address_id": "none", "role city_name": "none", "role postal_code": "none",
+                                  "type address_id": "identifier", "additivity address_id": "none",
+                                  "type city_name": "text", "type postal_code": "code"}})
+    model = ScriptedModel({
+        f"name {address}": {"semantic_types": [
+            {"name": "address_id", "description": "住所", "columns": ["addressid"], "values": None, "values_evidence": []},
+            {"name": "city_name", "description": "市", "columns": ["city"], "values": [{"name": "x", "label": "y"}],
+             "values_evidence": []}]},  # 形の崩れ（postalcode は答えから抜けている）
+        f"name {address} (retry)": {"semantic_types": [
+            {"name": "city_name", "description": "市", "columns": ["city"], "values": None, "values_evidence": []},
+            {"name": "postal_code", "description": "郵便番号", "columns": ["postalcode"], "values": None,
+             "values_evidence": []}]}})
+    refined = _refine(workspace, model, decider, [address])
+    assert [p for p in model.asked if p in (f"name {address}", f"name {address} (retry)")] == [
+        f"name {address}", f"name {address} (retry)"]
+    outcome = refined.outcomes[0]
+    assert {"column addressid", "column city", "column postalcode"} <= set(outcome.applied), [
+        d for d in outcome.dropped if "postal" in d.item]
+    answer = cast(dict[str, Any], outcome.answer)
+    assert answer["naming"]["broken"][0]["item"] == "semantic_type #1"
+    assert {"city", "postalcode"} <= set(answer["naming_retry"]["columns"])
+    assert "addressid" not in answer["naming_retry"]["columns"]  # 最初の答えで名前の付いた列は問い直さない
