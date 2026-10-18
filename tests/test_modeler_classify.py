@@ -22,7 +22,6 @@ from mandara.modeler import classify as c
 from mandara.modeler import llm as v1
 from mandara.modeler.joins import InferenceClaims
 from mandara.modeler.meaning import same_meaning_groups
-from mandara.modeler.resemblance import Resemblances
 from mandara.modeler.rules import propose
 from mandara.om.invariants import check
 from mandara.om.model import Additivity, Claim, SemanticType, Table, ValueType
@@ -46,17 +45,10 @@ NAMES = ["sales.salesorderdetail", "sales.specialofferproduct", "production.prod
          "production.billofmaterials"]
 
 
-NOTHING_ALIKE = Resemblances({})
-"""値の似かたの主張が無い（T2.6 の前の問い）。"""
-
-
 def _classify(table: Table, table_claims: InferenceClaims, vocabulary: Mapping[str, SemanticType],
-              hints: Mapping[str, v1.MeaningHint], shared: Collection[str], max_options: int, purpose: str, *,
-              elsewhere_only: Collection[str] = (), resemblances: Resemblances = NOTHING_ALIKE,
-              assigned: Mapping[tuple[str, str], str] | None = None) -> c.Classify:
-    """分類の問い。値の似かたは、テストが渡したときだけ（既定は「似かたの主張が無い」）。"""
-    return c.classify(table, table_claims, vocabulary, hints, shared, max_options, purpose,
-                      elsewhere_only=elsewhere_only, resemblances=resemblances, assigned=assigned or {})
+              hints: Mapping[str, v1.MeaningHint], shared: Collection[str], max_options: int, purpose: str,
+              elsewhere_only: Collection[str] = ()) -> c.Classify:
+    return c.classify(table, table_claims, vocabulary, hints, shared, max_options, purpose, elsewhere_only=elsewhere_only)
 
 
 def _claims(name: str) -> list[Claim]:
@@ -116,13 +108,18 @@ def test_every_question_is_either_proposed_above_the_threshold_or_recorded(name:
     assert asked.request is not None
     response = _answers(asked, data)
     classified = c.read_classified(asked, response)
+    routed = {d.item.removeprefix("classify ") for d in classified.routed}
     picked = {**({"kind": classified.kind} if classified.kind else {}),
               **{f"relation {k}": v for k, v in classified.relations.items()},
-              **{f"column {k}": v for k, v in classified.columns.items() if k not in asked.new_only}}
+              **{f"column {k}": v for k, v in classified.columns.items()
+                 if k not in asked.new_only and f"column {k}" not in routed}}
     edge = {"edge"} if classified.edge is not None else set[str]()
     recorded = {d.item for d in classified.abstained}
-    assert set(picked) | edge | recorded == set(response.answers) | {d.item for d in asked.not_asked}
-    assert not (set(picked) | edge) & recorded
+    assert set(picked) | edge | recorded | routed == set(response.answers) | {d.item for d in asked.not_asked}
+    assert not (set(picked) | edge) & (recorded | routed) and not recorded & routed
+    # 既存の意味型が閾値に届かない列は、落とさずに新しい意味型として命名に回る（理由つき）
+    assert all(classified.columns[k.removeprefix("column ")].value == c.NEW for k in routed)
+    assert all(d.reason.endswith("新しい意味型として命名に回した") for d in classified.routed)
     for key, p in picked.items():
         assert p.probability >= c.THRESHOLD and p.value != c.UNCLEAR
         assert response.answers[key].choice == p.value
@@ -157,9 +154,15 @@ def test_unclear_and_low_probability_are_not_proposed() -> None:
     answers = {k: ChoiceAnswer(list(q.options)[0], {o: 1.0 if i == 0 else 0.0 for i, o in enumerate(q.options)})
                for k, q in asked.request.questions.items()}
     answers["kind"] = ChoiceAnswer(c.UNCLEAR, {"domain": 0.0, "relation": 0.0, "event": 0.0, c.UNCLEAR: 1.0})
+    column = next(k for k in asked.request.questions if k.startswith("column "))
+    options = list(asked.request.questions[column].options)
+    answers[column] = ChoiceAnswer(options[0], {o: 0.5 if o == options[0] else 0.5 / (len(options) - 1) for o in options})
     classified = c.read_classified(asked, DecisionResponse(answers, Usage(1, 0), "m", None))
     assert classified.kind is None
     assert any(d.item == "kind" and "決められない" in d.reason for d in classified.abstained)
+    # 列：既存の意味型が閾値未満なら、提案はせず、新しい意味型として命名に回す
+    assert classified.columns[column.removeprefix("column ")].value == c.NEW
+    assert [d.item for d in classified.routed] == [f"classify {column}"]
 
 
 def test_needs_grain_matches_the_invariant() -> None:
@@ -398,49 +401,29 @@ def test_decided_facts_go_to_the_llm_only_when_decided() -> None:
     assert c.decided_lines(classified, _for(claims), VOCABULARY, final)[0] == 'column "unitprice": semantic type unit_price (money)'
 
 
-def test_value_resemblance_is_told_for_the_options_it_concerns() -> None:
-    """値の似た列（T2.6）のうち、選択肢の意味型が付いた列だけを、列の問いに事実として添える。根拠にその主張が入る。
-    値の形（shaped_as）は材料の列に書き、書き方の説明を 1 回だけ添える。"""
+def test_value_shapes_are_in_the_state_and_resemblance_is_not_in_the_questions() -> None:
+    """値の形（shaped_as）は材料の列に書き、書き方の説明を 1 回だけ添える。値の似た列の事実は、分類の問いに入れない
+    （T2.6。名前で決まる判断が引かれる。似かたは mandara.modeler.same_meaning の別の問い）。"""
     from mandara.modeler import resemblance as rm
     from mandara.om.claims import new_claim
     from mandara.om.model import ClaimPredicate, ClaimSource, ClaimSourceKind, SourceRef
 
     name = "sales.salesorderdetail"
-
-    def resembles(other_table: str, other: str, method: str, score: float, baseline: float) -> Claim:
-        return new_claim(
-            subject=SourceRef(source="adventureworks", schema_name="production", table=other_table),
-            predicate=ClaimPredicate.resembles, source=ClaimSource(kind=ClaimSourceKind.data, locator=method),
-            extracted_by="t", confidence=1.0, columns=[other],
-            target=SourceRef(source="adventureworks", schema_name="sales", table="salesorderdetail"),
-            target_columns=["unitprice"], method=method, score=score, baseline=baseline, sampled_values=40,
-            target_sampled_values=40)
-
-    close = [resembles("product", "listprice", "pattern 0.1", 0.9, 0.85),
-             resembles("product", "listprice", "ncd 0.1", 0.5, 0.49)]
-    far = resembles("product", "standardcost", "pattern 0.1", 0.1, 0.85)
     shaped = new_claim(
         subject=SourceRef(source="adventureworks", schema_name="sales", table="salesorderdetail", column="unitprice"),
         predicate=ClaimPredicate.shaped_as, source=ClaimSource(kind=ClaimSourceKind.data, locator="values"),
         extracted_by="t", confidence=1.0, patterns=["9{2}\\.9{4}", "9{3}\\.9{4}"], pattern_shares=[0.6, 0.4],
         shape_level=1, distinct_values=287, sampled_values=256)
     table = _table(name)
-    assigned = {("production.product", "listprice"): "unit_price", ("production.product", "standardcost"): "unit_price"}
     asked = _classify(table, _for([*_claims(name), shaped]), VOCABULARY, v1.meaning_hints(SEEDED, table, GROUPS),
-                       v1.shared_key_foreign_keys(table, _claims(name), SEEDED), MAX_OPTIONS, f"classify {name}",
-                       resemblances=rm.index([*close, far]), assigned=assigned)
+                      v1.shared_key_foreign_keys(table, _claims(name), SEEDED), MAX_OPTIONS, f"classify {name}")
     assert asked.request is not None
-    question = asked.request.questions["column unitprice"]
-    facts = cast(dict[str, object], question.instructions)["facts"]
-    assert isinstance(facts, list) and len(cast(list[str], facts)) == 2  # 近い列 1 つと、同じ形でも別の意味がありうる注意
-    assert "production.product.listprice" in cast(list[str], facts)[0]
-    assert {x.id for x in close} <= set(asked.evidence["column unitprice"])
-    assert far.id not in asked.evidence["column unitprice"]
     columns = cast(list[dict[str, object]], asked.request.state["columns"])
     assert next(x for x in columns if x["name"] == "unitprice")["value_shape"] == (
         "9{2}\\.9{4} 60%, 9{3}\\.9{4} 40% (287 distinct values)")
     assert asked.request.state["value_shape_notation"] == rm.SHAPE_NOTATION
+    assert shaped.id in asked.evidence["column unitprice"]  # 列の根拠に、値の形の主張も入る
+    assert "facts" not in cast(dict[str, object], asked.request.questions["column unitprice"].instructions)
     others = _classify(table, _for(_claims(name)), VOCABULARY, v1.meaning_hints(SEEDED, table, GROUPS),
-                        v1.shared_key_foreign_keys(table, _claims(name), SEEDED), MAX_OPTIONS, f"classify {name}")
+                       v1.shared_key_foreign_keys(table, _claims(name), SEEDED), MAX_OPTIONS, f"classify {name}")
     assert others.request is not None and "value_shape_notation" not in others.request.state
-    assert "facts" not in cast(dict[str, object], others.request.questions["column unitprice"].instructions)

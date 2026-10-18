@@ -9,7 +9,9 @@ Domain 層の純粋な関数（呼び出しは Application がポート経由で
 5. grain（LLM）：grain が要る表で、まだ無いときだけ
 読んだ答えは、従来の答えの形（mandara.modeler.llm.TableAnswer）に組み立て、従来の検証（apply_answer）を通す。
 
-- 確信度は選んだ選択肢の確率。閾値（仕様 6.3、既定 0.6）未満と unclear は提案しない。黙って消さず、理由つきで記録する
+- 確信度は選んだ選択肢の確率。閾値（仕様 6.3、既定 0.6）未満と unclear は提案しない。黙って消さず、理由つきで記録する。
+  ただし列の意味型の問いで既存の意味型が閾値に届かない（unclear を含む）列は、落とさずに新しい意味型として命名に回す
+  （既存を選ぶ確信が無い = 新しく名付ける。確信度は命名と性質の段で決まり、そこでも閾値未満は提案しない）
 - 根拠は、その問いの材料にした主張の ID（コードで決める）。LLM に挙げさせるのは enum の値の根拠だけ
 - 選択肢が上限（判断モデルの能力 max_options）を超える問いは作らない（理由つきで記録。黙って切り詰めない）
 - どの問いにも「決められない」（unclear）を置く。選ぶしかない問いにしない
@@ -48,8 +50,7 @@ from mandara.om.model import (
     ValueType,
 )
 from mandara.modeler.joins import InferenceClaims
-from mandara.modeler.meaning import Member
-from mandara.modeler.resemblance import SHAPE_NOTATION, Resemblances, option_facts, value_shape
+from mandara.modeler.resemblance import SHAPE_NOTATION, value_shape
 from mandara.om.names import qualify
 from mandara.om.value_types import UNIT_BEARING, assignable
 
@@ -301,6 +302,13 @@ def _type_option(d: SemanticType) -> str:
     return f"{d.description} ({detail})" if d.description else detail
 
 
+def brings_another_rows_role(d: SemanticType, elsewhere_only: Collection[str]) -> bool:
+    """意味型が時刻の役割（event_time / valid_from / valid_to）を持ち、別の表でしか使われていない（elsewhere_only）。
+    役割はその表の行にとっての意味なので、別の表の列に当てると役割を持ち込む（所属の開始日に入社日の event_time）。
+    分類の選択肢と、同じ意味の問い（mandara.modeler.same_meaning）の両方がこれで外す。"""
+    return d.role in _TIME_ROLES and d.name in elsewhere_only
+
+
 # ---------------------------------------------------------------- 1. 分類
 
 
@@ -326,7 +334,7 @@ class Classify:
 
 def classify(table: Table, table_claims: InferenceClaims, vocabulary: Mapping[str, SemanticType],
              hints: Mapping[str, MeaningHint], shared_keys: Collection[str], max_options: int, purpose: str,
-             *, elsewhere_only: Collection[str], resemblances: Resemblances, assigned: Mapping[Member, str]) -> Classify:
+             *, elsewhere_only: Collection[str]) -> Classify:
     """分類の問い。表種別（v0 が決めていなければ）、外部キーごとの関係型、辺、列の意味型（組の意味型が決まっていなければ）。
 
     関係型の問いには、外部キーの構造とデータの事実（_fk_facts）を添える。is-a は主キーを共有する外部キー（shared_keys、
@@ -335,8 +343,8 @@ def classify(table: Table, table_claims: InferenceClaims, vocabulary: Mapping[st
     列の意味型の選択肢に、時刻の役割（event_time / valid_from / valid_to）を持ち、別の表でしか使われていない意味型
     （elsewhere_only）は出さない。役割はその表の行にとっての意味（その行の出来事の時刻、その行の期間）なので、別の表の
     時刻の意味型を当てると役割が持ち込まれる（所属の開始日に入社日の event_time など）。外部キーで同じ意味の列は伝播が付ける。
-    列の意味型の問いには、値の似た列のうち選択肢の意味型が付いた列（assigned。列 → 意味型）の事実を添える（T2.6。
-    mandara.modeler.resemblance）。決め手ではなく根拠の 1 つとして。
+    値の似た列の事実（T2.6）は、ここには添えない。名前で決まるはずの判断が別の意味型に引かれるため（段 2 の測定）。
+    似かたは、表の分類の後の別の問い（mandara.modeler.same_meaning）で使う。列の値の形（value_shape）は材料に置く。
     """
     questions: dict[str, Choice] = {}
     evidence: dict[str, list[str]] = {}
@@ -400,7 +408,7 @@ def classify(table: Table, table_claims: InferenceClaims, vocabulary: Mapping[st
             continue
         allowed = assignable(family, column.encoding)
         compatible = [d for d in vocabulary.values() if d.type in allowed
-                      and not (d.role in _TIME_ROLES and d.name in elsewhere_only)]
+                      and not brings_another_rows_role(d, elsewhere_only)]
         options: dict[str, str | None] = {d.name: _type_brief(d) for d in compatible}
         if not options:
             new_only.append(name)  # 当てうる既存の意味型が無い：問うまでもなく新しい意味型
@@ -418,13 +426,8 @@ def classify(table: Table, table_claims: InferenceClaims, vocabulary: Mapping[st
         if hint is not None:
             instructions["note"] = (f"`column` holds the same values as {hint.others} other columns joined to it by "
                                     "foreign keys, so its meaning is what those values identify.")
-        alike = option_facts(resemblances, (table.name, name), assigned, {d.name for d in compatible})
-        if alike.facts:
-            caution = (["Columns with values of the same shape can still mean different things (an order number and "
-                        "an invoice number)."] if alike.specific else [])
-            instructions["facts"] = [*alike.facts, *caution]
         questions[key] = Choice(instructions, options)
-        evidence[key] = sorted({*_column_evidence(table_claims, name), *alike.evidence})
+        evidence[key] = _column_evidence(table_claims, name)
     for name in new_only:
         evidence[f"column {name}"] = _column_evidence(table_claims, name)
     material = state(table_claims) | ({"semantic_types": dict(sorted(described.items()))} if described else {})
@@ -452,6 +455,9 @@ class Classified:
     columns: dict[str, Picked] = field(default_factory=lambda: dict[str, Picked]())
     """列名 → 既存の意味型の名前、または NEW。"""
     abstained: list[Dropped] = field(default_factory=lambda: list[Dropped]())
+    routed: list[Dropped] = field(default_factory=lambda: list[Dropped]())
+    """既存の意味型を当てるほどの確信が無く（閾値未満、決められない）、新しい意味型として命名に回した列（項目は
+    "classify column <列>"。理由つき）。確信度は命名と性質の段で決まる（当てうる既存の意味型が無い列と同じ）。"""
 
 
 def _pick(item: str, answer: ChoiceAnswer, abstained: list[Dropped]) -> Picked | None:
@@ -470,6 +476,18 @@ def read_classified(asked: Classify, response: DecisionResponse | None) -> Class
     out.columns |= {name: Picked(NEW, 1.0) for name in asked.new_only}
     answers: Mapping[str, ChoiceAnswer] = response.answers if response is not None else {}
     for key, answer in sorted(answers.items()):
+        if key.startswith("column "):
+            # 既存の意味型を当てるには閾値以上が要る。届かなければ、列を落とさずに新しい意味型として命名に回す
+            # （new は「どれも当たらない」。既存を選ぶほどの確信が無いなら、新しく名付けるのが筋。2026-10-19、ユーザーと合意）
+            reasons: list[Dropped] = []
+            picked = _pick(key, answer, reasons)
+            name = key.removeprefix("column ")
+            if picked is None:
+                out.columns[name] = Picked(NEW, 1.0)
+                out.routed += [Dropped(f"classify {key}", f"{d.reason}。新しい意味型として命名に回した") for d in reasons]
+            else:
+                out.columns[name] = picked
+            continue
         picked = _pick(key, answer, out.abstained)
         if picked is None:
             continue
@@ -479,8 +497,6 @@ def read_classified(asked: Classify, response: DecisionResponse | None) -> Class
             out.edge = (asked.edges[picked.value], picked.probability)
         elif key.startswith("relation "):
             out.relations[key.removeprefix("relation ")] = picked
-        elif key.startswith("column "):
-            out.columns[key.removeprefix("column ")] = picked
     return out
 
 

@@ -46,7 +46,7 @@
 | [T2.3](tasks/T2.3-enum-and-technical.md) | enum 候補と技術列の検出、監査 TS による domain / event の根拠 | 未着手 | T2.1 |
 | [T2.4](tasks/T2.4-encoding-detection.md) | 物理的な表現（encoding）の検出 | 完了 | T1.3 |
 | [T2.5](tasks/T2.5-ui-data.md) | UI：実データの表示、レビューの根拠にプロファイルを添える | 未着手 | T1.9, T2.1 |
-| [T2.6](tasks/T2.6-value-resemblance.md) | 値の似かた（構文パターン・NCD・分類器 2 標本検定のプラグイン。同じ意味型の手がかり） | 第 1 波済み（段 3 で効き、段 2 で下がる。事実の渡し方は要相談） | T2.2 |
+| [T2.6](tasks/T2.6-value-resemblance.md) | 値の似かた（構文パターン・NCD・分類器 2 標本検定のプラグイン。同じ意味型の手がかり） | 第 1 波済み（渡し方は E：分類の後に「同じ意味か」を問う。効き目は小さい） | T2.2 |
 
 ## 段 3：LLM による推論
 | ID | タスク | 状態 | 依存 |

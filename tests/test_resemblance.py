@@ -7,7 +7,8 @@
 - 信号：パターンの揃った列は、それ自身と近い。同じ作り方の 2 つの見本はほとんど近く、作り方の違う見本は近くない（基準の法則）。
   パターンと NCD は対称。決定的
 - 抽出：組は同じ群で名前の順、主張は検証を通る。近い順の選び方は入力の順に依らない。並列でも 1 プロセスでも同じ主張
-- モデラー：事実を添えるのは、選択肢の意味型が付き、どれかの信号が近いと言う列だけ。古い版の主張は誤り
+- モデラー：値の似た組は両向きに引ける。古い版の主張は誤り。同じ意味の問いは、受け取る側を正しく選び、変えてはならない列
+  （人の判断、外部キーの組、型の合わない意味型）を問わない。閾値以上の「同じ」だけを当て、1 つの列は 1 回だけ変える
 - 実データ：AdventureWorks の rowguid どうしは、パターンと圧縮で全部近く、2 標本検定でほぼ近い（有意水準 5% の偶然を除く）
 """
 
@@ -32,8 +33,9 @@ from mandara.connectors.postgres.sample_reader import PostgresSampleReader
 from mandara.extractors import resemblance as extractor
 from mandara.modeler import resemblance as modeler
 from mandara.om.claims import check_claims, new_claim
+from mandara.om.model import Table as OmTable
 from mandara.om.ontology import Ontology
-from mandara.om.model import Claim, ClaimPredicate, ClaimSource, ClaimSourceKind, ObjectKind, SourceRef, TypeFamily
+from mandara.om.model import Claim, ClaimPredicate, ClaimSource, ClaimSourceKind, ObjectKind, SemanticType, SourceRef, TypeFamily
 from mandara.resemblance import shape as shapes
 from mandara.resemblance.signals import (
     SIGNALS,
@@ -323,31 +325,251 @@ def _resembles(a: tuple[str, str], b: tuple[str, str], signal_method: str, score
         target_sampled_values=50)
 
 
-def test_facts_name_close_columns_only_when_they_point_to_one_meaning() -> None:
-    me = ("s.a", "x")
-    claims = [
-        _resembles(("a", "x"), ("b", "y"), "pattern 0.1", 0.95, 0.9),  # 近い、意味型 order_id
-        _resembles(("a", "x"), ("b", "y"), "c2st 0.1", 0.5, 0.56),
-        _resembles(("a", "x"), ("c", "z"), "pattern 0.1", 0.2, 0.9),  # 近くない（意味型が違っても数えない）
-        _resembles(("a", "x"), ("d", "w"), "pattern 0.1", 0.99, 0.9),  # 近い。意味型を付けるかはケースごと
-    ]
+def test_the_index_reads_pairs_both_ways() -> None:
+    claims = [_resembles(("a", "x"), ("b", "y"), "pattern 0.1", 0.95, 0.9),
+              _resembles(("a", "x"), ("b", "y"), "c2st 0.1", 0.5, 0.56),
+              _resembles(("a", "x"), ("c", "z"), "pattern 0.1", 0.2, 0.9)]
     found = modeler.index(claims)
-    assert {n.member for n in found.of(me)} == {("s.b", "y"), ("s.c", "z"), ("s.d", "w")}
-    assert {n.member for n in found.of(("s.b", "y"))} == {me}  # 両向きに引ける
-    # 似た列が 1 つの意味型を指す：その列と信号ごとの文
-    single = {("s.b", "y"): "order_id", ("s.c", "z"): "postal_code"}
-    facts = modeler.option_facts(found, me, single, {"order_id"})
-    assert facts.specific and len(facts.facts) == 1 and "s.b.y" in facts.facts[0]
-    assert "2 of the 2 measures taken" in facts.facts[0] and "Not measured: ncd" in facts.facts[0]
-    assert set(facts.evidence) == {claims[0].id, claims[1].id}
-    assert modeler.option_facts(found, me, single, {"postal_code"}).facts == ()  # 指す意味型が選択肢に無い
-    # 似た列が別々の意味型にまたがる：似かたは意味を絞らない、とだけ言う（どの列も挙げない）
-    spread = {**single, ("s.d", "w"): "postal_code"}
-    vague = modeler.option_facts(found, me, spread, {"order_id", "postal_code"})
-    assert not vague.specific and len(vague.facts) == 1
-    assert "2 different semantic types (order_id, postal_code)" in vague.facts[0] and "s.b.y" not in vague.facts[0]
-    assert set(vague.evidence) == {claims[0].id, claims[1].id, claims[3].id}
-    assert modeler.option_facts(found, me, {}, {"order_id"}).facts == ()  # 意味型の付いた似た列が無い
+    assert {n.member: n.close for n in found.of(("s.a", "x"))} == {("s.b", "y"): 2, ("s.c", "z"): 0}
+    assert {n.member for n in found.of(("s.b", "y"))} == {("s.a", "x")}
+
+
+# ---------------------------------------------------------------- 同じ意味の問い（T2.6 の E）
+
+SCOPE5 = Scope(("humanresources", "person", "production", "purchasing", "sales"))
+
+
+@pytest.fixture(scope="module")
+def aw() -> tuple[list[Claim], Ontology]:
+    from mandara.extractors.catalog import extract
+    from mandara.modeler.rules import propose
+    claims = extract("adventureworks", PostgresCatalogReader(CONNINFO).read(SCOPE5))
+    return claims, propose("adventureworks", SCOPE5.schemas, claims).ontology
+
+
+def _aw_pair(a: tuple[str, str, str], b: tuple[str, str, str], close: int) -> list[Claim]:
+    """AW の 2 列の組の、close 個の信号が近いと言う測定（pattern、c2st、ncd の順に近い）。"""
+    (sa, ta, ca), (sb, tb, cb) = sorted([a, b])
+    out: list[Claim] = []
+    for i, (m, near, far) in enumerate((("pattern 0.1", (0.95, 0.9), (0.1, 0.9)), ("c2st 0.1", (0.5, 0.56), (0.9, 0.56)),
+                                        ("ncd 0.1", (0.5, 0.5), (0.9, 0.5)))):
+        score, baseline = near if i < close else far
+        out.append(new_claim(
+            subject=SourceRef(source="adventureworks", schema_name=sa, table=ta), predicate=ClaimPredicate.resembles,
+            source=ClaimSource(kind=ClaimSourceKind.data, locator=f"{ta}.{ca}~{tb}.{cb} {m}"), extracted_by="t",
+            confidence=1.0, columns=[ca], target=SourceRef(source="adventureworks", schema_name=sb, table=tb),
+            target_columns=[cb], method=m, score=score, baseline=baseline, sampled_values=50, target_sampled_values=50))
+    return out
+
+
+def _typed(ontology: Ontology, types: dict[tuple[str, str], str | None], approved: set[tuple[str, str]],
+           vocabulary: dict[str, SemanticType]) -> Ontology:
+    from dataclasses import replace as dc_replace
+    tables: list[OmTable] = []
+    for t in ontology.tables:
+        columns = {n: c.model_copy(update={"semantic_type": types.get((t.name, n), c.semantic_type),
+                                           "status": "approved" if (t.name, n) in approved else c.status,
+                                           "confidence": 0.7, "inferred_by": "test"})
+                   if (t.name, n) in types or (t.name, n) in approved else c for n, c in (t.columns or {}).items()}
+        tables.append(t.model_copy(update={"columns": columns}))
+    return dc_replace(ontology, tables=tuple(tables),
+                      vocabulary=ontology.vocabulary.model_copy(update={"semantic_types": vocabulary}))
+
+
+def test_same_meaning_asks_the_right_receiver_and_skips_what_must_not_change(aw: tuple[list[Claim], Ontology]) -> None:
+    from mandara.modeler import same_meaning
+    from mandara.modeler.meaning import column_families, same_meaning_groups
+    from mandara.om.model import ValueType
+
+    claims, v0 = aw
+    vocabulary = {"row_guid": SemanticType(name="row_guid", type=ValueType.identifier, description="行の guid"),
+                  "other_guid": SemanticType(name="other_guid", type=ValueType.identifier, description="別の guid"),
+                  "first_name": SemanticType(name="first_name", type=ValueType.text, description="名")}
+    ontology = _typed(v0, {("person.address", "rowguid"): "row_guid", ("person.businessentity", "rowguid"): "row_guid",
+                           ("production.product", "rowguid"): "other_guid", ("person.person", "firstname"): "first_name",
+                           ("sales.salesorderdetail", "productid"): "row_guid"},
+                      {("sales.customer", "rowguid")}, vocabulary)
+    pairs = [
+        *_aw_pair(("person", "address", "rowguid"), ("person", "person", "rowguid"), 3),  # 無い側が受け取る
+        *_aw_pair(("person", "address", "rowguid"), ("production", "product", "rowguid"), 3),  # 使う列の少ない側
+        *_aw_pair(("person", "address", "rowguid"), ("person", "stateprovince", "rowguid"), 2),  # 全部は近くない：問わない
+        *_aw_pair(("person", "address", "rowguid"), ("sales", "customer", "rowguid"), 3),  # 人が判断済み
+        *_aw_pair(("sales", "salesorderdetail", "productid"), ("production", "productinventory", "productid"), 3),  # 組
+        *_aw_pair(("person", "person", "firstname"), ("sales", "store", "rowguid"), 3),  # text の意味型は uuid に当たらない
+    ]
+    asked = same_meaning.questions(ontology, [*claims, *pairs], modeler.index(pairs), same_meaning_groups(claims),
+                                   column_families(claims))
+    keys = sorted(p.key for t in asked.tables for p in t.pairs)
+    assert keys == ["same person.person.rowguid ~ person.address.rowguid",
+                    "same production.product.rowguid ~ person.address.rowguid"]
+    reasons = {d.item: d.reason for d in asked.not_asked}
+    assert "人が判断済み" in reasons["same sales.customer.rowguid ~ person.address.rowguid"]
+    assert "外部キーで同じ意味の組" in reasons["same production.productinventory.productid ~ sales.salesorderdetail.productid"]
+    assert "当てられない" in reasons["same sales.store.rowguid ~ person.person.firstname"]
+    assert all("stateprovince" not in k for k in [*keys, *reasons])
+    for t in asked.tables:  # 根拠は測定と、両方の列の型の主張
+        for p in t.pairs:
+            assert {c.id for c in pairs if c.columns and c.target_columns} & set(t.evidence[p.key])
+            assert len(t.request.questions[p.key].options) == 3
+
+
+def _answer_all(asked: object, script: dict[str, tuple[str, float]]) -> list[object]:
+    """問いに台本どおり答え、読んだ Decided の一覧（と Read）を返す。台本に無い組は「決められない」。"""
+    from mandara.llm.decision import ChoiceAnswer, DecisionResponse
+    from mandara.llm.model import Usage
+    from mandara.modeler import same_meaning
+    assert isinstance(asked, same_meaning.Asked)
+    out: list[object] = []
+    for t in asked.tables:
+        answers: dict[str, ChoiceAnswer] = {}
+        for p in t.pairs:
+            choice, prob = script.get(p.key, ("unclear", 0.9))
+            options = t.request.questions[p.key].options
+            answers[p.key] = ChoiceAnswer(choice, {o: prob if o == choice else (1 - prob) / 2 for o in options})
+        out.append(same_meaning.read(t, DecisionResponse(answers, Usage(1, 1), "fake", None)))
+    return out
+
+
+GUIDS = [("person", "address"), ("person", "person"), ("production", "product"), ("sales", "store"),
+         ("sales", "customer"), ("person", "businessentity"), ("person", "stateprovince")]
+
+
+def _guid_world(aw: tuple[list[Claim], Ontology], types: dict[str, str | None]) -> tuple[list[Claim], Ontology]:
+    from mandara.om.model import ValueType
+    claims, v0 = aw
+    vocabulary = {k: SemanticType(name=k, type=ValueType.identifier, description=k) for k in ("guid_a", "guid_b", "guid_c")}
+    ontology = _typed(v0, {(f"{s}.{t}", "rowguid"): types.get(f"{s}.{t}") for s, t in GUIDS}, set(), vocabulary)
+    return claims, ontology
+
+
+def test_same_meaning_reads_above_the_threshold_and_applies_only_consistent_answers(
+        aw: tuple[list[Claim], Ontology]) -> None:
+    from mandara.modeler import same_meaning
+    from mandara.modeler.meaning import column_families, same_meaning_groups
+    from mandara.om.invariants import check
+
+    claims, ontology = _guid_world(aw, {"person.address": "guid_a", "production.product": "guid_b",
+                                        "person.businessentity": "guid_a"})
+    pairs = [*_aw_pair(("person", "address", "rowguid"), ("person", "person", "rowguid"), 3),
+             *_aw_pair(("production", "product", "rowguid"), ("person", "person", "rowguid"), 3),
+             *_aw_pair(("person", "address", "rowguid"), ("sales", "store", "rowguid"), 3),
+             *_aw_pair(("person", "address", "rowguid"), ("sales", "customer", "rowguid"), 3),
+             *_aw_pair(("person", "businessentity", "rowguid"), ("sales", "store", "rowguid"), 3)]
+    found = modeler.index(pairs)
+    asked = same_meaning.questions(ontology, [*claims, *pairs], found, same_meaning_groups(claims),
+                                   column_families(claims))
+    reads = _answer_all(asked, {
+        "same person.person.rowguid ~ person.address.rowguid": ("same", 0.9),
+        "same person.person.rowguid ~ production.product.rowguid": ("same", 0.8),  # 同じ列に別の意味型：矛盾
+        "same sales.store.rowguid ~ person.address.rowguid": ("same", 0.9),
+        "same sales.store.rowguid ~ person.businessentity.rowguid": ("same", 0.7),  # 同じ意味型をもう一度
+        "same sales.customer.rowguid ~ person.address.rowguid": ("same", 0.5)})  # 閾値未満
+    decided = [d for r in reads for d in cast(same_meaning.Read, r).decided]
+    abstained = {d.item: d.reason for r in reads for d in cast(same_meaning.Read, r).abstained}
+    assert "閾値" in abstained["same sales.customer.rowguid ~ person.address.rowguid"]
+    applied = same_meaning.apply(ontology, decided, "test-same")
+    assert applied.changed == ("sales.store.rowguid guid_a",) and applied.violations == ()
+    reasons = {d.item: d.reason for d in applied.skipped}
+    assert "矛盾" in reasons["same person.person.rowguid ~ person.address.rowguid"]
+    assert "矛盾" in reasons["same person.person.rowguid ~ production.product.rowguid"]
+    assert "確率のより高い答え" in reasons["same sales.store.rowguid ~ person.businessentity.rowguid"]
+    assert set(check(applied.ontology)) <= set(check(ontology))
+    store = next(t for t in applied.ontology.tables if t.name == "sales.store")
+    column = (store.columns or {})["rowguid"]
+    assert (column.semantic_type, column.confidence, column.inferred_by) == ("guid_a", 0.7, "test-same")
+
+
+def test_same_meaning_does_not_apply_chains(aw: tuple[list[Claim], Ontology]) -> None:
+    """A(a) ~ B(b) で B が a を受け取り、B(b) ~ C(なし) で C が b を受け取ると、C は B と別の意味型になる。どちらも当てない。"""
+    from mandara.modeler import same_meaning
+    from mandara.modeler.meaning import Member
+
+    _, ontology = _guid_world(aw, {"person.address": "guid_a", "person.businessentity": "guid_a",
+                                   "person.person": "guid_b"})  # 根拠は空でよい（当てる前に止まる）
+    a: Member = ("person.address", "rowguid")
+    b: Member = ("person.person", "rowguid")
+    c: Member = ("sales.store", "rowguid")
+    decided = [same_meaning.Decided(same_meaning.Pair(b, a, "guid_a", ()), 0.9, ()),
+               same_meaning.Decided(same_meaning.Pair(c, b, "guid_b", ()), 0.9, ())]
+    applied = same_meaning.apply(ontology, decided, "t")
+    assert applied.changed == ()
+    reasons = sorted(d.reason for d in applied.skipped)
+    assert len(reasons) == 2 and "渡す側でもある" in reasons[0] and "別の答えで変わる" in reasons[1]
+
+
+def test_same_meaning_never_passes_a_time_role_to_a_table_that_does_not_use_it(aw: tuple[list[Claim], Ontology]) -> None:
+    from mandara.modeler import same_meaning
+    from mandara.modeler.meaning import column_families, same_meaning_groups
+    from mandara.om.model import SemanticRole, ValueType
+
+    claims, v0 = aw
+    vocabulary = {"hire_date": SemanticType(name="hire_date", type=ValueType.date, description="入社日",
+                                            role=SemanticRole.event_time)}
+    ontology = _typed(v0, {("humanresources.employee", "hiredate"): "hire_date"}, set(), vocabulary)
+    pairs = _aw_pair(("humanresources", "employee", "hiredate"), ("humanresources", "employeedepartmenthistory",
+                                                                  "startdate"), 3)
+    asked = same_meaning.questions(ontology, [*claims, *pairs], modeler.index(pairs), same_meaning_groups(claims),
+                                   column_families(claims))
+    assert asked.tables == ()
+    assert [d.reason for d in asked.not_asked] == ["時刻の役割（event_time）を持つ意味型を、使っていない表に渡さない"]
+
+
+def test_an_answer_that_breaks_the_ontology_is_not_applied_and_reported(aw: tuple[list[Claim], Ontology]) -> None:
+    """問う前の確かめの漏れ（ここでは単位の要る意味型をわざと渡す）は、当てずに違反として返す（呼ぶ側がバグとして止める）。"""
+    from mandara.modeler import same_meaning
+    from mandara.om.model import ValueType
+
+    _, v0 = aw
+    vocabulary = {"price": SemanticType(name="price", type=ValueType.money, description="価格", requires_unit=True)}
+    ontology = _typed(v0, {("production.product", "listprice"): None}, set(), vocabulary)
+    decided = [same_meaning.Decided(same_meaning.Pair(("production.product", "listprice"),
+                                                      ("production.product", "standardcost"), "price", ()), 0.9,
+                                    ("clm_0000000000000001",))]
+    applied = same_meaning.apply(ontology, decided, "t")
+    assert any("UNIT_MISSING" in v for v in applied.violations) and applied.ontology is ontology and applied.changed == ()
+
+
+@settings(max_examples=40, deadline=None)
+@given(data=st.data())
+def test_same_meaning_apply_laws(aw: tuple[list[Claim], Ontology], data: st.DataObject) -> None:
+    """どんな「同じ」の答えの集まりでも：OM は新しい違反を生まない。入力の順に依らない。1 列は 1 回だけ変わる。
+    渡す側は変わらない。当てた後にもう一度当てても変わらない（冪等）。"""
+    from mandara.modeler import same_meaning
+    from mandara.modeler.meaning import Member
+    from mandara.om.invariants import check
+
+    kinds = st.sampled_from(["guid_a", "guid_b", "guid_c", None])
+    types = {f"{s}.{t}": data.draw(kinds) for s, t in GUIDS}
+    _, ontology = _guid_world(aw, types)
+    members: list[Member] = [(f"{s}.{t}", "rowguid") for s, t in GUIDS]
+    typed = [m for m in members if types[m[0]] is not None]
+    if not typed:
+        return
+    decided: list[same_meaning.Decided] = []
+    for _ in range(data.draw(st.integers(0, 6))):
+        donor = data.draw(st.sampled_from(typed))
+        receiver = data.draw(st.sampled_from([m for m in members if m != donor]))
+        kind = types[donor[0]]
+        assert kind is not None
+        decided.append(same_meaning.Decided(same_meaning.Pair(receiver, donor, kind, ()),
+                                            data.draw(st.floats(0.6, 1.0)), ("clm_0000000000000001",)))
+    applied = same_meaning.apply(ontology, decided, "t")
+    assert applied.violations == () and set(check(applied.ontology)) <= set(check(ontology))
+    shuffled = list(decided)
+    data.draw(st.randoms()).shuffle(shuffled)
+    assert same_meaning.apply(ontology, shuffled, "t") == applied
+    changed = [c.split(" ")[0] for c in applied.changed]
+    assert len(changed) == len(set(changed))
+    before = {m: c.semantic_type for m, c in same_meaning._columns(ontology).items()}  # pyright: ignore[reportPrivateUsage]
+    after = {m: c.semantic_type for m, c in same_meaning._columns(applied.ontology).items()}  # pyright: ignore[reportPrivateUsage]
+    assert all(after[d.pair.donor] == before[d.pair.donor] for d in decided)
+    again = same_meaning.apply(applied.ontology, [d for d in decided if f"{label_of(d.pair.receiver)}" in changed], "t")
+    assert again.changed == ()
+
+
+def label_of(member: tuple[str, str]) -> str:
+    from mandara.modeler.meaning import label
+    return label(member)
 
 
 def test_an_old_signal_version_is_an_error() -> None:

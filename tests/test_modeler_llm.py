@@ -33,6 +33,7 @@ from mandara.llm.model import (
     Budget,
     BudgetedModel,
     InvalidOutputError,
+    BudgetExceededError,
     LlmError,
     PriceTier,
     Pricing,
@@ -43,7 +44,6 @@ from mandara.llm.model import (
 from mandara.modeler import llm as v1
 from mandara.modeler.joins import InferenceClaims
 from mandara.modeler import meaning, nameless_joins
-from mandara.modeler import resemblance as resemblance_modeler
 from mandara.omstore.claim_store import load_claim_ledger
 from mandara.modeler.meaning import (
     InconsistentGroupError,
@@ -760,41 +760,65 @@ def test_grain_is_asked_even_when_nothing_is_classified() -> None:
     claims = [x for x in _claims(name) if x.predicate != "references"]
     model, decider = ScriptedModel({f"grain {name}": {"grain": "1行 = 受注の明細1行"}}), ScriptedDecider({})
     record: dict[str, object] = {}
-    asked = pipeline._ask_table(event, _for(claims), ontology, {}, model, decider, record,  # pyright: ignore[reportPrivateUsage]
-                                resemblance_modeler.Resemblances({}))
+    asked = pipeline._ask_table(event, _for(claims), ontology, {}, model, decider, record)  # pyright: ignore[reportPrivateUsage]
     assert decider.asked == [] and model.asked == [f"grain {name}"]
     assert asked.answer is not None and asked.answer.grain == "1行 = 受注の明細1行"
 
 
-def test_resemblance_facts_reach_the_question_and_their_evidence_is_accepted(workspace: Workspace) -> None:
-    """値の似かた（T2.6）の組は、名前の順で前の表に 1 つだけ置く。後ろの表の問いの事実にもなり、その答えの根拠として
-    当たる（後ろの表の主張として確かめられる）。"""
+def _rowguid_pair(workspace: Workspace) -> list[Claim]:
+    """person.address と sales.salesorderdetail の rowguid が、3 つの信号で近いという測定を台帳に足す。"""
     from mandara.om.claims import new_claim
     from mandara.om.model import ClaimPredicate, ClaimSource, ClaimSourceKind, SourceRef
     from mandara.omstore.claim_store import load_ledger_scope, write_claim_ledger
 
-    address, detail = "person.address", "sales.salesorderdetail"
     pair = [new_claim(
         subject=SourceRef(source="adventureworks", schema_name="person", table="address"),
         predicate=ClaimPredicate.resembles, source=ClaimSource(kind=ClaimSourceKind.data, locator=f"test {m}"),
         extracted_by="test", confidence=1.0, columns=["rowguid"],
         target=SourceRef(source="adventureworks", schema_name="sales", table="salesorderdetail"),
         target_columns=["rowguid"], method=m, score=s, baseline=b, sampled_values=256, target_sampled_values=256)
-        for m, s, b in (("pattern 0.1", 1.0, 1.0), ("c2st 0.1", 0.5, 0.55))]
+        for m, s, b in (("pattern 0.1", 1.0, 1.0), ("c2st 0.1", 0.5, 0.55), ("ncd 0.1", 0.9, 0.9))]
     ledger = load_claim_ledger(workspace.claims, workspace.source)
     write_claim_ledger(workspace.claims, workspace.source, load_ledger_scope(workspace.claims), [*ledger, *pair])
+    return pair
+
+
+ROWGUID_NAMING = {"name person.address": {"semantic_types": [
+    {"name": "row_guid", "description": "行の guid", "columns": ["rowguid"], "values": None, "values_evidence": []}]}}
+ROWGUID_CLASSIFY = {"classify person.address": {"column rowguid": "new"},
+                    "properties person.address": {"role row_guid": "technical"}}
+
+
+@pytest.mark.parametrize("error,status", [(LlmError("答えが壊れた"), "failed"),
+                                          (BudgetExceededError("same", 0.1, 0.2, 0.25), "not_reached")])
+def test_same_meaning_records_answers_it_could_not_get(workspace: Workspace, error: Exception, status: str) -> None:
+    """同じ意味の問いの答えを得られない表は記録して当てない。予算で止めたら残りは not_reached で、実行は止めた理由を持つ。"""
+    _rowguid_pair(workspace)
+    decider = ScriptedDecider({**ROWGUID_CLASSIFY, "same meaning sales.salesorderdetail": error})
+    refined = _refine(workspace, ScriptedModel(ROWGUID_NAMING), decider, ["person.address", "sales.salesorderdetail"])
+    same = refined.same_meaning
+    assert same is not None and [t.status for t in same.tables] == [status] and same.changed == ()
+    assert (refined.stopped is not None) == (status == "not_reached")
+    table = next(t for t in load_ontology(workspace.ontology).tables if t.name == "sales.salesorderdetail")
+    assert (table.columns or {})["rowguid"].semantic_type is None
+
+
+def test_same_meaning_is_asked_after_classifying_and_gives_the_type_to_the_other_column(workspace: Workspace) -> None:
+    """値の似かた（T2.6）の組は、表の分類の後に「同じ意味か」を問う。同じなら意味型を渡す。組は名前の順で前の表に 1 つだけ
+    置くが、後ろの表の列の答えの根拠として当たる。分類の問いには、似た列の事実を入れない。"""
+    address, detail = "person.address", "sales.salesorderdetail"
+    pair = _rowguid_pair(workspace)
     decider = ScriptedDecider({
-        f"classify {address}": {"column rowguid": "new"},
-        f"properties {address}": {"role row_guid": "technical"},
-        f"classify {detail}": {"column rowguid": "row_guid"}})
-    model = ScriptedModel({f"name {address}": {"semantic_types": [
-        {"name": "row_guid", "description": "行の guid", "columns": ["rowguid"], "values": None, "values_evidence": []}]}})
-    refined = _refine(workspace, model, decider, [address, detail])
+        **ROWGUID_CLASSIFY,
+        "same meaning sales.salesorderdetail": {"same sales.salesorderdetail.rowguid ~ person.address.rowguid": "same"}})
+    refined = _refine(workspace, ScriptedModel(ROWGUID_NAMING), decider, [address, detail])
     question = decider.requests[f"classify {detail}"].questions["column rowguid"]
-    facts = cast(list[str], cast(dict[str, object], question.instructions)["facts"])
-    assert "person.address.rowguid" in facts[0] and "2 of the 2 measures taken" in facts[0]
-    outcome = next(o for o in refined.outcomes if o.table == detail)
-    assert "column rowguid" in outcome.applied, outcome.dropped
+    assert "facts" not in cast(dict[str, object], question.instructions)
+    assert decider.asked[-1] == "same meaning sales.salesorderdetail"  # 表の分類が全部済んだ後
+    same = refined.same_meaning
+    assert same is not None and same.changed == ("sales.salesorderdetail.rowguid row_guid",)
+    assert [t.status for t in same.tables] == ["answered"]
     table = next(t for t in load_ontology(workspace.ontology).tables if t.name == detail)
     column = (table.columns or {})["rowguid"]
     assert column.semantic_type == "row_guid" and {c.id for c in pair} <= set(column.evidence or [])
+    assert column.inferred_by == "modeler-same-meaning 0.1 (fakejev)" and column.confidence == pytest.approx(0.7)

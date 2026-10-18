@@ -45,6 +45,7 @@ from mandara.modeler import classify
 from mandara.modeler import llm as llm_modeler
 from mandara.modeler import meaning
 from mandara.modeler import nameless_joins
+from mandara.modeler import same_meaning
 from mandara.modeler import rules as modeler
 from mandara.om.invariants import Violation, check
 from mandara.om.encoding_traits import ENCODING_TARGETS
@@ -413,6 +414,34 @@ class Refined:
     """バグの疑い（組の食い違い、伝播の後の検証違反）で止めた。それまでの結果は書いてある。実行は失敗にする。"""
     nameless: tuple["NamelessOutcome", ...] = ()
     """名前の手がかりの無い参照を問うた結果（表ごと。表の分類の前に、全部の表について1回）。"""
+    same_meaning: "SameMeaningRun | None" = None
+    """値の似た列の組が同じ意味かを問うた結果（表の分類の後。T2.6）。None は、その段まで来なかった（止めた）。"""
+
+
+@dataclass(frozen=True)
+class SameMeaningTable:
+    table: str
+    status: str
+    """"answered" / "failed"（答えを得られなかった。この表の組は当てない）/ "not_reached"（予算で止めたので問わなかった）/
+    "not_applied"（答えは得たが、当てた OM が検証を通らないので当てなかった）。"""
+    detail: str
+    asked: tuple[str, ...]
+    different: tuple[str, ...]
+    dropped: tuple[llm_modeler.Dropped, ...]
+    answer: object = None
+
+
+@dataclass(frozen=True)
+class SameMeaningRun:
+    tables: tuple[SameMeaningTable, ...]
+    not_asked: tuple[llm_modeler.Dropped, ...]
+    changed: tuple[str, ...]
+    """意味型を付けた列（「表.列 意味型」。上書きは元の意味型つき）。"""
+    skipped: tuple[llm_modeler.Dropped, ...]
+    orphaned: tuple[str, ...]
+    """上書きで使う列が無くなった意味型。"""
+    violations: tuple[str, ...]
+    """当てた結果の検証違反（あれば何も当てていない。バグ）。"""
 
 
 @dataclass(frozen=True)
@@ -503,7 +532,7 @@ def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, f
                            [t.name for t in order[i:]], defect=True)
         record: dict[str, object] = {}
         try:
-            asked = _ask_table(table, table_claims, ontology, hints, model, decider, record, resemblances)
+            asked = _ask_table(table, table_claims, ontology, hints, model, decider, record)
         except (BudgetExceededError, EstimateViolatedError) as e:
             stopped = str(e)
             if record:  # 途中まで課金済みの答えは記録に残す（この表には当てない）
@@ -533,7 +562,50 @@ def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, f
                                      tuple(f"{meaning.label(n.member)} {n.semantic_type}: {n.reason}"
                                            for n in propagated.not_filled),
                                      tuple(asked.stage_failures)))
-    return _finish(workspace, ontology, order, nameless, outcomes, stopped, [])
+    # 値の似た列の組が同じ意味か（T2.6）：表の分類が全部済んでから、組ごとに問う（分類の問いには混ぜない）
+    same_by = f"{same_meaning.MODELER} ({decider.model})"
+    ontology, same = _decide_same_meaning(ontology, claims, decider, resemblances, groups, families, same_by)
+    if same.violations:  # 当てた OM が検証を通らない：何も当てず（答えは課金済みなので記録に残す）、バグとして止める
+        return _finish(workspace, ontology, order, nameless, outcomes, f"バグの疑いで止めた: 同じ意味の答えを当てた OM が"
+                       f"検証を通らない: {list(same.violations)[:3]}", [], defect=True, same_meaning_run=same)
+    stopped = next((t.detail for t in same.tables if t.status == "not_reached"), None)
+    return _finish(workspace, ontology, order, nameless, outcomes, stopped, [], same_meaning_run=same)
+
+
+def _decide_same_meaning(ontology: Ontology, claims: Sequence[Claim], decider: DecisionModel,
+                         resemblances: resemblance_modeler.Resemblances, groups: meaning.MeaningGroups,
+                         families: dict[meaning.Member, str], inferred_by: str) -> tuple[Ontology, SameMeaningRun]:
+    """値の似た列の組を、表ごとに判断モデルに問い、同じ意味と答えた組の意味型をそろえる（mandara.modeler.same_meaning）。
+
+    答えを得られなかった表は記録して次へ。予算の上限や見積もりの崩れでは、残りの表を not_reached にして、それまでの答えを当てる。"""
+    asked = same_meaning.questions(ontology, claims, resemblances, groups, families)
+    tables: list[SameMeaningTable] = []
+    decided: list[same_meaning.Decided] = []
+    stopped: str | None = None
+    for t in asked.tables:
+        keys = tuple(p.key for p in t.pairs)
+        if stopped is not None:
+            tables.append(SameMeaningTable(t.table, "not_reached", stopped, keys, (), ()))
+            continue
+        try:
+            response = decider.decide(t.request)
+        except (BudgetExceededError, EstimateViolatedError) as e:
+            stopped = str(e)
+            tables.append(SameMeaningTable(t.table, "not_reached", stopped, keys, (), ()))
+            continue
+        except LlmError as e:
+            tables.append(SameMeaningTable(t.table, "failed", f"{type(e).__name__}: {e}", keys, (), ()))
+            continue
+        read = same_meaning.read(t, response)
+        decided += read.decided
+        tables.append(SameMeaningTable(t.table, "answered", "", keys, read.different, read.abstained,
+                                       {**_decisions_record(response), "evidence": dict(t.evidence)}))
+    applied = same_meaning.apply(ontology, decided, inferred_by)
+    if applied.violations:
+        tables = [replace(t, status="not_applied", detail="答えを当てた OM が検証を通らない") if t.status == "answered" else t
+                  for t in tables]
+    return applied.ontology, SameMeaningRun(tuple(tables), asked.not_asked, applied.changed, applied.skipped,
+                                            applied.orphaned, applied.violations)
 
 
 @dataclass
@@ -550,7 +622,7 @@ class _Asked:
 
 def _ask_table(table: Table, table_claims: joins_modeler.InferenceClaims, ontology: Ontology,
                hints: dict[str, llm_modeler.MeaningHint], model: LanguageModel, decider: DecisionModel,
-               record: dict[str, object], resemblances: resemblance_modeler.Resemblances) -> _Asked:
+               record: dict[str, object]) -> _Asked:
     """1つの表を、分類 → 命名 → 性質 → 単位 → grain の順に問い、従来の答えの形に組み立てる（T3.7）。
 
     答えは段ごとに record に書く（再現のため。答えの形が不正でも、受け取った答えはそのまま残す）。
@@ -570,11 +642,8 @@ def _ask_table(table: Table, table_claims: joins_modeler.InferenceClaims, ontolo
     mine = {c.semantic_type for c in (table.columns or {}).values() if c.semantic_type is not None}
     used = {c.semantic_type for t in ontology.tables if t.id != table.id for c in (t.columns or {}).values()
             if c.semantic_type is not None}
-    assigned = {(t.name, name): c.semantic_type for t in ontology.tables for name, c in (t.columns or {}).items()
-                if c.semantic_type is not None}
     asked = classify.classify(table, table_claims, vocabulary, hints, shared, decider.max_options,
-                              f"classify {table.name}", elsewhere_only=used - mine, resemblances=resemblances,
-                              assigned=assigned)
+                              f"classify {table.name}", elsewhere_only=used - mine)
     response = None
     if asked.request is not None:
         try:
@@ -586,6 +655,7 @@ def _ask_table(table: Table, table_claims: joins_modeler.InferenceClaims, ontolo
         record["classify"] = _decisions_record(response)
     classified = classify.read_classified(asked, response)
     notes += classified.abstained
+    notes += classified.routed
     kind = classified.kind.value if classified.kind is not None else table.kind
 
     # 命名（LLM）：new になった列
@@ -697,9 +767,12 @@ def _decisions_record(response: DecisionResponse) -> dict[str, object]:
 
 
 def _finish(workspace: Workspace, ontology: Ontology, order: Sequence[Table], nameless: Sequence[NamelessOutcome],
-            outcomes: list[TableOutcome], stopped: str | None, not_reached: list[str], defect: bool = False) -> Refined:
+            outcomes: list[TableOutcome], stopped: str | None, not_reached: list[str], defect: bool = False,
+            same_meaning_run: SameMeaningRun | None = None) -> Refined:
+    """same_meaning_run が None なのは、同じ意味の段まで来なかったとき（止めた）。"""
     write_ontology(workspace.ontology, ontology)
-    return Refined(tuple(t.name for t in order), tuple(outcomes), stopped, tuple(not_reached), defect, tuple(nameless))
+    return Refined(tuple(t.name for t in order), tuple(outcomes), stopped, tuple(not_reached), defect, tuple(nameless),
+                   same_meaning_run)
 
 
 def _decide_nameless(ontology: Ontology, claims: Sequence[Claim], decider: DecisionModel,
@@ -901,7 +974,8 @@ def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, cover
                      "declaration_extractor": declaration_extractor.EXTRACTOR, "joins_extractor": joins_extractor.EXTRACTOR,
                      "modeler": modeler.MODELER, "joins_modeler": joins_modeler.MODELER,
                      "nameless_joins_modeler": nameless_joins.MODELER,
-                     "resemblance_extractor": resemblance_extractor.EXTRACTOR},
+                     "resemblance_extractor": resemblance_extractor.EXTRACTOR,
+                     "same_meaning_modeler": same_meaning.MODELER},
         "completed": [],
     })
     with log.stage("extract"):
@@ -946,6 +1020,7 @@ def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, cover
                               "added": list(o.added), "not_references": list(o.not_references),
                               "dropped": [{"item": d.item, "reason": d.reason} for d in o.dropped], "answer": o.answer}
                              for o in refined.nameless],
+                "same_meaning": _same_meaning_record(refined.same_meaning),
             })
             if refined.defect:
                 raise RefineDefectError(refined.stopped)
@@ -957,6 +1032,17 @@ def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, cover
                 a.aspect: {"correct": a.correct, "gold": a.gold, "proposed": a.proposed} for a in report.aspects})
     log.update(status="succeeded", finished_at=_utc(clock()).isoformat())
     return RunResult(extracted, proposed, refined, report, log.path)
+
+
+def _same_meaning_record(run: SameMeaningRun | None) -> object:
+    if run is None:
+        return "not reached"
+    return {"changed": list(run.changed), "orphaned": list(run.orphaned), "violations": list(run.violations),
+            "skipped": [{"item": d.item, "reason": d.reason} for d in run.skipped],
+            "not_asked": [{"item": d.item, "reason": d.reason} for d in run.not_asked],
+            "tables": [{"table": t.table, "status": t.status, "detail": t.detail, "asked": list(t.asked),
+                        "different": list(t.different), "dropped": [{"item": d.item, "reason": d.reason} for d in t.dropped],
+                        "answer": t.answer} for t in run.tables]}
 
 
 def _coverage_text(claim: Claim) -> str:

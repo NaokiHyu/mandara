@@ -450,6 +450,18 @@ def _refine_line(out: TextIO, style: _Style, refined: pipeline.Refined, inferenc
               + (f" · {style.bad(f'{failed} 表は答えを得られなかった')}" if failed else ""), file=out)
         for a in added:
             print(style.dim(f"            {a}"), file=out)
+    if (same := refined.same_meaning) is not None:
+        asked = sum(len(t.asked) for t in same.tables)
+        different = sum(len(t.different) for t in same.tables)
+        failed = sum(1 for t in same.tables if t.status == "failed")
+        unreached = [t for t in same.tables if t.status == "not_reached"]
+        print(f"  {style.dim('same')}      値の似た列の組 {asked} を問うた → 同じ意味 {len(same.changed)} 列に意味型 · "
+              f"違う意味 {different} · 問わなかった {len(same.not_asked)}"
+              + (f" · {style.bad(f'{failed} 表は答えを得られなかった')}" if failed else "")
+              + (f" · {style.bad(f'予算で止めて {len(unreached)} 表（{sum(len(t.asked) for t in unreached)} 組）は問わなかった')}"
+                 if unreached else ""), file=out)
+        for c in same.changed:
+            print(style.dim(f"            {c}"), file=out)
     if failures := sum(len(o.stage_failures) for o in refined.outcomes):
         print(f"            {style.bad(f'{failures} stage failures')}  (the items of those stages were dropped)", file=out)
     for o in refined.outcomes:
