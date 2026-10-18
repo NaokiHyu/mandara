@@ -19,6 +19,8 @@ const MapView = lazy(() => import("./MapView").then((m) => ({ default: m.MapView
 
 type View = "graph" | "list" | "map" | "review" | "domain";
 const VIEWS: readonly View[] = ["graph", "list", "map", "review", "domain"];
+/** ナビの見出し（URL の view の値はそのまま）。 */
+const VIEW_LABELS: Record<View, string> = { graph: "グラフ", list: "一覧", map: "地図", review: "レビュー", domain: "ドメイン" };
 
 /** URL（?ontology=…&table=…&view=…&key=…）で、どの OM のどの表をどう見ているかを表す。開き直しても、共有しても同じものが見える。
  *  view が無ければ graph。知らない view は、黙って置き換えずに伝える（unknownView）。key はドメインビューワのインスタンス（主キーの値）。 */
@@ -111,7 +113,7 @@ export function App() {
   return (
     <div className="shell">
       <header className="bar">
-        <span className="brand">◆ MANDARA</span>
+        <span className="brand"><i className="brand-mark" />MANDARA</span>
         {listing.state === "ok" && (
           <select value={selected ?? ""} onChange={(e) => { setSelected(e.target.value); setTable(null); setInstanceKey(null); }}>
             {listing.value.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
@@ -120,9 +122,12 @@ export function App() {
         {doc?.state === "ok" && <Summary doc={doc.value} />}
         <nav className="views">
           {VIEWS.map((v) => (
-            <button key={v} className={view === v ? "on" : ""} aria-pressed={view === v} onClick={() => setView(v)}>{v}</button>
+            <button key={v} className={view === v ? "on" : ""} aria-pressed={view === v} onClick={() => setView(v)}>
+              {VIEW_LABELS[v]}
+            </button>
           ))}
         </nav>
+        <Clock />
       </header>
       <main className="body">
         {partialWithin && (
@@ -241,11 +246,23 @@ function Summary({ doc }: { doc: OntologyDocument }) {
   const relations = tables.reduce((n, t) => n + (t.relations?.length ?? 0), 0);
   const pending = tables.filter((t) => t.status === "proposed").length;
   const approved = tables.filter((t) => t.status === "approved").length;
+  const contexts = new Set(tables.map((t) => t.context)).size;
   return (
-    <span className="dim">
-      {tables.length} tables · {relations} relations · {approved} approved · {pending} pending
+    <span className="summary">
+      表 {tables.length} · コンテキスト {contexts} · 関係 {relations} · 承認済み {approved}
+      {pending > 0 && <span className="warn"> · 未決 {pending}</span>}
     </span>
   );
+}
+
+/** UTC の時計（秒まで）。 */
+function Clock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  return <span className="clock" title="UTC">{now.toISOString().slice(11, 19)} <i>UTC</i></span>;
 }
 
 function TableList({ tables, contexts, selected, onSelect }: {

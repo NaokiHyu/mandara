@@ -1,4 +1,4 @@
-// ドメインビューワの小さな部品：ドメインのアイコン、インスタンスの見出し。
+// 小さな部品：ドメインのアイコン、インスタンスの見出し、細線の枠の四隅の印。
 import { type InstanceSummary, LabelSource } from "./om/model";
 import { asKind, KIND } from "./vocabulary";
 
@@ -20,4 +20,9 @@ export function Label({ summary }: { summary: InstanceSummary }) {
       )}
     </span>
   );
+}
+
+/** 細線の枠（.blueprint）の四隅の「+」の印。枠の要素の子として置く。 */
+export function Corners() {
+  return <><i className="corner tl" /><i className="corner tr" /><i className="corner bl" /><i className="corner br" /></>;
 }

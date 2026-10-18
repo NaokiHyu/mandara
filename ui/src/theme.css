@@ -1,26 +1,35 @@
-/* 案 C「静かな司令室」：炭色の地、琥珀の文字、情報密度は高く、装飾は最小限。長時間見ても疲れない。
-   色・文字・間隔はすべてここのトークンで決め、部品は直接の値を持たない。 */
+/* 「Industry」暗色（2026-10-18。claude.ai/design の Mandara Ops Room のモック）：鋼の青の地、淡い鋼のアクセント、
+   Barlow Condensed の見出しと Barlow の本文、角の無い細線の枠（四隅に「+」の印。.blueprint）。
+   色・文字・間隔はすべてここのトークンで決め、部品は直接の値を持たない。地図（MapLibre）はトークンを読んで色にするので、
+   色は #rrggbb で書く（OKLCH の値は 16 進に直してある）。 */
 :root {
-  --bg: #141618;
-  --panel: #1b1e21;
-  --panel-raised: #212529;
-  --line: #2c3136;
-  --text: #e6d9b8;
-  --text-strong: #ffcc66;
-  --text-dim: #8b8576;
-  --text-key: #ffffff;   /* 識別：キー、見出し（名前）、自然キー。地の上で一番強いコントラスト */
-  --accent: #ffb020;
-  --ok: #9cc380;
-  --warn: #e0a84a;
-  --bad: #e2725b;
+  --bg: #121b24;             /* 作業面の地 */
+  --panel: #15202b;          /* 横の帯（一覧、詳細）の地 */
+  --panel-raised: #1d2d3d;   /* ヘッダ、浮いた面、ホバー（accent-900） */
+  --line: #24323f;           /* 細い区切り（rgba(214,235,255,.10) 相当） */
+  --line-strong: #3a4a59;    /* 強い区切り（rgba(214,235,255,.22) 相当） */
+  --text: #e7e7ea;
+  --text-strong: #94bce3;    /* 名前・リンクなど、目を引く文字（accent-400） */
+  --text-dim: #98989b;
+  --text-soft: #b7b7ba;      /* 二番目の文字 */
+  --text-key: #ffffff;       /* 識別：キー、見出し（名前）、自然キー。地の上で一番強いコントラスト */
+  --accent: #94bce3;
+  --accent-strong: #b5d9fd;  /* 主ボタンのホバー（accent-300） */
+  --accent-deep: #416180;    /* 濃いアクセント（accent-700） */
+  --on-accent: #1d2d3d;      /* アクセントで塗った面の上の文字 */
+  --ok: #7bcba1;             /* oklch(0.78 0.1 160) */
+  --warn: #e3b667;           /* oklch(0.8 0.11 80) */
+  --bad: #e97871;            /* oklch(0.7 0.14 25) */
 
-  --font: "SF Mono", "JetBrains Mono", Menlo, ui-monospace, "Hiragino Sans", "Noto Sans JP", monospace;
-  --size: 12px;
-  --size-small: 11px;
+  --font: "Barlow", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  --font-heading: "Barlow Condensed", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", Menlo, ui-monospace, monospace;
+  --size: 13px;
+  --size-small: 11.5px;
   --line-height: 1.45;
   --gap: 8px;
   --gap-small: 4px;
-  --radius: 2px;
+  --radius: 0;
 }
 
 * { box-sizing: border-box; }
@@ -33,28 +42,55 @@ body {
   font-family: var(--font);
   font-size: var(--size);
   line-height: var(--line-height);
+  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
 }
 
-button, select {
+button, select, input {
   font: inherit;
   color: inherit;
   background: var(--panel-raised);
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   padding: 2px var(--gap);
 }
+button:hover { border-color: var(--accent); }
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-::selection { background: var(--accent); color: var(--bg); }
+::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); color: var(--text-key); }
 
-/* コンテキストの色（ドメインのカテゴリ。炭色の地で見分けられ、琥珀の文字とぶつからない、彩度を揃えた6色相）。
-   コンテキストの名前の順に割り当てる（グラフ、一覧、ドメインビューワで同じ色） */
+h1, h2, h3, h4 { font-family: var(--font-heading); font-weight: 600; letter-spacing: 0.02em; }
+
+/* 見出しの書体（Barlow Condensed）。区切りの見出しは大文字・字間広め */
+.heading { font-family: var(--font-heading); font-weight: 600; letter-spacing: 0.02em; }
+.eyebrow { font-family: var(--font-heading); font-weight: 600; font-size: 12px; letter-spacing: 0.12em;
+           text-transform: uppercase; color: var(--text-dim); }
+
+/* 細線の枠と、四隅の「+」の印（<Corners /> が4つの印を置く）。カード・図・主ボタンが着る */
+.blueprint { position: relative; border: 1px solid var(--line-strong); border-radius: 0; }
+.blueprint > .corner { position: absolute; width: 11px; height: 11px; color: color-mix(in srgb, #d6ebff 60%, transparent);
+                       pointer-events: none; }
+.blueprint > .corner::before, .blueprint > .corner::after { content: ""; position: absolute; background: currentColor; }
+.blueprint > .corner::before { left: 5px; top: 0; width: 1px; height: 100%; }
+.blueprint > .corner::after { top: 5px; left: 0; width: 100%; height: 1px; }
+.blueprint > .corner.tl { top: -6px; left: -6px; }
+.blueprint > .corner.tr { top: -6px; right: -6px; }
+.blueprint > .corner.bl { bottom: -6px; left: -6px; }
+.blueprint > .corner.br { bottom: -6px; right: -6px; }
+
+/* 主ボタン：アクセントで塗った唯一の面（枠と印はそのまま） */
+.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent);
+           font-family: var(--font-heading); font-weight: 600; letter-spacing: 0.04em; cursor: pointer; }
+.primary:hover { background: var(--accent-strong); }
+
+/* コンテキストの色（ドメインのカテゴリ。明るさと彩度を揃えた色相。oklch(0.78 0.08 h) を 16 進に）。
+   コンテキストの名前の順に割り当てる（グラフ、一覧、ドメインビューワ、地図で同じ色） */
 :root {
-  --ctx-0: #e8b04a;
-  --ctx-1: #4fc1b0;
-  --ctx-2: #b38cf0;
-  --ctx-3: #8fd16a;
-  --ctx-4: #f0876a;
-  --ctx-5: #6aa8f0;
-  --line-strong: #4a5057;
+  --ctx-0: #cfa7d8;  /* h 320 */
+  --ctx-1: #76c7cc;  /* h 200 */
+  --ctx-2: #93c69d;  /* h 150 */
+  --ctx-3: #d2b27c;  /* h 80 */
+  --ctx-4: #90bce9;  /* h 250 */
+  --ctx-5: #e6a599;  /* h 30 */
 }
