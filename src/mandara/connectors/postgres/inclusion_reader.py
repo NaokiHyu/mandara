@@ -28,7 +28,7 @@ class PostgresInclusionReader:
         row = self._one(query, f"{schema}.{table}.{column} の様子")
         return ColumnProfile(_count(row[0]), _count(row[1]), _ordered(row[2], column), _ordered(row[3], column))
 
-    def inclusion(self, schema: str, table: str, column: str, keys: Sequence[KeyRef]) -> Inclusion:
+    def inclusion(self, schema: str, table: str, column: str, keys: Sequence[KeyRef], spans: bool) -> Inclusion:
         if not keys:
             raise ValueError("包含を数えるキーが要る")
         matched = sql.SQL(", ").join(
@@ -39,12 +39,23 @@ class PostgresInclusionReader:
             sql.SQL("(select count(distinct k.{kc}) from {t} k)").format(
                 t=sql.Identifier(k.schema, k.table), kc=sql.Identifier(k.column))
             for k in keys)
+        # 範囲の幅は numeric で引く（bigint の端どうしの差があふれないように）。値が無ければ null
+        in_span = sql.SQL("").join(
+            sql.SQL(", (select count(distinct k.{kc}) from {t} k where k.{kc} between (select min(value) from v) "
+                    "and (select max(value) from v))").format(t=sql.Identifier(k.schema, k.table),
+                                                             kc=sql.Identifier(k.column))
+            for k in keys) if spans else sql.SQL("")
+        span = sql.SQL("max(value)::numeric - min(value)::numeric + 1") if spans else sql.SQL("null")
         query = sql.SQL("with v as (select {c} as value, count(*) as n from {t} where {c} is not null group by {c}) "
-                        "select count(*), coalesce(max(n), 0), {matched}, {key_values} from v").format(
-            c=sql.Identifier(column), t=sql.Identifier(schema, table), matched=matched, key_values=key_values)
+                        "select count(*), coalesce(max(n), 0), {span}, {matched}, {key_values}{in_span} from v").format(
+            c=sql.Identifier(column), t=sql.Identifier(schema, table), matched=matched, key_values=key_values,
+            span=span, in_span=in_span)
         row = self._one(query, f"{schema}.{table}.{column} の包含")
-        counts = [_count(x) for x in row[2:]]
-        return Inclusion(_count(row[0]), _count(row[1]), tuple(counts[:len(keys)]), tuple(counts[len(keys):]))
+        n = len(keys)
+        counts = [_count(x) for x in row[3:]]
+        width = _span(row[2])
+        return Inclusion(_count(row[0]), _count(row[1]), tuple(counts[:n]), tuple(counts[n:2 * n]), width,
+                         tuple(counts[2 * n:]) if width is not None else None)
 
     def probe(self, schema: str, table: str, column: str, keys: Sequence[KeyRef], sample: int) -> tuple[int, ...]:
         if not keys or sample < 1:
@@ -75,6 +86,14 @@ def _count(value: object) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise AssertionError(f"数が整数ではない（読み手の誤り）: {value!r}")
     return value
+
+
+def _span(value: object) -> int | None:
+    if value is None:
+        return None
+    if not isinstance(value, Decimal) or value != value.to_integral_value():
+        raise AssertionError(f"範囲の幅が整数の numeric ではない（読み手の誤り。整数でない列に幅を求めた？）: {value!r}")
+    return int(value)
 
 
 def _ordered(value: object, column: str) -> Ordered | None:

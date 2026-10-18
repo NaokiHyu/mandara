@@ -322,6 +322,11 @@ def claims(
         payload["matched_values"] = draw(st.integers(0, min(distinct, target_values)))
         payload["target_values"] = target_values
         payload["max_repeats"] = 0 if distinct == 0 else draw(st.integers(1, 9))
+        if "value_span" in shape.optional and distinct > 0 and draw(st.booleans()):  # 整数の列だけが持つ
+            matched = payload["matched_values"]
+            span = distinct + draw(st.integers(0, 100))
+            payload["value_span"] = span
+            payload["target_values_in_span"] = draw(st.integers(matched, min(span, target_values)))
     return new_claim(
         subject=subject,
         predicate=predicate,

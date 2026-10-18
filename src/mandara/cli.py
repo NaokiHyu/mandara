@@ -413,6 +413,14 @@ def _refine_line(out: TextIO, style: _Style, refined: pipeline.Refined, inferenc
     breakdown = " · ".join(f"{k} {n}" for k, n in sorted(counts.items()))
     print(f"  {style.dim('refine')}    {breakdown}  {style.dim(f'{inference.decider.model} + {inference.model.model}')}  "
           f"¥{spent * settings.jpy_per_usd:.2f} / ¥{settings.budget_jpy:g}", file=out)
+    if refined.nameless:
+        asked = sum(len(o.asked) for o in refined.nameless)
+        added = [f"{o.table}.{a}" for o in refined.nameless for a in o.added]
+        failed = sum(1 for o in refined.nameless if o.status == "failed")
+        print(f"  {style.dim('nameless')}  名前の無い包含 {asked} 列を問うた → 参照 {len(added)} 本"
+              + (f" · {style.bad(f'{failed} 表は答えを得られなかった')}" if failed else ""), file=out)
+        for a in added:
+            print(style.dim(f"            {a}"), file=out)
     if failures := sum(len(o.stage_failures) for o in refined.outcomes):
         print(f"            {style.bad(f'{failures} stage failures')}  (the items of those stages were dropped)", file=out)
     for o in refined.outcomes:

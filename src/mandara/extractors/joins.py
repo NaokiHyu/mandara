@@ -9,6 +9,8 @@ Domain 層の純粋な関数。値を読むのは呼ぶ側（InclusionReader）�
   2. 異なる値の数（参照元 ≤ キー）と、順序に意味のある型なら値の範囲（参照元の最小・最大がキーの範囲の中）
   3. 見本の重なり（参照元の値の先頭 PROBE_SAMPLE 個に、キーの値が1つも無ければ落とす）
 - 残った組は全部数え、包含が成り立たない組も主張にする（否定の証拠。仕様 6.7.2 D）
+- 整数の列なら、列の値の範囲の幅と、その範囲にあるキーの値の数も主張に載せる（偶然の包含を見分ける材料。確率にするのは
+  モデラー）
 - 主張の値は数えた数そのもの。どれを参照とみなすかは決めない（モデラーの mandara.modeler.joins が決める）
 """
 
@@ -23,7 +25,7 @@ from mandara.om.model import Claim, ClaimPredicate, ClaimSource, ClaimSourceKind
 from mandara.source.catalog import Catalog, Column, Table
 from mandara.source.inclusion import ColumnProfile, Inclusion, KeyRef, Ordered
 
-EXTRACTOR = "joins 0.1"
+EXTRACTOR = "joins 0.2"
 MEASURE_CONFIDENCE = 1.0
 """数えた事実（読んだ時点のデータについて）。"""
 PROBE_SAMPLE = 50
@@ -141,7 +143,13 @@ def claims(source: str, candidate: Candidate, measured: Sequence[Key], inclusion
     table, column = candidate.table, candidate.column
     subject = SourceRef(source=source, schema_name=table.schema, table=table.name)
     out: list[Claim] = []
-    for key, matched, key_values in zip(measured, inclusion.matched, inclusion.key_values, strict=True):
+    if (inclusion.span is not None) != (column.family == TypeFamily.integer and inclusion.distinct > 0):
+        raise ValueError(f"値の範囲の幅は整数の列で値があるときだけ: {table.name}.{column.name} の幅 {inclusion.span}"
+                         f"（型族 {column.family}）")
+    in_span: Sequence[int | None] = ((None,) * len(measured) if inclusion.key_values_in_span is None
+                                     else inclusion.key_values_in_span)
+    for key, matched, key_values, in_range in zip(measured, inclusion.matched, inclusion.key_values, in_span,
+                                                  strict=True):
         where = (f"inclusion {quote(table.schema, table.name)}({quote(column.name)}) in "
                  f"{quote(key.table.schema, key.table.name)}({quote(key.column.name)})")
         out.append(new_claim(
@@ -149,5 +157,6 @@ def claims(source: str, candidate: Candidate, measured: Sequence[Key], inclusion
             extracted_by=EXTRACTOR, confidence=MEASURE_CONFIDENCE, columns=[column.name],
             target=SourceRef(source=source, schema_name=key.table.schema, table=key.table.name),
             target_columns=[key.column.name], distinct_values=inclusion.distinct, matched_values=matched,
-            target_values=key_values, max_repeats=inclusion.max_repeats))
+            target_values=key_values, max_repeats=inclusion.max_repeats,
+            value_span=inclusion.span, target_values_in_span=in_range))
     return out

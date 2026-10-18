@@ -19,7 +19,8 @@ from mandara.om.model import Claim, ClaimPredicate, ClaimSource, ClaimSourceKind
 PAYLOAD_FIELDS = (
     "columns", "target", "target_columns", "on_delete", "on_update", "text", "type_name", "family", "position",
     "object_kind", "encoding", "discriminator", "discriminator_values", "fixed_unit",
-    "distinct_values", "matched_values", "target_values", "max_repeats",
+    "distinct_values", "matched_values", "target_values", "max_repeats", "value_span",
+    "target_values_in_span",
 )
 """述語によって持つ・持たないが決まる、値のフィールド。"""
 
@@ -30,11 +31,13 @@ Level = Literal["table", "column", "either"]
 class Shape:
     subject: Level
     fields: frozenset[str]
-    """持たなければならず、これ以外の値のフィールドは持ってはならない。"""
+    """持たなければならず、これと optional 以外の値のフィールドは持ってはならない。"""
+    optional: frozenset[str] = frozenset()
+    """持っても持たなくてもよい（持つかどうかが値の種類で決まるもの。included_in の値の範囲は整数の列だけ）。"""
 
 
-def _shape(subject: Level, *fields: str) -> Shape:
-    return Shape(subject, frozenset(fields))
+def _shape(subject: Level, *fields: str, optional: tuple[str, ...] = ()) -> Shape:
+    return Shape(subject, frozenset(fields), frozenset(optional))
 
 
 SHAPES: dict[str, Shape] = {
@@ -55,7 +58,7 @@ SHAPES: dict[str, Shape] = {
     ClaimPredicate.discriminated_by.value: _shape("table", "columns", "target", "target_columns", "discriminator",
                                                   "discriminator_values"),
     ClaimPredicate.included_in.value: _shape("table", "columns", "target", "target_columns", "distinct_values",
-                                             "matched_values", "target_values", "max_repeats"),
+                                             "matched_values", "target_values", "max_repeats", optional=("value_span", "target_values_in_span")),
 }
 _REFERRING = {ClaimPredicate.references.value, ClaimPredicate.covers_all.value, ClaimPredicate.discriminated_by.value,
               ClaimPredicate.included_in.value}
@@ -176,7 +179,7 @@ def _check_claim(claim: Claim) -> Iterator[ClaimViolation]:
         yield wrong(f"空の一覧: {', '.join(empty)}")
     if missing := sorted(shape.fields - present):
         yield wrong(f"無い: {', '.join(missing)}")
-    if extra := sorted(present - shape.fields):
+    if extra := sorted(present - shape.fields - shape.optional):
         yield wrong(f"持ってはならない: {', '.join(extra)}")
 
     if claim.predicate in _REFERRING and claim.target is not None:
@@ -193,4 +196,10 @@ def _check_claim(claim: Claim) -> Iterator[ClaimViolation]:
             yield wrong("参照先にある値の数が、値の数か参照先の値の数を超える")
         if (distinct == 0) != (claim.max_repeats == 0):
             yield wrong("値が無いときだけ、1 つの値の最大の行数は 0")
+        span, in_span = claim.value_span, claim.target_values_in_span
+        if (span is None) != (in_span is None):
+            yield wrong("value_span と target_values_in_span は両方あるか、両方無いか")
+        elif span is not None and in_span is not None and (
+                distinct == 0 or span < distinct or not matched <= in_span <= min(span, claim.target_values or 0)):
+            yield wrong("値の範囲の数が合わない（範囲の整数 ≥ 値の数、含まれる数 ≤ 範囲のキーの値 ≤ 範囲の整数・キーの値の数）")
 

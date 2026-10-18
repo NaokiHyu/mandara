@@ -42,7 +42,7 @@
 | ID | タスク | 状態 | 依存 |
 |---|---|---|---|
 | [T2.1](tasks/T2.1-column-profile.md) | 列の統計（行数、一意性、NULL 率、基数、分布） | 未着手 | T1.3 |
-| [T2.2](tasks/T2.2-inclusion.md) | 値の包含率と被覆率（未宣言の外部キー候補） | 未着手 | T2.1 |
+| [T2.2](tasks/T2.2-inclusion.md) | 値の包含率と被覆率（未宣言の外部キー候補） | 一部済み（1 列の包含と 3b。複合・キーの推定は未着手） | T2.1 |
 | [T2.3](tasks/T2.3-enum-and-technical.md) | enum 候補と技術列の検出、監査 TS による domain / event の根拠 | 未着手 | T2.1 |
 | [T2.4](tasks/T2.4-encoding-detection.md) | 物理的な表現（encoding）の検出 | 完了 | T1.3 |
 | [T2.5](tasks/T2.5-ui-data.md) | UI：実データの表示、レビューの根拠にプロファイルを添える | 未着手 | T1.9, T2.1 |

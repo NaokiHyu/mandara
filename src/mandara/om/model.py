@@ -341,7 +341,7 @@ class ClaimPredicate(str, Enum):
     """
     included_in = "included_in"
     """
-    表の columns（NULL を除く）の値を数えた結果：異なる値が distinct_values 個、そのうち target の target_columns （キー）にあるのが matched_values 個。target のキーの値は target_values 個。1 つの値の行は最大 max_repeats 行。 実データの測定で、宣言の無い参照（外部キー）の候補の事実。包含が成り立たない組も、否定の証拠として残す（仕様 6.7.2 B / D）
+    表の columns（NULL を除く）の値を数えた結果：異なる値が distinct_values 個、そのうち target の target_columns （キー）にあるのが matched_values 個。target のキーの値は target_values 個。1 つの値の行は最大 max_repeats 行。 整数の列なら、列の値の最小から最大までの整数の数 value_span と、その範囲にあるキーの値の数 target_values_in_span （整数でない列、値の無い列では持たない）。 実データの測定で、宣言の無い参照（外部キー）の候補の事実。包含が成り立たない組も、否定の証拠として残す（仕様 6.7.2 B / D）
     """
 
 
@@ -823,6 +823,8 @@ class Claim(ConfiguredBaseModel):
     matched_values: Optional[int] = Field(default=None, description="""included_in：そのうち target の target_columns にある値の数""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     target_values: Optional[int] = Field(default=None, description="""included_in：target の target_columns（キー）の値の数""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     max_repeats: Optional[int] = Field(default=None, description="""included_in：表の columns の1つの値を持つ行の最大の数（1 なら値は重ならない。1:1 の手がかり）""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
+    value_span: Optional[int] = Field(default=None, description="""included_in：整数の列だけ。表の columns の値の最小から最大までにある整数の数（最大 − 最小 + 1）""", ge=1, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
+    target_values_in_span: Optional[int] = Field(default=None, description="""included_in：整数の列だけ。target の target_columns（キー）の値のうち、表の columns の値の最小から最大までにある数。 value_span と比べると、列の値の範囲でのキーの詰まり方が分かる（隙間の多い範囲で全部含まれるなら、偶然ではない）""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     source: ClaimSource = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Claim', 'SourceRef']} })
     extracted_by: str = Field(default=..., description="""抽出器の名前と版""", json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     valid_at: Optional[date] = Field(default=None, description="""出所の日付（文書の日付など）。鮮度の根拠""", json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })

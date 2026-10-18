@@ -335,7 +335,7 @@ def test_extract_records_every_examined_column(tmp_path: Path) -> None:
             assert (schema, table, column, ordered) == ("s", "t", "id", True)
             return ColumnProfile(3, 3, 0, 2)
 
-        def inclusion(self, schema: str, table: str, column: str, keys: Sequence[KeyRef]) -> Inclusion:
+        def inclusion(self, schema: str, table: str, column: str, keys: Sequence[KeyRef], spans: bool) -> Inclusion:
             raise AssertionError(f"数えないはず: {schema}.{table}.{column}")
 
         def probe(self, schema: str, table: str, column: str, keys: Sequence[KeyRef], sample: int) -> tuple[int, ...]:

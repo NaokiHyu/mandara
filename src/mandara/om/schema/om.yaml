@@ -209,6 +209,8 @@ enums:
         description: >-
           表の columns（NULL を除く）の値を数えた結果：異なる値が distinct_values 個、そのうち target の target_columns
           （キー）にあるのが matched_values 個。target のキーの値は target_values 個。1 つの値の行は最大 max_repeats 行。
+          整数の列なら、列の値の最小から最大までの整数の数 value_span と、その範囲にあるキーの値の数 target_values_in_span
+          （整数でない列、値の無い列では持たない）。
           実データの測定で、宣言の無い参照（外部キー）の候補の事実。包含が成り立たない組も、否定の証拠として残す（仕様 6.7.2 B / D）
   GroupView:
     description: >-
@@ -640,6 +642,17 @@ classes:
         minimum_value: 0
       max_repeats:
         description: included_in：表の columns の1つの値を持つ行の最大の数（1 なら値は重ならない。1:1 の手がかり）
+        range: integer
+        minimum_value: 0
+      value_span:
+        description: >-
+          included_in：整数の列だけ。表の columns の値の最小から最大までにある整数の数（最大 − 最小 + 1）
+        range: integer
+        minimum_value: 1
+      target_values_in_span:
+        description: >-
+          included_in：整数の列だけ。target の target_columns（キー）の値のうち、表の columns の値の最小から最大までにある数。
+          value_span と比べると、列の値の範囲でのキーの詰まり方が分かる（隙間の多い範囲で全部含まれるなら、偶然ではない）
         range: integer
         minimum_value: 0
       source:

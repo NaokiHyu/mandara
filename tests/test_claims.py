@@ -189,6 +189,20 @@ def _reference_claim() -> Claim:
     )
 
 
+def _inclusion_claim() -> Claim:
+    return new_claim(
+        subject=SourceRef(source="src", schema_name="s", table="t"),
+        predicate=ClaimPredicate.included_in,
+        source=ClaimSource(kind=ClaimSourceKind.data, locator="inclusion"),
+        extracted_by="t",
+        confidence=1.0,
+        columns=["a"],
+        target=SourceRef(source="src", schema_name="s", table="u"),
+        target_columns=["b"],
+        distinct_values=3, matched_values=3, target_values=5, max_repeats=2, value_span=9, target_values_in_span=4,
+    )
+
+
 SHAPE_BREAKS: dict[str, Callable[[], Claim]] = {
     "extra field": lambda: _rehashed(_column_claim(), text="余計"),
     "missing field": lambda: _rehashed(_reference_claim(), on_delete=None),
@@ -201,6 +215,10 @@ SHAPE_BREAKS: dict[str, Callable[[], Claim]] = {
     "target in other source": lambda: _rehashed(_reference_claim(), target=SourceRef(
         source="other", schema_name="s", table="u")),
     "column count mismatch": lambda: _rehashed(_reference_claim(), target_columns=["b", "c"]),
+    "optional field on another predicate": lambda: _rehashed(_reference_claim(), value_span=10),
+    "span without key values in it": lambda: _rehashed(_inclusion_claim(), target_values_in_span=None),
+    "span below the values": lambda: _rehashed(_inclusion_claim(), value_span=2),
+    "fewer key values in span than matched": lambda: _rehashed(_inclusion_claim(), target_values_in_span=2),
 }
 
 

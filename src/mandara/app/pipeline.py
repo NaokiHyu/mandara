@@ -43,10 +43,12 @@ from mandara.modeler import joins as joins_modeler
 from mandara.modeler import classify
 from mandara.modeler import llm as llm_modeler
 from mandara.modeler import meaning
+from mandara.modeler import nameless_joins
 from mandara.modeler import rules as modeler
 from mandara.om.invariants import Violation, check
 from mandara.om.encoding_traits import ENCODING_TARGETS
-from mandara.om.model import Claim, ClaimPredicate, ReviewStatus, SemanticType, SourceRef, Table, Unit, ValueType
+from mandara.om.model import (Claim, ClaimPredicate, ReviewStatus, SemanticType, SourceRef, Table, TypeFamily, Unit,
+                              ValueType)
 from mandara.om.names import qualify, split_qualified
 from mandara.om.ontology import Ontology
 from mandara.omstore.declaration_store import load_declarations
@@ -244,7 +246,8 @@ def measure_joins(source: str, catalog: Catalog, inclusion: InclusionReader) -> 
         overlapping += len(overlap)
         if not overlap:
             continue
-        counted = inclusion.inclusion(table.schema, table.name, column.name, [k.ref for k in overlap])
+        counted = inclusion.inclusion(table.schema, table.name, column.name, [k.ref for k in overlap],
+                                      column.family == TypeFamily.integer)
         claims += joins_extractor.claims(source, candidate, overlap, counted)
     included = sum(1 for c in claims if c.distinct_values and c.matched_values == c.distinct_values)
     return MeasuredJoins(claims, JoinsMeasured(len(candidates), sum(len(c.keys) for c in candidates), narrowed, overlapping,
@@ -391,6 +394,24 @@ class Refined:
     """止めたために問わなかった表（v0 の提案のまま）。"""
     defect: bool = False
     """バグの疑い（組の食い違い、伝播の後の検証違反）で止めた。それまでの結果は書いてある。実行は失敗にする。"""
+    nameless: tuple["NamelessOutcome", ...] = ()
+    """名前の手がかりの無い参照を問うた結果（表ごと。表の分類の前に、全部の表について1回）。"""
+
+
+@dataclass(frozen=True)
+class NamelessOutcome:
+    table: str
+    status: str
+    """"answered"（答えを得た）/ "failed"（答えを得られなかった。この表の列は推定しない）/ "not_reached"（予算で止めたので
+    問わなかった）/ "not_applied"（答えは得たが、足した OM が検証を通らないので当てなかった）。"""
+    detail: str
+    asked: tuple[str, ...]
+    """問うた列。"""
+    added: tuple[str, ...]
+    """足した関係（「表.列 → 参照先」）。"""
+    not_references: tuple[str, ...]
+    dropped: tuple[llm_modeler.Dropped, ...]
+    answer: object = None
 
 
 class RefineDefectError(Exception):
@@ -437,6 +458,19 @@ def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, f
     for group in groups.groups:
         meaning.group_semantic_type(ontology, group)  # 入力の OM の組が食い違っていれば、問う前に InconsistentGroupError
     families = meaning.column_families(claims)
+    # 名前の手がかりの無い参照（T2.2 の 3b）：問う前の確かめの後、表の分類の前に決める（決めた参照は、分類と LLM に参照として渡る）
+    nameless_by = f"{nameless_joins.MODELER} ({decider.model})"
+    decided, nameless, stopped = _decide_nameless(ontology, claims, decider, nameless_by)
+    if violations := check(decided):
+        # 足していない OM を書くので、記録も「当てなかった」にする（答えは課金済みなので残す）
+        nameless = [replace(o, status="not_applied", detail="足した OM が検証を通らない", added=())
+                    if o.added else o for o in nameless]
+        return _finish(workspace, ontology, order, nameless, [], f"バグの疑いで止めた: 推定した参照を足した OM が検証を"
+                       f"通らない: {violations[:3]}", [t.name for t in order], defect=True)
+    ontology = decided
+    order = [next(t for t in ontology.tables if t.id == o.id) for o in order]
+    if stopped is not None:  # 予算で止めた。それまでに得た答え（課金済み）は当てて書く
+        return _finish(workspace, ontology, order, nameless, [], stopped, [t.name for t in order])
 
     outcomes: list[TableOutcome] = []
     stopped: str | None = None
@@ -446,7 +480,7 @@ def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, f
         try:
             hints = llm_modeler.meaning_hints(ontology, table, groups)
         except defects as e:
-            return _finish(workspace, ontology, order, outcomes, f"バグの疑いで止めた: {type(e).__name__}: {e}",
+            return _finish(workspace, ontology, order, nameless, outcomes, f"バグの疑いで止めた: {type(e).__name__}: {e}",
                            [t.name for t in order[i:]], defect=True)
         record: dict[str, object] = {}
         try:
@@ -455,8 +489,8 @@ def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, f
             stopped = str(e)
             if record:  # 途中まで課金済みの答えは記録に残す（この表には当てない）
                 outcomes.append(TableOutcome(table.name, "failed", f"止めた: {e}", (), (), record))
-                return _finish(workspace, ontology, order, outcomes, stopped, [t.name for t in order[i + 1:]])
-            return _finish(workspace, ontology, order, outcomes, stopped, [t.name for t in order[i:]])
+                return _finish(workspace, ontology, order, nameless, outcomes, stopped, [t.name for t in order[i + 1:]])
+            return _finish(workspace, ontology, order, nameless, outcomes, stopped, [t.name for t in order[i:]])
         except _TableFailed as e:
             outcomes.append(TableOutcome(table.name, "failed", str(e), (), (), e.answer))
             continue
@@ -470,7 +504,7 @@ def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, f
             # この表の答えは当てずに、それまでの OM を書く。答え（課金済み）は記録に残す
             stopped = f"バグの疑いで止めた: {type(e).__name__}: {e}"
             outcomes.append(TableOutcome(table.name, "failed", stopped, (), (), record))
-            return _finish(workspace, ontology, order, outcomes, stopped, [t.name for t in order[i + 1:]],
+            return _finish(workspace, ontology, order, nameless, outcomes, stopped, [t.name for t in order[i + 1:]],
                            defect=True)
         ontology = propagated.ontology
         status = "kept" if applied.table_kept_as_is else ("refined" if applied.applied else "nothing_applied")
@@ -480,7 +514,7 @@ def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, f
                                      tuple(f"{meaning.label(n.member)} {n.semantic_type}: {n.reason}"
                                            for n in propagated.not_filled),
                                      tuple(asked.stage_failures)))
-    return _finish(workspace, ontology, order, outcomes, stopped, [])
+    return _finish(workspace, ontology, order, nameless, outcomes, stopped, [])
 
 
 @dataclass
@@ -640,10 +674,46 @@ def _decisions_record(response: DecisionResponse) -> dict[str, object]:
         for key, a in sorted(response.answers.items())}}
 
 
-def _finish(workspace: Workspace, ontology: Ontology, order: Sequence[Table], outcomes: list[TableOutcome],
-            stopped: str | None, not_reached: list[str], defect: bool = False) -> Refined:
+def _finish(workspace: Workspace, ontology: Ontology, order: Sequence[Table], nameless: Sequence[NamelessOutcome],
+            outcomes: list[TableOutcome], stopped: str | None, not_reached: list[str], defect: bool = False) -> Refined:
     write_ontology(workspace.ontology, ontology)
-    return Refined(tuple(t.name for t in order), tuple(outcomes), stopped, tuple(not_reached), defect)
+    return Refined(tuple(t.name for t in order), tuple(outcomes), stopped, tuple(not_reached), defect, tuple(nameless))
+
+
+def _decide_nameless(ontology: Ontology, claims: Sequence[Claim], decider: DecisionModel,
+                     inferred_by: str) -> tuple[Ontology, list[NamelessOutcome], str | None]:
+    """名前の手がかりの無い包含を、表ごとに判断モデルに問い、選んだ参照を OM に足す（mandara.modeler.nameless_joins）。
+
+    答えを得られなかった表は記録して次へ（その表の列は推定しない）。予算の上限や見積もりの崩れでは、そこで止めて理由を返す
+    （それまでの答えは当てる）。選択肢が判断モデルの上限を超える問いは作らない（MAX_TARGETS は上限より小さい）。"""
+    if nameless_joins.MAX_TARGETS + 2 > decider.max_options:
+        raise ValueError(f"名前の無い参照の選択肢 {nameless_joins.MAX_TARGETS + 2} が判断モデルの上限 "
+                         f"{decider.max_options} を超える")
+    outcomes: list[NamelessOutcome] = []
+    decided: list[nameless_joins.Decided] = []
+    stopped: str | None = None
+    for asked in nameless_joins.questions(ontology, claims):
+        columns = tuple(a.column for a in asked.asked)
+        name = asked.table.name
+        if stopped is not None:
+            outcomes.append(NamelessOutcome(name, "not_reached", stopped, columns, (), (), ()))
+            continue
+        try:
+            response = decider.decide(asked.request)
+        except (BudgetExceededError, EstimateViolatedError) as e:
+            stopped = str(e)
+            outcomes.append(NamelessOutcome(name, "not_reached", stopped, columns, (), (), ()))
+            continue
+        except LlmError as e:
+            outcomes.append(NamelessOutcome(name, "failed", f"{type(e).__name__}: {e}", columns, (), (), ()))
+            continue
+        read = nameless_joins.read(asked, response)
+        decided += read.decided
+        outcomes.append(NamelessOutcome(name, "answered", "", columns,
+                                        tuple(f"{d.asked.column} → {d.target.option}" for d in read.decided),
+                                        read.not_references, read.abstained,
+                                        {**_decisions_record(response), "evidence": nameless_joins.evidence(asked)}))
+    return nameless_joins.apply(ontology, decided, inferred_by), outcomes, stopped
 
 
 # ---------------------------------------------------------------- レビュー（仕様 6.4、9.3）
@@ -807,7 +877,8 @@ def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, cover
         "requested_scope": list(scope.schemas),
         "versions": {"extractor": catalog_extractor.EXTRACTOR, "values_extractor": values_extractor.EXTRACTOR,
                      "declaration_extractor": declaration_extractor.EXTRACTOR, "joins_extractor": joins_extractor.EXTRACTOR,
-                     "modeler": modeler.MODELER, "joins_modeler": joins_modeler.MODELER},
+                     "modeler": modeler.MODELER, "joins_modeler": joins_modeler.MODELER,
+                     "nameless_joins_modeler": nameless_joins.MODELER},
         "completed": [],
     })
     with log.stage("extract"):
@@ -847,6 +918,10 @@ def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, cover
                             "stage_failures": list(o.stage_failures),
                             "answer": o.answer}
                            for o in refined.outcomes],
+                "nameless": [{"table": o.table, "status": o.status, "detail": o.detail, "asked": list(o.asked),
+                              "added": list(o.added), "not_references": list(o.not_references),
+                              "dropped": [{"item": d.item, "reason": d.reason} for d in o.dropped], "answer": o.answer}
+                             for o in refined.nameless],
             })
             if refined.defect:
                 raise RefineDefectError(refined.stopped)

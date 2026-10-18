@@ -109,12 +109,20 @@ class SetReader:
         high = max(ints) if ordered and ints and len(ints) == len(rows) else None
         return ColumnProfile(len(rows), len(distinct), low, high)
 
-    def inclusion(self, schema: str, table: str, column: str, keys: Sequence[KeyRef]) -> Inclusion:
+    def inclusion(self, schema: str, table: str, column: str, keys: Sequence[KeyRef], spans: bool) -> Inclusion:
         rows = [v for v in self.values(schema, table, column) if v is not None]
         distinct = set(rows)
         key_sets = [{v for v in self.values(k.schema, k.table, k.column) if v is not None} for k in keys]
+        ints = [v for v in distinct if isinstance(v, int)]
+        if spans and len(ints) != len(distinct):
+            raise AssertionError("整数でない列に範囲の幅を求めた")
+        low, high = (min(ints), max(ints)) if spans and ints else (0, -1)
+        ranged = spans and bool(ints)
         return Inclusion(len(distinct), max(Counter(rows).values(), default=0),
-                         tuple(len(distinct & k) for k in key_sets), tuple(len(k) for k in key_sets))
+                         tuple(len(distinct & k) for k in key_sets), tuple(len(k) for k in key_sets),
+                         high - low + 1 if ranged else None,
+                         tuple(sum(1 for v in k if isinstance(v, int) and low <= v <= high) for k in key_sets)
+                         if ranged else None)
 
     def probe(self, schema: str, table: str, column: str, keys: Sequence[KeyRef], sample: int) -> tuple[int, ...]:
         head = set(sorted({v for v in self.values(schema, table, column) if v is not None}, key=repr)[:sample])
@@ -122,23 +130,26 @@ class SetReader:
 
 
 @given(st.lists(st.none() | st.integers(0, 30), max_size=40), st.lists(st.integers(0, 40), max_size=30, unique=True),
-       st.lists(st.integers(10, 60), max_size=30, unique=True), st.integers(1, 8))
-def test_the_fake_reader_obeys_the_laws(column: list[int | None], key1: list[int], key2: list[int], sample: int) -> None:
+       st.lists(st.integers(10, 60), max_size=30, unique=True), st.integers(1, 8), st.booleans())
+def test_the_fake_reader_obeys_the_laws(column: list[int | None], key1: list[int], key2: list[int], sample: int,
+                                        spans: bool) -> None:
     reader = SetReader({("s", "t"): {"c": list(column)}, ("s", "k1"): {"id": list(key1)}, ("s", "k2"): {"id": list(key2)}})
     keys = [KeyRef("s", "k1", "id"), KeyRef("s", "k2", "id")]
-    assert inclusion_laws.counts_agree_with_sets(reader, reader.values, "s", "t", "c", keys, sample) == []
+    assert inclusion_laws.counts_agree_with_sets(reader, reader.values, "s", "t", "c", keys, sample, spans) == []
 
 
 INCLUSION = [
+    # 整数のキー（幅も数える）
     ("sales", "salesorderheader", "territoryid", [("sales", "salesterritory", "territoryid"),
-                                                  ("sales", "customer", "customerid")]),
+                                                  ("sales", "customer", "customerid")], True),
     # 型をまたぐ等値：smallint の列と integer のキー
-    ("humanresources", "employeedepartmenthistory", "departmentid", [("humanresources", "department", "departmentid")]),
+    ("humanresources", "employeedepartmenthistory", "departmentid", [("humanresources", "department", "departmentid")],
+     True),
     # 文字列のキー（固定長 char と可変長 varchar。同じ型どうし）
-    ("sales", "countryregioncurrency", "currencycode", [("sales", "currency", "currencycode")]),
-    ("person", "stateprovince", "countryregioncode", [("person", "countryregion", "countryregioncode")]),
+    ("sales", "countryregioncurrency", "currencycode", [("sales", "currency", "currencycode")], False),
+    ("person", "stateprovince", "countryregioncode", [("person", "countryregion", "countryregioncode")], False),
     # uuid（どれも重ならない）
-    ("person", "addresstype", "rowguid", [("person", "person", "rowguid")]),
+    ("person", "addresstype", "rowguid", [("person", "person", "rowguid")], False),
 ]
 
 
@@ -151,12 +162,14 @@ def _values(schema: str, table: str, column: str) -> list[object]:
         return [r[0] for r in conn.execute(query).fetchall()]
 
 
-@pytest.mark.parametrize(("schema", "table", "column", "keys"), INCLUSION)
-def test_postgres_reader_obeys_the_laws(schema: str, table: str, column: str, keys: list[tuple[str, str, str]]) -> None:
+@pytest.mark.parametrize(("schema", "table", "column", "keys", "integer"), INCLUSION)
+def test_postgres_reader_obeys_the_laws(schema: str, table: str, column: str, keys: list[tuple[str, str, str]],
+                                        integer: bool) -> None:
     reader = PostgresInclusionReader(CONNINFO)
     refs = [KeyRef(*k) for k in keys]
-    assert inclusion_laws.counts_agree_with_sets(reader, _values, schema, table, column, refs,
-                                                 joins_extractor.PROBE_SAMPLE) == []
+    for spans in {False, integer}:
+        assert inclusion_laws.counts_agree_with_sets(reader, _values, schema, table, column, refs,
+                                                     joins_extractor.PROBE_SAMPLE, spans) == []
 
 
 def test_profile_reads_ordered_bounds_of_dates_and_decimals() -> None:
@@ -347,3 +360,20 @@ def test_inferred_relations_never_duplicate_declared_joins() -> None:
     assert len(seen) == len(set(seen))
     inferred = [r for t in ontology.tables for r in t.relations or [] if r.inferred_by == joins.MODELER]
     assert inferred and all(r.confidence is not None and r.confidence < 0.9 for r in inferred)  # 推定は宣言より低い確信度で、人のレビューに回る
+
+
+def test_claims_refuse_a_range_that_does_not_match_the_column_family() -> None:
+    """値の範囲は整数の列で値があるときだけ。読み手が食い違えば、主張にせず誤りにする。"""
+    key_table = Table("s", "k", ObjectKind.table, None, (_column("id"),), Key("pk", ("id",)), (), (), ())
+    key = joins_extractor.Key(key_table, key_table.columns[0])
+    text = _column("code", TypeFamily.text, "text")
+    candidate = joins_extractor.Candidate(Table("s", "t", ObjectKind.table, None, (text,), None, (), (), ()), text, (key,))
+    with pytest.raises(ValueError, match="値の範囲の幅"):
+        joins_extractor.claims("src", candidate, [key], Inclusion(3, 1, (3,), (5,), 4, (3,)))
+    integer = _column("ref")
+    candidate = joins_extractor.Candidate(Table("s", "t", ObjectKind.table, None, (integer,), None, (), (), ()), integer,
+                                          (key,))
+    with pytest.raises(ValueError, match="値の範囲の幅"):
+        joins_extractor.claims("src", candidate, [key], Inclusion(3, 1, (3,), (5,), None, None))
+    [claim] = joins_extractor.claims("src", candidate, [key], Inclusion(3, 1, (3,), (5,), 4, (3,)))
+    assert (claim.value_span, claim.target_values_in_span) == (4, 3)

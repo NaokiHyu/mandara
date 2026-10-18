@@ -42,7 +42,8 @@ from mandara.llm.model import (
 )
 from mandara.modeler import llm as v1
 from mandara.modeler.joins import InferenceClaims
-from mandara.modeler import meaning
+from mandara.modeler import meaning, nameless_joins
+from mandara.omstore.claim_store import load_claim_ledger
 from mandara.modeler.meaning import (
     InconsistentGroupError,
     PropagationError,
@@ -349,6 +350,7 @@ class ScriptedDecider:
     script: dict[str, Any]
     model: str = "fakejev"
     asked: list[str] = field(default_factory=lambda: list[str]())
+    requests: dict[str, DecisionRequest] = field(default_factory=lambda: dict[str, DecisionRequest]())
     max_options: int = 255
 
     def max_input_tokens(self, request: DecisionRequest) -> int:
@@ -356,6 +358,7 @@ class ScriptedDecider:
 
     def decide(self, request: DecisionRequest) -> DecisionResponse:
         self.asked.append(request.purpose)
+        self.requests[request.purpose] = request
         reply = self.script.get(request.purpose, {})
         if isinstance(reply, Exception):
             raise reply
@@ -370,6 +373,11 @@ class ScriptedDecider:
                 rest = 0.1 / (len(options) - 1)
                 answers[key] = ChoiceAnswer(chosen, {o: 0.9 if o == chosen else rest for o in options})
         return DecisionResponse(answers, Usage(1000, 10), self.model, None)
+
+
+def _classified(asked: list[str]) -> list[str]:
+    """表の分類の問いだけ（名前の手がかりの無い参照の問い "nameless joins <表>" は、その前に全部の表について出る）。"""
+    return [a for a in asked if a.startswith("classify ")]
 
 
 def _about(asked: list[str], table: str) -> list[str]:
@@ -397,13 +405,60 @@ def workspace(tmp_path: Path) -> Iterator[Workspace]:
     yield ws
 
 
+def test_nameless_references_are_decided_first_and_classified_as_references(workspace: Workspace) -> None:
+    """名前の手がかりの無い包含は、表の分類の前に全部の表について問う。選んだ参照は関係になり、その表の分類では外部キーと同じく
+    関係型を問われる。台本に無い（確率が等分の）答えは関係にしない。"""
+    name = "production.transactionhistory"
+    target = "production.transactionhistoryarchive.transactionid"  # 偽物が選ぶ選択肢（意味の正しさはここでは見ない）
+    decider = ScriptedDecider({f"nameless joins {name}": {"column referenceorderid": target}})
+    refined = _refine(workspace, ScriptedModel({}), decider, [name])
+    nameless = [a for a in decider.asked if a.startswith("nameless joins ")]
+    assert nameless and decider.asked[:len(nameless)] == nameless  # 分類より前
+    [outcome] = [o for o in refined.nameless if o.table == name]
+    assert outcome.added == (f"referenceorderid → {target}",)
+    assert all(not o.added for o in refined.nameless if o.table != name)
+    table = next(t for t in load_ontology(workspace.ontology).tables if t.name == name)
+    [relation] = [r for r in table.relations or [] if (r.inferred_by or "").startswith(nameless_joins.MODELER)]
+    assert [(p.from_, p.to) for p in relation.via or []] == [("referenceorderid", "transactionid")]
+    assert relation.confidence is not None and relation.confidence <= nameless_joins.CONFIDENCE_CAP
+    assert relation.evidence is not None
+    assert f"relation {relation.evidence[0]}" in decider.requests[f"classify {name}"].questions
+
+
+def test_nameless_failures_are_recorded_and_the_budget_stops_before_classifying(workspace: Workspace) -> None:
+    """名前の無い参照の問いが LLM の誤りで答えを得られなければ、その表を記録して次へ。予算で止まれば、残りの表は
+    問わなかったと記録し、分類はしない。選択肢が判断モデルの上限を超えるなら、問う前に誤り。"""
+    name = "production.transactionhistory"
+    decider = ScriptedDecider({f"nameless joins {name}": LlmError("HTTP 529")})
+    refined = _refine(workspace, ScriptedModel({}), decider, [])
+    statuses = {o.table: o.status for o in refined.nameless}
+    assert statuses[name] == "failed" and set(statuses.values()) == {"failed", "answered"}
+    assert _classified(decider.asked)  # 失敗しても分類へ進む
+
+    stopped = ScriptedDecider({})
+    expensive = Pricing("fakejev", (PriceTier(None, 1.0, 0.0),))  # 1 問 $0.0011（見積もり）。最初の問いから予算を超える
+    refined = _refine(workspace, ScriptedModel({}), stopped, [], limit=0.0005, jev_pricing=expensive)
+    assert refined.stopped is not None and "予算" in refined.stopped
+    assert {o.status for o in refined.nameless} == {"not_reached"} and _classified(stopped.asked) == []
+    assert refined.outcomes == () and len(refined.not_reached) == len(V0.tables)
+
+    narrow = ScriptedDecider({}, max_options=nameless_joins.MAX_TARGETS + 1)
+    with pytest.raises(ValueError, match="判断モデルの上限"):
+        _refine(workspace, ScriptedModel({}), narrow, [])
+    assert narrow.asked == []
+
+
 def test_refine_records_failures_and_stops_on_budget(workspace: Workspace) -> None:
     decider = ScriptedDecider({"classify person.person": InvalidOutputError("壊れた", Usage(1000, 0)),
                                "classify sales.customer": LlmError("HTTP 529")})
-    expensive = Pricing("fakejev", (PriceTier(None, 1.0, 0.0),))  # 1 問 $0.0011（見積もり）
-    refined = _refine(workspace, ScriptedModel({}), decider, ["sales.customer", "person.person"], limit=0.01,
-                      jev_pricing=expensive)
-    assert decider.asked[:2] == ["classify sales.customer", "classify person.person"]  # 先に問う表から
+    expensive = Pricing("fakejev", (PriceTier(None, 1.0, 0.0),))  # 1 問 $0.0011（見積もり）、実際は $0.001
+    # 名前の手がかりの無い参照の問い（分類の前に全部の表について出る）の分だけ、予算を足す
+    nameless = len(nameless_joins.questions(load_ontology(workspace.ontology),
+                                            load_claim_ledger(workspace.claims, workspace.source)))
+    refined = _refine(workspace, ScriptedModel({}), decider, ["sales.customer", "person.person"],
+                      limit=0.01 + 0.001 * nameless, jev_pricing=expensive)
+    assert len(refined.nameless) == nameless
+    assert _classified(decider.asked)[:2] == ["classify sales.customer", "classify person.person"]  # 先に問う表から
     statuses = {o.table: o.status for o in refined.outcomes}
     assert statuses["sales.customer"] == "failed" and statuses["person.person"] == "failed"
     assert refined.stopped is not None and "予算" in refined.stopped
@@ -577,7 +632,7 @@ def test_refine_stops_on_a_defect_and_keeps_what_it_had(workspace: Workspace,
     address = "person.address"
     refined = _refine(workspace, ScriptedModel({}), decider, [address])
     assert refined.defect and refined.stopped == "バグの疑いで止めた: PropagationError: 模したバグ"
-    assert decider.asked == [f"classify {address}"]
+    assert _classified(decider.asked) == [f"classify {address}"]
     assert (refined.outcomes[0].table, refined.outcomes[0].status) == (address, "failed")
     assert refined.outcomes[0].answer is not None  # 課金済みの答えは記録に残す
     assert len(refined.not_reached) == len(V0.tables) - 1

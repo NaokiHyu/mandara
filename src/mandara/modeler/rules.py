@@ -184,16 +184,8 @@ def _table(
         target_key = (target.schema_name, target.table)
         if target_key not in table_ids:
             raise InvalidInputError(f"推定した参照の参照先 {qualify(*target_key)} の表が台帳に無い（台帳が不完全）: {c.id}")
-        relations.append(Relation(
-            id="rel_" + _stable_hash(source, schema, name, c.source.locator),
-            type=RelationType.has,
-            has_kind=HasKind.reference,
-            target=SELF if target_key == key else table_ids[target_key],
-            via=[ColumnPair.model_validate({"from": a, "to": b})
-                 for a, b in zip(_columns(c), _present(c.target_columns, c), strict=True)],
-            cardinality=Cardinality("1:1" if chosen.one_to_one else "n:1"),
-            status=ReviewStatus.proposed, confidence=chosen.confidence, evidence=[c.id], inferred_by=joins.MODELER,
-        ))
+        relations.append(inferred_relation(c, SELF if target_key == key else table_ids[target_key], chosen.one_to_one,
+                                           chosen.confidence, joins.MODELER))
 
     typed = sorted(_all(claims, ClaimPredicate.typed_as), key=lambda c: _present(c.position, c))
     encoded_claims = _all(claims, ClaimPredicate.encoded_as)
@@ -218,6 +210,24 @@ def _table(
         note="context はスキーマ名からの推定" + ("" if kind is not None else "。kind は未決（規則では決まらない）"),
     )
     return table, skipped
+
+
+def inferred_relation(claim: Claim, target: str, one_to_one: bool, confidence: float, inferred_by: str) -> Relation:
+    """値の包含（included_in）から推定した参照の関係（規則が選んだものも、判断モデルが選んだものも同じ形）。
+    target は参照先の表の ID（自分なら SELF）。ID は測定の場所から作る（数が変わっても関係の ID は変わらない）。"""
+    if claim.predicate != ClaimPredicate.included_in.value:
+        raise ValueError(f"推定した参照の根拠は included_in の主張: {claim.id}（{claim.predicate}）")
+    s = claim.subject
+    return Relation(
+        id="rel_" + _stable_hash(s.source, s.schema_name, s.table, claim.source.locator),
+        type=RelationType.has,
+        has_kind=HasKind.reference,
+        target=target,
+        via=[ColumnPair.model_validate({"from": a, "to": b})
+             for a, b in zip(_columns(claim), _present(claim.target_columns, claim), strict=True)],
+        cardinality=Cardinality("1:1" if one_to_one else "n:1"),
+        status=ReviewStatus.proposed, confidence=confidence, evidence=[claim.id], inferred_by=inferred_by,
+    )
 
 
 def _column_of(typed: Claim, encoded: Claim | None) -> Column:
