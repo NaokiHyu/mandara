@@ -2,7 +2,7 @@
 // 答えた後の列に残っていて、飛ばしていない問いだけ。
 import { describe, expect, it } from "vitest";
 import { type ReviewQuestion, ReviewSubject } from "./om/model";
-import { approveAllBatch, countBySubject, keyAction, nextLocation, tableBatch, visible } from "./review";
+import { approveAllBatch, countBySubject, keyAction, nextLocation, tableBatch, visible, confidenceHistogram } from "./review";
 
 function question(location: string, extra: Partial<ReviewQuestion> = {}): ReviewQuestion {
   return { location, subject: "column", text: location, evidence: [], evidence_total: 0, needs_kind: false,
@@ -77,5 +77,24 @@ describe("表ごと承認", () => {
     expect(tableBatch(qs, "t1").map((q) => q.location)).toEqual(["a", "c"]);
     expect(tableBatch(qs, "none")).toEqual([]);
     expect(approveAllBatch(qs).map((q) => q.location)).toEqual(["a", "b", "v", "c"]);
+  });
+});
+
+describe("確信度の分布", () => {
+  it("どの問いもちょうど1か所に数える（区間・下・無し）。1.0 は最後の区間、区間の境目は上の区間", () => {
+    const values = [undefined, 0.2, 0.5, 0.55, 0.7, 0.95, 0.999, 1.0, 1.0];
+    const h = confidenceHistogram(values, 0.5, 10);
+    expect(h.counts.reduce((a, b) => a + b, 0) + h.below + h.none).toBe(values.length);
+    expect([h.below, h.none]).toEqual([1, 1]);
+    expect(h.counts[0]).toBe(1);           // 0.5
+    expect(h.counts[1]).toBe(1);           // 0.55
+    expect(h.counts[4]).toBe(1);           // 0.7
+    expect(h.counts[9]).toBe(4);           // 0.95, 0.999, 1.0, 1.0
+  });
+  it("擬似乱数の値でも和は数と同じ", () => {
+    let s = 7;
+    const values = Array.from({ length: 300 }, () => { s = (s * 48271) % 2147483647; return s / 2147483647; });
+    const h = confidenceHistogram(values);
+    expect(h.counts.reduce((a, b) => a + b, 0) + h.below + h.none).toBe(300);
   });
 });

@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, getReview, postAll, postAnswer, postBulk, postTable, WrittenButStaleError } from "./api";
 import type { OntologyDocument, ReviewAnswer, ReviewQuestion, ReviewQueue } from "./om/model";
-import { KIND_KEYS, SUBJECT_LABEL, SUBJECTS, approveAllBatch, asSubject, countBySubject, keyAction, nextLocation, tableBatch,
-         visible, type Subject } from "./review";
+import { KIND_KEYS, SUBJECT_LABEL, SUBJECTS, approveAllBatch, asSubject, confidenceHistogram, countBySubject, keyAction,
+         nextLocation, tableBatch, visible, type Subject } from "./review";
+import { Corners } from "./parts";
 import { TableDetail } from "./TableDetail";
 import { KIND } from "./vocabulary";
 
@@ -112,9 +113,9 @@ export function ReviewView({ ontologyId, doc, onChanged, onOpenTable }: {
     <div className="review">
       <aside className="review-queue" aria-label="問いの列">
         <header>
-          <span className="label">QUEUE</span>
+          <span className="eyebrow">QUEUE</span>
           <span className="count">{q.pending.toLocaleString()}</span>
-          <span className="dim">pending</span>
+          <span className="dim">件 · 影響の大きい順</span>
         </header>
         <div className="chips" role="group" aria-label="対象で絞る">
           <button className={subject === null ? "on" : ""} aria-pressed={subject === null}
@@ -143,7 +144,7 @@ export function ReviewView({ ontologyId, doc, onChanged, onOpenTable }: {
         {q.writable && candidates.length > 0 && (
           <div className="banner bulk">
             <span>一括承認の候補 <strong>{candidates.length.toLocaleString()}</strong> 件（確信度 ≥ {q.bulk_minimum}）</span>
-            <button onClick={() => setBatch({ type: "threshold" })}>一覧を見る</button>
+            <button className="ghost" onClick={() => setBatch({ type: "threshold" })}>一覧を見て承認</button>
           </div>
         )}
         {q.approve_all && !bulkOpen && approveAllBatch(q.questions).length > 0 && (
@@ -188,7 +189,10 @@ export function ReviewView({ ontologyId, doc, onChanged, onOpenTable }: {
         )}
       </section>
 
-      {table !== undefined && !bulkOpen && <TableDetail doc={doc} table={table} onSelect={onOpenTable} />}
+      <div className="review-side">
+        <ReviewStats questions={q.questions} bulkMinimum={q.bulk_minimum} answered={answered} />
+        {table !== undefined && !bulkOpen && <TableDetail doc={doc} table={table} onSelect={onOpenTable} />}
+      </div>
     </div>
   );
 }
@@ -213,7 +217,8 @@ function QuestionCard({ question, index, total, writable, bulkMinimum, reviewer,
     kind === undefined ? { location: question.location, decision: "approve" }
                        : { location: question.location, decision: "approve", kind });
   return (
-    <article className="card" aria-label="問い">
+    <article className="card blueprint" aria-label="問い">
+      <Corners />
       <div className="card-head">
         <span className={`tag tag-${subject}`}>{SUBJECT_LABEL[subject]}</span>
         <span className="dim">{index + 1} / {total}</span>
@@ -233,16 +238,20 @@ function QuestionCard({ question, index, total, writable, bulkMinimum, reviewer,
         {hidden > 0 && <li className="dim"><span className="branch">└</span>ほか {hidden} 件の根拠</li>}
         {question.evidence_total === 0 && <li className="dim">根拠なし</li>}
       </ul>
-      <div className="actions">
-        {question.needs_kind ? (
-          Object.entries(KIND_KEYS).map(([key, kind]) => (
-            <button key={key} className="approve" disabled={!writable || busy} onClick={() => approve(kind)}>
-              <kbd>{key.toUpperCase()}</kbd> {KIND[kind].text}
+      {question.needs_kind && (
+        <div className="options" role="group" aria-label="種類">
+          {Object.entries(KIND_KEYS).map(([key, kind]) => (
+            <button key={key} className="option" disabled={!writable || busy} onClick={() => approve(kind)}>
+              <span className="option-key"><kbd>{key.toUpperCase()}</kbd>{kind.toUpperCase()}</span>
+              <span className="option-text">{KIND[kind].text}</span>
             </button>
-          ))
-        ) : (
-          <button className="approve" disabled={!writable || busy} onClick={() => approve()}>
-            <kbd>Y</kbd> はい（承認）
+          ))}
+        </div>
+      )}
+      <div className="actions">
+        {!question.needs_kind && (
+          <button className="primary blueprint" disabled={!writable || busy} onClick={() => approve()}>
+            <Corners /><kbd>Y</kbd> はい（承認）
           </button>
         )}
         <button className="reject" disabled={!writable || busy}
@@ -322,6 +331,47 @@ function BulkPanel({ title, detail, bulkMinimum, candidates, submit, onDone, onC
           {busy ? "承認しています…" : `この ${candidates.length.toLocaleString()} 件を承認する`}
         </button>
       </footer>
+    </section>
+  );
+}
+
+/** 列の全体の様子：確信度の分布（一括承認の閾値以上を色で）と、対象ごとの数。どちらも今の問いの列から数える。 */
+function ReviewStats({ questions, bulkMinimum, answered }: {
+  questions: readonly ReviewQuestion[]; bulkMinimum: number; answered: number;
+}) {
+  const from = 0.5;
+  const h = confidenceHistogram(questions.map((x) => x.confidence), from, 10);
+  const top = Math.max(1, ...h.counts);
+  const counts = countBySubject(questions);
+  const most = Math.max(1, ...SUBJECTS.map((s) => counts[s]));
+  return (
+    <section className="review-stats" aria-label="列の様子">
+      <div className="eyebrow">確信度の分布</div>
+      <div className="histogram" title={`確信度 ${from} 未満 ${h.below} 件 · 確信度なし ${h.none} 件`}>
+        {h.counts.map((n, i) => (
+          <span key={i} className={from + i * h.width >= bulkMinimum - 1e-9 ? "hbar high" : "hbar"}
+                style={{ height: `${(n / top) * 100}%` }} title={`${(from + i * h.width).toFixed(2)}–${(from + (i + 1) * h.width).toFixed(2)}：${n} 件`} />
+        ))}
+      </div>
+      <div className="histogram-axis">
+        <span>{from}</span>
+        <span className="at" style={{ left: `${((bulkMinimum - from) / (1 - from)) * 100}%` }}>{bulkMinimum}</span>
+        <span>1.0</span>
+      </div>
+      {(h.below > 0 || h.none > 0) && (
+        <p className="dim small">{from} 未満 {h.below} 件{h.none > 0 ? ` · 確信度なし ${h.none} 件` : ""}</p>
+      )}
+      <div className="eyebrow">対象</div>
+      <ul className="subject-bars">
+        {SUBJECTS.filter((s) => counts[s] > 0).map((s) => (
+          <li key={s}>
+            <span className={`tag tag-${s}`}>{SUBJECT_LABEL[s]}</span>
+            <span className="track"><span style={{ width: `${(counts[s] / most) * 100}%` }} /></span>
+            <span className="n">{counts[s].toLocaleString()}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="dim small">この画面で {answered} 件に答えた</p>
     </section>
   );
 }
