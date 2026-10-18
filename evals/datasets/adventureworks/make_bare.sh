@@ -36,10 +36,13 @@ if [ "$LEVEL" = 2 ]; then
 DO \$\$
 DECLARE r record;
 BEGIN
-  FOR r IN SELECT n.nspname, c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+  -- COMMENT ON の対象の種類は relkind で変わる（ビューに TABLE を使うとエラー）
+  FOR r IN SELECT n.nspname, c.relname,
+                  CASE c.relkind WHEN 'r' THEN 'TABLE' WHEN 'v' THEN 'VIEW' WHEN 'm' THEN 'MATERIALIZED VIEW' END AS kind
+             FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE c.relkind IN ('r', 'v', 'm') AND n.nspname IN ($SCHEMAS)
   LOOP
-    EXECUTE format('COMMENT ON TABLE %I.%I IS NULL', r.nspname, r.relname);
+    EXECUTE format('COMMENT ON %s %I.%I IS NULL', r.kind, r.nspname, r.relname);
   END LOOP;
   FOR r IN SELECT n.nspname, c.relname, a.attname FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
              JOIN pg_namespace n ON n.oid = c.relnamespace
