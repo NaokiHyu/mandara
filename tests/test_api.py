@@ -57,6 +57,8 @@ def test_list_and_get(tmp_path: Path) -> None:
     _, listed = _get(client, "/api/ontologies")
     assert [e.message for e in INDEX_VALIDATOR.iter_errors(listed)] == []
     assert [(o["id"], o["kind"]) for o in listed["ontologies"]] == [("work:copy", "work"), ("gold:adventureworks", "gold")]
+    # レビューの列を読めるかはサーバが決めて一覧に出す（作業領域の OM だけ）。読めない OM のレビューは 409
+    assert [o["reviewable"] for o in listed["ontologies"]] == [True, False]
 
     status, document = _get(client, "/api/ontologies/gold:adventureworks")
     assert status == 200

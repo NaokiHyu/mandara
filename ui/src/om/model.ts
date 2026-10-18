@@ -573,6 +573,8 @@ export interface OntologyListing {
     id: string,
     label: string,
     kind: string,
+    /** レビューの問いの列を読めるか（レビューするのは作業領域の OM だけ。正解 OM などは false） */
+    reviewable: boolean,
 }
 
 

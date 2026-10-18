@@ -83,7 +83,7 @@ describe("表ごと承認", () => {
 describe("確信度の分布", () => {
   it("どの問いもちょうど1か所に数える（区間・下・無し）。1.0 は最後の区間、区間の境目は上の区間", () => {
     const values = [undefined, 0.2, 0.5, 0.55, 0.7, 0.95, 0.999, 1.0, 1.0];
-    const h = confidenceHistogram(values, 0.5, 10);
+    const h = confidenceHistogram(values, 0.95, 0.5, 10);
     expect(h.counts.reduce((a, b) => a + b, 0) + h.below + h.none).toBe(values.length);
     expect([h.below, h.none]).toEqual([1, 1]);
     expect(h.counts[0]).toBe(1);           // 0.5
@@ -94,7 +94,13 @@ describe("確信度の分布", () => {
   it("擬似乱数の値でも和は数と同じ", () => {
     let s = 7;
     const values = Array.from({ length: 300 }, () => { s = (s * 48271) % 2147483647; return s / 2147483647; });
-    const h = confidenceHistogram(values);
-    expect(h.counts.reduce((a, b) => a + b, 0) + h.below + h.none).toBe(300);
+    for (const threshold of [0.3, 0.8, 0.92, 0.95]) {
+      const h = confidenceHistogram(values, threshold);
+      expect(h.counts.reduce((a, b) => a + b, 0) + h.below + h.none).toBe(300);
+      // 閾値以上の数は、区間をまたいでも数え落とさない。どの区間でも候補の数は区間の数以下。軸は閾値を含む
+      expect(h.above.reduce((a, b) => a + b, 0)).toBe(values.filter((v) => v >= threshold).length);
+      expect(h.above.every((a, i) => a <= (h.counts[i] ?? 0))).toBe(true);
+      expect(h.from).toBeLessThanOrEqual(threshold);
+    }
   });
 });

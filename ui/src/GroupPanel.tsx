@@ -46,7 +46,9 @@ export function GroupPanel({ group: g, siblings, target, color, onOpen, onList }
 }
 
 /** 集計の頭出し：尺度の集計、最新の日（今日でなければ基準日を明示）、enum の内訳、集計しなかった尺度。 */
-export function Totals({ group: g }: { group: Profiled }) {
+export function Totals({ group: g, breakdown = true }: {
+  group: Profiled; /** 内訳を出すか（運用室のように、内訳を別の図で出すときは出さない） */ breakdown?: boolean;
+}) {
   // 時系列では合計は数字の帯に出るので、ここには合計以外（平均など）だけ
   const measures = (g.measures ?? []).filter((m) => g.view !== GroupView.time_series || m.op !== MeasureOp.sum);
   return (
@@ -70,7 +72,7 @@ export function Totals({ group: g }: { group: Profiled }) {
           {!g.latest.is_today && <span className="dim small" title="データが今日まで届いていないので、最新の日を基準にした"> （今日の行は無い）</span>}
         </p>
       )}
-      {g.breakdown !== undefined && g.breakdown.length > 0 && (
+      {breakdown && g.breakdown !== undefined && g.breakdown.length > 0 && (
         <p className="breakdown">
           <span className="dim">{g.breakdown_column}</span>
           {g.breakdown.map((b, i) => (
@@ -91,7 +93,9 @@ export function Totals({ group: g }: { group: Profiled }) {
 /** 時系列（詰めた形）：数字の帯1行と、高さ 40px の件数の面グラフ（カテゴリの色のグラデーション）。合計できる尺度の1つ目を点線で
  *  別の目盛りに重ねる。幅は枠に合わせて描き直す（伸び縮みで線が歪まない）。ホバーで十字線とその区切りの値。最新の区切りを強調し、
  *  前の区切りとの増減を出す。金額は短い表記（$16.1M）で、正確な値は title に出す。 */
-export function Series({ group: g, color, chartId }: { group: Profiled; color: string; chartId: string }) {
+export function Series({ group: g, color, chartId, height = 38 }: {
+  group: Profiled; color: string; chartId: string; /** 面グラフの高さ（px）。既定は詰めた形の 38。壁面では大きく */ height?: number;
+}) {
   const points = g.series ?? [];
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -105,7 +109,7 @@ export function Series({ group: g, color, chartId }: { group: Profiled; color: s
   }, []);
   if (points.length === 0) return <p className="dim small">時系列の点が無い</p>;
   const pad = { left: 0, right: 30, top: 4, bottom: 2 };
-  const chart = { width: Math.max(0, width - pad.left - pad.right), height: 38 };
+  const chart = { width: Math.max(0, width - pad.left - pad.right), height };
   const counts = seriesLine(points, (p) => p.count, chart);
   const measure = (g.series_measures ?? [])[0];
   const sums = measure === undefined ? null : seriesLine(points, (p) => p.sums[0]?.value, chart);

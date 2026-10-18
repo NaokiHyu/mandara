@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { amountText, bucketLabel, measureText, partialBucket, periodBars, seriesLine, trend } from "./groupview";
+import { amountText, bucketLabel, sparkBars, measureText, partialBucket, periodBars, seriesLine, trend } from "./groupview";
 import { LabelSource, MeasureOp, type InstanceSummary } from "./om/model";
 
 const chart = { width: 100, height: 10 };
@@ -86,5 +86,14 @@ describe("trend / bucketLabel / partialBucket", () => {
     expect(partialBucket("2025-06-01", "month", "2025-06-30")).toBe(false);
     expect(partialBucket("2025-01-01", "year", "2025-12-31")).toBe(false);
     expect(partialBucket("2025-06-01", "day", "2025-06-01")).toBe(false);
+  });
+});
+
+describe("sparkBars", () => {
+  it("最後の n 個、最大が 100、すべて 0 なら 0", () => {
+    const pts = [1, 2, 3, 4].map((c, i) => point(`2024-0${i + 1}-01`, c));
+    expect(sparkBars(pts, 2)).toEqual([75, 100]);
+    expect(sparkBars(pts, 10).length).toBe(4);
+    expect(sparkBars([point("2024-01-01", 0)], 3)).toEqual([0]);
   });
 });

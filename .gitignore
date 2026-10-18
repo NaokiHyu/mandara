@@ -11,3 +11,4 @@ ui/dist/
 !.env.example
 *.tsbuildinfo
 work-backup/
+.DS_Store

@@ -339,27 +339,28 @@ function BulkPanel({ title, detail, bulkMinimum, candidates, submit, onDone, onC
 function ReviewStats({ questions, bulkMinimum, answered }: {
   questions: readonly ReviewQuestion[]; bulkMinimum: number; answered: number;
 }) {
-  const from = 0.5;
-  const h = confidenceHistogram(questions.map((x) => x.confidence), from, 10);
+  const h = confidenceHistogram(questions.map((x) => x.confidence), bulkMinimum, 0.5, 10);
   const top = Math.max(1, ...h.counts);
   const counts = countBySubject(questions);
   const most = Math.max(1, ...SUBJECTS.map((s) => counts[s]));
   return (
     <section className="review-stats" aria-label="列の様子">
       <div className="eyebrow">確信度の分布</div>
-      <div className="histogram" title={`確信度 ${from} 未満 ${h.below} 件 · 確信度なし ${h.none} 件`}>
-        {h.counts.map((n, i) => (
-          <span key={i} className={from + i * h.width >= bulkMinimum - 1e-9 ? "hbar high" : "hbar"}
-                style={{ height: `${(n / top) * 100}%` }} title={`${(from + i * h.width).toFixed(2)}–${(from + (i + 1) * h.width).toFixed(2)}：${n} 件`} />
+      <div className="histogram" title={`確信度 ${h.from} 未満 ${h.below} 件 · 確信度なし ${h.none} 件`}>
+        {h.counts.map((n, i) => ( // 区間の棒。色の付いた部分は一括承認の閾値以上の問い（閾値をまたぐ区間も、その分だけ）
+          <span key={i} className="hbar" style={{ height: `${(n / top) * 100}%` }}
+                title={`${(h.from + i * h.width).toFixed(2)}–${(h.from + (i + 1) * h.width).toFixed(2)}：${n} 件（閾値以上 ${h.above[i] ?? 0}）`}>
+            <span className="high" style={{ height: `${n === 0 ? 0 : ((h.above[i] ?? 0) / n) * 100}%` }} />
+          </span>
         ))}
       </div>
       <div className="histogram-axis">
-        <span>{from}</span>
-        <span className="at" style={{ left: `${((bulkMinimum - from) / (1 - from)) * 100}%` }}>{bulkMinimum}</span>
+        <span>{h.from}</span>
+        <span className="at" style={{ left: `${((bulkMinimum - h.from) / (1 - h.from)) * 100}%` }}>{bulkMinimum}</span>
         <span>1.0</span>
       </div>
       {(h.below > 0 || h.none > 0) && (
-        <p className="dim small">{from} 未満 {h.below} 件{h.none > 0 ? ` · 確信度なし ${h.none} 件` : ""}</p>
+        <p className="dim small">{h.from} 未満 {h.below} 件{h.none > 0 ? ` · 確信度なし ${h.none} 件` : ""}</p>
       )}
       <div className="eyebrow">対象</div>
       <ul className="subject-bars">

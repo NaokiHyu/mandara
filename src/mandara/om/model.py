@@ -908,6 +908,7 @@ class OntologyListing(ConfiguredBaseModel):
                        'ReviewAnswer',
                        'DomainSummary',
                        'RelatedGroup']} })
+    reviewable: bool = Field(default=..., description="""レビューの問いの列を読めるか（レビューするのは作業領域の OM だけ。正解 OM などは false）""", json_schema_extra = { "linkml_meta": {'domain_of': ['OntologyListing']} })
 
 
 class OntologyDocument(ConfiguredBaseModel):

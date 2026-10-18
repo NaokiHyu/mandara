@@ -63,16 +63,14 @@ export function MapView({ ontologyId, target, onOpenDomain }: {
   onOpenDomain: (place: Place) => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<MapLibreMap | null>(null);
   const [points, setPoints] = useState<Load<PointSet>>({ state: "loading" });
   const [index, setIndex] = useState<Load<DomainIndex>>({ state: "loading" });
   const [picked, setPicked] = useState<string[] | null>(null);
   const [mode, setMode] = useState<Mode>("平面");
   const [orbit, setOrbit] = useState(false);
   const [layers, setLayers] = useState<ReadonlySet<Layer>>(new Set<Layer>(["点", "ヒート"]));
-  const [ready, setReady] = useState(false);
   const [columnMax, setColumnMax] = useState(0);
-  const [live, setLive] = useState<MapLibreMap | null>(null); // 計器（Hud）が読む地図。作り直すたびに変わる
+  const [live, setLive] = useState<MapLibreMap | null>(null); // 読み込みの終わった地図（計器と各設定が使う）。作り直すたびに変わる
 
   useEffect(() => {
     setPoints({ state: "loading" });
@@ -212,7 +210,7 @@ export function MapView({ ontologyId, target, onOpenDomain }: {
     map.addControl(new AttributionControl({ compact: true, customAttribution: "Natural Earth" }));
     const box = bounds(points.value.points);
     if (box !== null) map.fitBounds(box, { padding: 60, animate: false });
-    map.on("load", () => { setReady(true); setLive(map); });
+    map.on("load", () => setLive(map));
     map.on("click", (event) => {
       const shown = ["points", "clusters", "columns"].filter((id) => map.getLayoutProperty(id, "visibility") !== "none");
       const hit = map.queryRenderedFeatures(event.point, { layers: shown })[0];
@@ -240,30 +238,29 @@ export function MapView({ ontologyId, target, onOpenDomain }: {
       map.on("mouseenter", id, () => { map.getCanvas().style.cursor = "pointer"; });
       map.on("mouseleave", id, () => { map.getCanvas().style.cursor = ""; });
     }
-    mapRef.current = map;
-    return () => { setReady(false); setLive(null); mapRef.current = null; map.remove(); };
+    return () => { setLive(null); map.remove(); };
   }, [points, colorVar]);
 
   // レイヤの表示
   useEffect(() => {
-    const map = mapRef.current;
-    if (map === null || !ready) return;
+    const map = live; // 読み込みの終わった地図だけ（作り直した直後の、まだ読み込み中の地図には触らない）
+    if (map === null) return;
     for (const layer of LAYERS) {
       for (const id of LAYER_IDS[layer]) map.setLayoutProperty(id, "visibility", layers.has(layer) ? "visible" : "none");
     }
-  }, [layers, ready]);
+  }, [layers, live]);
 
   // 選んだ点の輪
   useEffect(() => {
-    const map = mapRef.current;
-    if (map === null || !ready) return;
+    const map = live; // 読み込みの終わった地図だけ（作り直した直後の、まだ読み込み中の地図には触らない）
+    if (map === null) return;
     map.setFilter("picked", ["==", ["get", "key"], picked === null ? "" : JSON.stringify(picked)]);
-  }, [picked, ready]);
+  }, [picked, live]);
 
   // 見え方：平面 / 鳥瞰 / 地球
   useEffect(() => {
-    const map = mapRef.current;
-    if (map === null || !ready) return;
+    const map = live; // 読み込みの終わった地図だけ（作り直した直後の、まだ読み込み中の地図には触らない）
+    if (map === null) return;
     map.setProjection({ type: mode === "地球" ? "globe" : "mercator" });
     if (mode === "平面") map.easeTo({ pitch: 0, bearing: 0, duration: 900 });
     if (mode === "鳥瞰") map.easeTo({ pitch: 62, bearing: -24, duration: 1400 });
@@ -273,12 +270,12 @@ export function MapView({ ontologyId, target, onOpenDomain }: {
       map.easeTo({ center, pitch: 0, bearing: 0, zoom: 1.9, duration: 1400 });
     }
     if (mode === "平面") setOrbit(false);
-  }, [mode, ready, points]);
+  }, [mode, live, points]);
 
   // ゆっくり回す（触ったら止める）
   useEffect(() => {
-    const map = mapRef.current;
-    if (map === null || !ready || !orbit) return;
+    const map = live;
+    if (map === null || !orbit) return;
     let frame = 0;
     let last = performance.now();
     const step = (now: number) => {
@@ -292,7 +289,7 @@ export function MapView({ ontologyId, target, onOpenDomain }: {
     map.on("touchstart", stop);
     map.on("wheel", stop);
     return () => { cancelAnimationFrame(frame); map.off("mousedown", stop); map.off("touchstart", stop); map.off("wheel", stop); };
-  }, [orbit, ready]);
+  }, [orbit, live]);
 
   useEffect(() => {
     const close = (e: KeyboardEvent) => { if (e.key === "Escape") setPicked(null); };

@@ -690,6 +690,10 @@ classes:
       kind:
         range: OntologySourceKind
         required: true
+      reviewable:
+        description: レビューの問いの列を読めるか（レビューするのは作業領域の OM だけ。正解 OM などは false）
+        range: boolean
+        required: true
 
   OntologyDocument:
     tree_root: true

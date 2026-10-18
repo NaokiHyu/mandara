@@ -100,7 +100,8 @@ LOCAL_HOSTS = ["127.0.0.1", "localhost", "testserver"]
 
 
 def to_index(sources: list[OntologySource]) -> dict[str, Any]:
-    index = OntologyIndex(ontologies=[OntologyListing(id=s.id, label=s.label, kind=s.kind) for s in sources])
+    index = OntologyIndex(ontologies=[OntologyListing(id=s.id, label=s.label, kind=s.kind, reviewable=s.workspace is not None)
+                                      for s in sources])
     return index.model_dump(mode="json", by_alias=True, exclude_none=True)
 
 

@@ -74,21 +74,25 @@ export function approveAllBatch(questions: readonly ReviewQuestion[]): ReviewQue
   return questions.filter((q) => !q.needs_kind);
 }
 
-/** 確信度の分布：[from, 1.0] を bins 個の等しい幅に割った区間ごとの問いの数（最後の区間は 1.0 を含む）。from 未満は below、
- *  確信度の無い問いは none に数える（どの問いもちょうど1か所に数える）。 */
-export function confidenceHistogram(values: readonly (number | undefined)[], from = 0.5, bins = 10):
-  { counts: number[]; below: number; none: number; width: number } {
-  const width = (1 - from) / bins;
+/** 確信度の分布：[from, 1.0] を bins 個の等しい幅に割った区間ごとの問いの数と、そのうち threshold（一括承認の閾値）以上の数
+ *  （閾値をまたぐ区間も、候補の分だけ数える）。最後の区間は 1.0 を含む。from 未満は below、確信度の無い問いは none に数える
+ *  （どの問いもちょうど1か所に数える）。from は threshold を超えない（閾値が軸の外に出ない）。 */
+export function confidenceHistogram(values: readonly (number | undefined)[], threshold: number, from = 0.5, bins = 10):
+  { from: number; counts: number[]; above: number[]; below: number; none: number; width: number } {
+  const start = Math.min(from, threshold);
+  const width = (1 - start) / bins;
   const counts = Array.from({ length: bins }, () => 0);
+  const above = Array.from({ length: bins }, () => 0);
   let below = 0;
   let none = 0;
   for (const v of values) {
     if (v === undefined) none += 1;
-    else if (v < from) below += 1;
+    else if (v < start) below += 1;
     else {
-      const i = Math.min(bins - 1, Math.floor((v - from) / width + 1e-9));
+      const i = Math.min(bins - 1, Math.floor((v - start) / width + 1e-9));
       counts[i] = (counts[i] ?? 0) + 1;
+      if (v >= threshold) above[i] = (above[i] ?? 0) + 1;
     }
   }
-  return { counts, below, none, width };
+  return { from: start, counts, above, below, none, width };
 }

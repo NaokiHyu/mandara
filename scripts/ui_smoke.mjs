@@ -22,6 +22,10 @@ const CASES = [
     expect: "document.querySelectorAll('.contexts .table').length === 14" },
   { name: "map", query: "?ontology=gold:adventureworks&table=tbl_person_address&view=map",
     expect: "document.querySelector('.map canvas') !== null && document.querySelector('.map').getBoundingClientRect().height > 100 && /person\\.address\\.spatiallocation · 19,614 points/.test(document.querySelector('.map-status')?.textContent ?? '')" },
+  // 運用室：地図（地図の画面と同じ部品）とレビュー待ちが出て、失敗の表示が無い（地図を作り直した直後の例外も、コンソールで落ちる）
+  { name: "ops", query: "?ontology=gold:adventureworks&view=ops",
+    expect: "document.querySelector('.ops-map .map canvas') !== null && document.querySelector('.ops-right .ops-title') !== null && " +
+            "!document.querySelector('.ops .failure')" },
   { name: "unknown view", query: "?ontology=gold:adventureworks&view=nope",
     expect: "/表示 nope は無い/.test(document.body.textContent ?? '') && document.querySelector('.graph canvas') !== null" },
   // レビュー（使い捨ての作業領域。scripts/check.sh が --reviewer smoke で立てる）：答えると書かれ、問いが1つ減る

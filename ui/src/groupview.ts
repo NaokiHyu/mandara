@@ -112,3 +112,10 @@ export function partialBucket(start: string, unit: string | undefined, latestDay
     : new Date(Date.UTC(s.getUTCFullYear(), 11, 31));
   return latestDay < end.toISOString().slice(0, 10);
 }
+
+/** 小さな棒（KPI のカード）：最後の n 個の区切りの件数を、最大を 100 とした高さ（%）にする。区切りが n より少なければその数だけ。 */
+export function sparkBars(points: readonly SeriesPoint[], n = 24): number[] {
+  const last = points.slice(-n).map((p) => p.count);
+  const max = Math.max(0, ...last);
+  return last.map((c) => (max === 0 ? 0 : (c / max) * 100));
+}

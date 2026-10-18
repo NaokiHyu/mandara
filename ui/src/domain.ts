@@ -1,5 +1,6 @@
 // ドメインビューワの純粋な部分：たどった道（パンくず）と、近隣の集まりの見出し。
-import { type DomainSummary, type InstanceLink, type LinkGroup, type RelatedGroup, RelatedKind } from "./om/model";
+import { type DomainIndex, type DomainRows, type DomainSummary, type InstanceLink, type LinkGroup, type RelatedGroup,
+         RelatedKind } from "./om/model";
 import { shortName } from "./graph";
 
 /** 集合を絞る親のインスタンス（table の key の行）と、その親への関係。1:n なら relation は子の表から親への関係。
@@ -80,7 +81,23 @@ export type Kpi = { key: string; label: string; mark: string; count: number; mea
 export function kpisOf(groups: readonly RelatedGroup[], limit = 4): Kpi[] {
   return groups.slice(0, limit).map((g) => {
     const sum = (g.measures ?? []).find((m) => m.op === "sum");
-    return { key: groupKey(g), label: shortName(g.name), mark: g.kind === RelatedKind.via ? "⇄" : "←", count: g.count,
+    return { key: groupKey(g), label: shortName(g.name), mark: relatedTitle(g).mark, count: g.count,
              ...(sum === undefined ? {} : { measure: { column: sum.column, value: sum.value, unit: sum.unit_text } }) };
   });
+}
+
+/** 表をドメインビューワで開けるか（API の DomainIndex が決める）：開ける（domain）、開けない理由（hidden）、どちらでもない（none。
+ *  一覧に無い表）。両方に入っていれば契約の誤りとしてエラー。 */
+export function objectsOf(index: DomainIndex, table: string): { state: "domain" } | { state: "hidden"; reason: string } | { state: "none" } {
+  const domain = index.domains.some((d) => d.table === table);
+  const hidden = index.hidden.find((h) => h.table === table);
+  if (domain && hidden !== undefined) throw new Error(`表 ${table} がドメインと、ドメインでない表の両方にある（DomainIndex の誤り）`);
+  if (domain) return { state: "domain" };
+  return hidden === undefined ? { state: "none" } : { state: "hidden", reason: hidden.reason };
+}
+
+/** 運用室の出来事の並び：時系列のあるものを先に、その中で件数の多い順（同じなら表の ID の順）。並べ替えるだけで、増減しない。 */
+export function orderEvents<T extends { rows: Pick<DomainRows, "series" | "count" | "table"> }>(events: readonly T[]): T[] {
+  const timed = (e: T) => (e.rows.series !== undefined ? 1 : 0);
+  return [...events].sort((a, b) => timed(b) - timed(a) || b.rows.count - a.rows.count || a.rows.table.localeCompare(b.rows.table));
 }

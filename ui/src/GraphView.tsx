@@ -112,6 +112,12 @@ export function GraphView({ nodes, edges, contexts, selected, onSelect }: {
   );
 }
 
+function countOf(counts: ReadonlyMap<string, number>, context: string): number {
+  const n = counts.get(context);
+  if (n === undefined) throw new Error(`コンテキスト ${context} の表の数が無い（同じ OM から作っているはず）`);
+  return n;
+}
+
 /** グラフの凡例（左の帯）：コンテキストと表の数、関係型の線、表の種類。 */
 export function GraphLegend({ contexts, counts }: { contexts: readonly string[]; counts: ReadonlyMap<string, number> }) {
   return (
@@ -120,7 +126,7 @@ export function GraphLegend({ contexts, counts }: { contexts: readonly string[];
       <ul>
         {contexts.map((c, i) => (
           <li key={c}><span className="sq" style={{ background: `var(${contextColor(i)})` }} /><span className="grow">{c}</span>
-            <span className="dim">{counts.get(c) ?? 0}</span></li>
+            <span className="dim">{countOf(counts, c)}</span></li>
         ))}
       </ul>
       <div className="eyebrow">関係型</div>

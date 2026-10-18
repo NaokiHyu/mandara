@@ -3,11 +3,12 @@ import { ApiError, getDomains, getOntology, listOntologies } from "./api";
 import type { DomainIndex, OntologyDocument, OntologyListing, Table } from "./om/model";
 import { geoColumns, type GeoColumn } from "./geo";
 import { GraphLegend, GraphView } from "./GraphView";
-import type { Place, Within } from "./domain";
+import { objectsOf, type Place, type Within } from "./domain";
 import { contextColor } from "./graph";
 import { shortName, toGraph } from "./graph";
 import { DomainView } from "./DomainView";
 import { ReviewView } from "./ReviewView";
+import { OpsRoom } from "./OpsRoom";
 import { TableDetail } from "./TableDetail";
 import { asKind, KIND } from "./vocabulary";
 import "./App.css";
@@ -17,10 +18,12 @@ type Load<T> = { state: "loading" } | { state: "ok"; value: T } | { state: "erro
 // 地図（MapLibre）は大きいので、地図を開いたときに読む
 const MapView = lazy(() => import("./MapView").then((m) => ({ default: m.MapView })));
 
-type View = "graph" | "list" | "map" | "review" | "domain";
-const VIEWS: readonly View[] = ["graph", "list", "map", "review", "domain"];
+type View = "ops" | "graph" | "list" | "map" | "review" | "domain";
+const VIEWS: readonly View[] = ["ops", "graph", "list", "map", "review", "domain"];
 /** ナビの見出し（URL の view の値はそのまま）。 */
-const VIEW_LABELS: Record<View, string> = { graph: "グラフ", list: "一覧", map: "地図", review: "レビュー", domain: "ドメイン" };
+const VIEW_LABELS: Record<View, string> = {
+  ops: "運用室", graph: "グラフ", list: "一覧", map: "地図", review: "レビュー", domain: "ドメイン",
+};
 
 /** URL（?ontology=…&table=…&view=…&key=…）で、どの OM のどの表をどう見ているかを表す。開き直しても、共有しても同じものが見える。
  *  view が無ければ graph。知らない view は、黙って置き換えずに伝える（unknownView）。key はドメインビューワのインスタンス（主キーの値）。 */
@@ -154,7 +157,8 @@ export function App() {
           ) : (
             <Workspace ontologyId={requireSelected(selected)} doc={doc.value} view={view} table={table} onSelect={select}
                        onChanged={refresh} onOpenTable={openTable}
-                       onOpenDomain={(p) => { place(p); setView("domain"); }} />
+                       onOpenDomain={(p) => { place(p); setView("domain"); }} onReview={() => setView("review")}
+                       reviewable={listing.state === "ok" ? listing.value.find((o) => o.id === selected)?.reviewable ?? null : null} />
           )
         )}
       </main>
@@ -168,7 +172,7 @@ function requireSelected(selected: string | null): string {
   return selected;
 }
 
-function Workspace({ ontologyId, doc, view, table, onSelect, onChanged, onOpenTable, onOpenDomain }: {
+function Workspace({ ontologyId, doc, view, table, onSelect, onChanged, onOpenTable, onOpenDomain, onReview, reviewable }: {
   ontologyId: string;
   doc: OntologyDocument;
   view: View;
@@ -177,6 +181,9 @@ function Workspace({ ontologyId, doc, view, table, onSelect, onChanged, onOpenTa
   onChanged: () => void;
   onOpenTable: (id: string) => void;
   onOpenDomain: (place: Place) => void;
+  onReview: () => void;
+  /** レビューの列を読める OM か（API の一覧の値）。一覧に無ければ null */
+  reviewable: boolean | null;
 }) {
   const graph = useMemo((): Load<ReturnType<typeof toGraph>> => {
     try {
@@ -193,18 +200,27 @@ function Workspace({ ontologyId, doc, view, table, onSelect, onChanged, onOpenTa
     for (const t of doc.tables) m.set(t.context, (m.get(t.context) ?? 0) + 1);
     return m;
   }, [doc]);
-  // どの表をドメインビューワで開けるか（API が決める。承認の後で変わるので OM を読み直すたびに）
+  // どの表をドメインビューワで開けるか（API が決める。承認の後で変わるので OM を読み直すたびに）。表の詳細を出す画面だけで読む
+  const detailShown = view === "graph" || view === "list" || view === "map";
   const [domains, setDomains] = useState<Load<DomainIndex>>({ state: "loading" });
   useEffect(() => {
-    getDomains(ontologyId).then((value) => setDomains({ state: "ok", value }),
-                                (error: unknown) => setDomains({ state: "error", error }));
-  }, [ontologyId, doc]);
+    if (!detailShown) return;
+    let live = true;
+    setDomains({ state: "loading" });
+    getDomains(ontologyId).then((value) => { if (live) setDomains({ state: "ok", value }); },
+                                (error: unknown) => { if (live) setDomains({ state: "error", error }); });
+    return () => { live = false; };
+  }, [ontologyId, doc, detailShown]);
   const objects = (id: string) => {
     if (domains.state !== "ok") return undefined;
-    if (domains.value.domains.some((d) => d.table === id)) return { open: () => onOpenDomain({ table: id, key: null }) };
-    const hidden = domains.value.hidden.find((h) => h.table === id);
-    return hidden === undefined ? undefined : { reason: hidden.reason };
+    const found = objectsOf(domains.value, id);
+    return found.state === "domain" ? { open: () => onOpenDomain({ table: id, key: null }) }
+      : found.state === "hidden" ? { reason: found.reason } : undefined;
   };
+  if (view === "ops") {
+    return <OpsRoom ontologyId={ontologyId} doc={doc} geo={geo} onOpenDomain={onOpenDomain} onReview={onReview}
+                    reviewable={reviewable} />;
+  }
   if (view === "review") {
     return <ReviewView ontologyId={ontologyId} doc={doc} onChanged={onChanged} onOpenTable={onOpenTable} />;
   }

@@ -1,6 +1,6 @@
 // ドメインビューワの純粋な部分の性質：たどった道は同じ場所に戻ると切れ、長さは上限まで。
 import { describe, expect, it } from "vitest";
-import { emphasized, extendTrail, groupKey, kpisOf, linkTexts, type Place, relatedTitle, rowKey, samePlace, TRAIL_LIMIT } from "./domain";
+import { emphasized, extendTrail, groupKey, kpisOf, linkTexts, objectsOf, orderEvents, type Place, relatedTitle, rowKey, samePlace, TRAIL_LIMIT } from "./domain";
 
 const p = (table: string, key: string[] | null = null): Place => ({ table, key });
 
@@ -84,5 +84,38 @@ describe("kpisOf", () => {
     expect(k.map((x) => [x.label, x.count])).toEqual([["a", 10], ["b", 3], ["c", 1], ["d", 7]]);
     expect(k[0]?.measure).toEqual({ column: "amt", value: "99", unit: "USD" });
     expect(k[1]?.measure).toBeUndefined();
+  });
+});
+
+describe("objectsOf", () => {
+  const index = { ontology: "o", readable: true, contexts: ["s"],
+                  domains: [{ table: "t1" }], hidden: [{ table: "t2", name: "s.t2", reason: "主キーが無い" }] };
+  it("ドメインなら開ける、隠した表は理由、どちらでもなければ none、両方なら誤り", () => {
+    expect(objectsOf(index as never, "t1")).toEqual({ state: "domain" });
+    expect(objectsOf(index as never, "t2")).toEqual({ state: "hidden", reason: "主キーが無い" });
+    expect(objectsOf(index as never, "t3")).toEqual({ state: "none" });
+    const both = { ...index, domains: [{ table: "t2" }] };
+    expect(() => objectsOf(both as never, "t2")).toThrow("両方");
+  });
+});
+
+describe("orderEvents", () => {
+  const ev = (table: string, count: number, timed: boolean) => ({ rows: { table, count, ...(timed ? { series: [] } : {}) } });
+  it("時系列のあるものが常に先、その中で件数の多い順。集合は変わらない", () => {
+    let s = 3;
+    const rnd = () => { s = (s * 48271) % 2147483647; return s; };
+    for (let k = 0; k < 20; k++) {
+      const input = Array.from({ length: 8 }, (_, i) => ev(`t${i}`, rnd() % 50, rnd() % 2 === 0));
+      const out = orderEvents(input);
+      expect(new Set(out)).toEqual(new Set(input));
+      const firstUntimed = out.findIndex((e) => e.rows.series === undefined);
+      if (firstUntimed >= 0) expect(out.slice(firstUntimed).every((e) => e.rows.series === undefined)).toBe(true);
+      for (let i = 1; i < out.length; i++) {
+        const [a, b] = [out[i - 1], out[i]];
+        if (a !== undefined && b !== undefined && (a.rows.series === undefined) === (b.rows.series === undefined)) {
+          expect(a.rows.count).toBeGreaterThanOrEqual(b.rows.count);
+        }
+      }
+    }
   });
 });
