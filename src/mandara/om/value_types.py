@@ -3,8 +3,10 @@
 Domain 層。モデラー（規則、LLM、同じ意味の伝播）に共通の規則。
 """
 
+from collections.abc import Sequence
+
 from mandara.om.encoding_traits import ENCODING_TARGETS
-from mandara.om.model import TypeFamily, Unit, ValueType
+from mandara.om.model import SemanticType, TypeFamily, Unit, ValueType
 
 COMPATIBLE: dict[str, frozenset[str]] = {
     TypeFamily.integer.value: frozenset({"identifier", "code", "enum", "integer", "quantity", "money", "ratio"}),
@@ -39,6 +41,26 @@ def assignable(family: str, encoding: str | None) -> frozenset[str]:
     if target not in allowed:
         raise IncompatibleEncodingError(f"encoding {encoding} の変換先 {target} を、型族 {family} の列に当てられない")
     return frozenset({target})
+
+
+BOOLEAN_CODES = frozenset({"true", "false"})
+"""真偽値の列の値の集合。型族 boolean が決める（データから取らない。C6）。"""
+
+
+def is_boolean_value_set(codes: Sequence[str]) -> bool:
+    """enum の値のコードが、ちょうど真偽値の 2 つ。"""
+    return len(codes) == 2 and frozenset(codes) == BOOLEAN_CODES
+
+
+def misfit(family: str, encoding: str | None, semantic_type: SemanticType) -> str | None:
+    """意味型を列に当てられない理由（当てられれば None）。値の型が型族と両立し、値の集合が真偽値なら列も boolean。
+    真偽値の値の集合は型族 boolean から決まるもので、ほかの型族の列の値がそうである保証は無い。"""
+    if semantic_type.type not in assignable(family, encoding):
+        return f"列（型族 {family}、encoding {encoding}）に、値の型 {semantic_type.type} は当てられない"
+    if (family != TypeFamily.boolean.value
+            and is_boolean_value_set([v.code for v in semantic_type.values or []])):
+        return f"値の一覧が真偽値（true / false）の意味型は、型族 boolean の列だけ（この列は {family}）"
+    return None
 
 
 CURRENCIES = frozenset({Unit.USD.value, Unit.JPY.value})

@@ -6,7 +6,8 @@ Domain 層の純粋な関数（モデルの呼び出しは Application がポー
   JSON の文字列にして、データの区画に入れる（DB の中身や前の答えに埋め込まれた指示を、指示として読ませない）
 - apply_answer：答えを検証して v0 の表に当てる。答えは信頼できない入力。答えの各項目は、当たる（applied）か、
   理由つきで捨てる（dropped）かのどちらか。黙って消える項目は無い
-  - 根拠の ID は渡した主張に含まれるものだけ。enum の値はコメントか CHECK を根拠に、grain も根拠が要る
+  - 根拠の ID は渡した主張に含まれるものだけ。enum の値はコメントか CHECK を根拠に、grain も根拠が要る。
+    例外は真偽値の列：値の集合は型から決まる（true / false）ので、型族 boolean の型の主張を根拠にしてよい（データからは取らない。C6）
   - 列の SQL の型族と、意味型の値の型が両立すること。列・外部キー・意味型は実在するもの。重複は捨てる
   - is-a は共有主キーのときだけ。辺は中間表で、端は別々の n:1 の has 参照
   - 意味型の名前に型の名前（identifier など。GENERIC_NAMES）は使えない
@@ -50,7 +51,7 @@ from mandara.om.model import (
 )
 from mandara.modeler.joins import InferenceClaims
 from mandara.om.names import qualify
-from mandara.om.value_types import UNIT_BEARING, assignable
+from mandara.om.value_types import UNIT_BEARING, is_boolean_value_set, misfit
 from mandara.om.ontology import SELF, Ontology, is_shared_key
 
 MODELER = "modeler-llm 0.2"
@@ -89,7 +90,7 @@ class SemanticTypeAnswer(_Answer):
     values: list[EnumValueAnswer] | None = None
     confidence: float = Field(ge=0, le=1)
     evidence: list[str]
-    """意味型の意味と、enum の値の根拠（enum の値はコメントか CHECK）。"""
+    """意味型の意味と、enum の値の根拠（enum の値はコメントか CHECK。値がちょうど true / false なら、型族 boolean の型の主張でもよい）。"""
 
 
 class ColumnAnswer(_Answer):
@@ -322,6 +323,15 @@ def apply_answer(ontology: Ontology, table_id: str, answer: TableAnswer, table_c
     return Applied(ontology, (), tuple(work.dropped) + kept, table_kept_as_is=True)
 
 
+def _values_grounded(values: Sequence[EnumValueAnswer], evidence: Sequence[Claim]) -> bool:
+    """enum の値の一覧の根拠。値を述べた文書（コメント、CHECK）か、値の集合が型から決まる真偽値の列の型の主張。
+    観測した値は根拠にしない（C6：値の集合はデータから取らない）。真偽値の意味型を boolean の列にだけ当てるのは misfit。"""
+    if any(c.predicate in (ClaimPredicate.described_as.value, ClaimPredicate.checks.value) for c in evidence):
+        return True
+    return (is_boolean_value_set([v.code for v in values])
+            and any(c.predicate == ClaimPredicate.typed_as.value and c.family == TypeFamily.boolean for c in evidence))
+
+
 def _apply_semantic_types(answer: TableAnswer, existing: Mapping[str, SemanticType], twice: set[str],
                    work: _Work) -> dict[str, SemanticType]:
     semantic_types = dict(existing)
@@ -347,9 +357,8 @@ def _apply_semantic_types(answer: TableAnswer, existing: Mapping[str, SemanticTy
         if evidence is None:
             continue
         values = d.values or []
-        if values and not any(work.known[e].predicate in (ClaimPredicate.described_as.value,
-                                                           ClaimPredicate.checks.value) for e in evidence):
-            work.drop(item, "enum の値の根拠には、コメントか CHECK の主張が要る")
+        if values and not _values_grounded(values, [work.known[e] for e in evidence]):
+            work.drop(item, "enum の値の根拠には、コメントか CHECK の主張（値が true / false なら、真偽値の型の主張）が要る")
             continue
         if len({v.code for v in values}) != len(values):
             work.drop(item, "enum の値のコードが重複している")
@@ -389,8 +398,8 @@ def _apply_columns(answer: TableAnswer, ontology: Ontology, table: Table, semant
         if family is None:
             work.drop(item, "型の主張が無い")
             continue
-        if semantic_type.type not in assignable(family, column.encoding):
-            work.drop(item, f"列（型族 {family}、encoding {column.encoding}）に、値の型 {semantic_type.type} は当てられない")
+        if (reason := misfit(family, column.encoding, semantic_type)) is not None:
+            work.drop(item, reason)
             continue
         evidence = work.cited(item, c.evidence)
         if evidence is None:

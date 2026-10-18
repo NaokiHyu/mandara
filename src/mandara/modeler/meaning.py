@@ -17,7 +17,7 @@ from mandara.om.invariants import check
 from mandara.om.model import Claim, ClaimPredicate, Column, ReviewStatus
 from mandara.om.names import qualify, split_qualified
 from mandara.om.ontology import Ontology
-from mandara.om.value_types import assignable
+from mandara.om.value_types import misfit
 
 PROPAGATOR = "modeler-meaning 0.1"
 
@@ -151,9 +151,8 @@ def propagate(ontology: Ontology, groups: MeaningGroups, families: Mapping[Membe
             if family is None:
                 not_filled.append(NotFilled(member, name, "型の主張が無い"))
                 continue
-            if semantic_type.type not in assignable(family, column.encoding):
-                not_filled.append(NotFilled(member, name, f"列（型族 {family}、encoding {column.encoding}）に、"
-                                                          f"値の型 {semantic_type.type} は当てられない"))
+            if (reason := misfit(family, column.encoding, semantic_type)) is not None:
+                not_filled.append(NotFilled(member, name, reason))
                 continue
             if semantic_type.requires_unit:
                 not_filled.append(NotFilled(member, name, "単位の要る意味型は、単位を決められないので伝播しない"))

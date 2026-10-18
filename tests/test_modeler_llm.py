@@ -111,25 +111,40 @@ SEEDED = replace(V0, vocabulary=V0.vocabulary.model_copy(update={"semantic_types
 def answers(draw: st.DrawFn, name: str) -> v1.TableAnswer:
     claims = _claims(name)
     ids = [c.id for c in claims]
+    boolean_types = [c.id for c in claims if c.predicate == "typed_as" and c.family == "boolean"]
     evidence = st.lists(st.sampled_from([*ids, "clm_0000000000000000", "clm_made_up"]), max_size=3)
+    # 真偽値の型の主張だけを根拠にした答え（型が値の集合を決める経路）を意図して混ぜる。一様に引くとほぼ通らない
+    type_only = st.lists(st.sampled_from(boolean_types), min_size=1, max_size=2) if boolean_types else evidence
+    boolean_columns = (st.sampled_from([c.subject.column for c in claims if c.id in boolean_types and c.subject.column])
+                       if boolean_types else st.nothing())
+    boolean_values = st.just([v1.EnumValueAnswer(code="true", label="はい"), v1.EnumValueAnswer(code="false", label="いいえ")])
     columns = [c.subject.column for c in claims if c.predicate == "typed_as" and c.subject.column]
     fks = [c.id for c in claims if c.predicate == "references"]
-    semantic_type_names = st.sampled_from(["order_id", "money_usd", "quantity", "flag", "code", "nope"])
+    semantic_type_names = st.sampled_from(["order_id", "money_usd", "quantity", "flag", "code", "nope", "yes_no"])
+    # 真偽値の型の主張だけを根拠にした、形の正しい意味型 yes_no（型が値の集合を決める経路）。列の答えがこれを指すと、
+    # boolean の列と、ほかの型族の列の両方で当てる・捨てるが起きる
+    yes_no = st.builds(v1.SemanticTypeAnswer, name=st.just("yes_no"), type=st.just(ValueType.enum),
+                       description=st.just("はい・いいえ"), confidence=st.floats(0, 1), evidence=type_only,
+                       values=boolean_values)
     semantic_types = st.lists(st.builds(
         v1.SemanticTypeAnswer, name=semantic_type_names, type=st.sampled_from(list(ValueType)), description=st.just("説明"),
         role=st.none() | st.sampled_from(list(SemanticRole)), additivity=st.none() | st.sampled_from(list(Additivity)),
-        requires_unit=st.none() | st.booleans(), confidence=st.floats(0, 1), evidence=evidence,
-        values=st.none() | st.lists(st.builds(v1.EnumValueAnswer, code=st.sampled_from(["1", "2", "1"]),
-                                              label=st.just("ラベル")), min_size=1, max_size=3)), max_size=4)
+        requires_unit=st.none() | st.booleans(), confidence=st.floats(0, 1), evidence=evidence | type_only,
+        values=st.none() | boolean_values | st.lists(st.builds(
+            v1.EnumValueAnswer, code=st.sampled_from(["1", "2", "1", "true", "false"]), label=st.just("ラベル")),
+            min_size=1, max_size=3)), max_size=4)
     fk_or_bogus = st.sampled_from([*fks, "clm_not_a_fk"])
     return v1.TableAnswer(
         kind=draw(st.none() | st.sampled_from(list(v1.TableKind))), kind_confidence=draw(st.floats(0, 1)),
         kind_evidence=draw(evidence), grain=draw(st.none() | st.just("1行 = 1件")), grain_evidence=draw(evidence),
-        new_semantic_types=draw(semantic_types),
+        new_semantic_types=draw(semantic_types) + draw(st.lists(yes_no, max_size=1)),
         columns=draw(st.lists(st.builds(
             v1.ColumnAnswer, name=st.sampled_from([*columns, "no_such_column"]), semantic_type=semantic_type_names,
             unit_fixed=st.none() | st.sampled_from(list(Unit)), unit_column=st.none() | st.sampled_from(columns),
-            confidence=st.floats(0, 1), evidence=evidence), max_size=6)),
+            confidence=st.floats(0, 1), evidence=evidence), max_size=6))
+        + draw(st.lists(st.builds(v1.ColumnAnswer, name=boolean_columns | st.sampled_from(columns),
+                                  semantic_type=st.just("yes_no"), confidence=st.floats(0, 1), evidence=type_only),
+                        max_size=1)),
         relations=draw(st.lists(st.builds(
             v1.RelationAnswer, foreign_key=fk_or_bogus, type=st.sampled_from(["has", "part-of", "is-a", "classified-as"]),
             confidence=st.floats(0, 1), evidence=evidence), max_size=3)),
@@ -163,6 +178,14 @@ def test_answer_laws(name: str, data: st.DataObject, seeded: bool) -> None:
         assert a.status == ReviewStatus.proposed.value
         if a.inferred_by is not None and "test" in a.inferred_by:
             assert a.confidence is not None and a.confidence <= v1.MAX_CONFIDENCE
+    # enum の値の根拠：コメントか CHECK。型から値の集合が決まる真偽値（ちょうど true / false）だけ、型族 boolean の型の主張でよい
+    by_id = {c.id: c for c in _claims(name)}
+    for semantic_type_name in (c[len("semantic_type "):] for c in applied.applied if c.startswith("semantic_type ")):
+        values = (applied.ontology.vocabulary.semantic_types or {})[semantic_type_name].values or []
+        cited = [by_id[e] for e in {e for v in values for e in v.evidence or []}]
+        assert not values or any(c.predicate in ("described_as", "checks") for c in cited) or (
+            sorted(v.code for v in values) == ["false", "true"]
+            and any(c.predicate == "typed_as" and c.family == "boolean" for c in cited))
     table = applied.ontology.table(_table(name))
     assert table is not None
     for column_name in (c[len("column "):] for c in applied.applied if c.startswith("column ")):
@@ -171,9 +194,23 @@ def test_answer_laws(name: str, data: st.DataObject, seeded: bool) -> None:
         family = next(c.family for c in _claims(name) if c.predicate == "typed_as" and c.subject.column == column_name)
         semantic_type = (applied.ontology.vocabulary.semantic_types or {})[column.semantic_type or ""]
         assert family is not None and semantic_type.type in COMPATIBLE[family]
+    _boolean_value_sets_only_on_boolean_columns(applied.ontology)
     # 冪等：同じ答えをもう一度当てても変わらない（関係の引き当ては根拠の並びに頼らない）
     again = _apply(applied.ontology, name, answer)
     assert _snapshot(again.ontology) == _snapshot(applied.ontology)
+
+
+FAMILIES = column_families(CLAIMS)
+
+
+def _boolean_value_sets_only_on_boolean_columns(ontology: Ontology) -> None:
+    """値の一覧が真偽値（true / false）の意味型が付いた列は、型族 boolean（値の集合は型が決めるので）。"""
+    semantic_types = ontology.vocabulary.semantic_types or {}
+    for table in ontology.tables:
+        for name, column in (table.columns or {}).items():
+            semantic_type = semantic_types.get(column.semantic_type or "")
+            if semantic_type is not None and sorted(v.code for v in semantic_type.values or []) == ["false", "true"]:
+                assert FAMILIES[(table.name, name)] == "boolean", (table.name, name)
 
 
 def _snapshot(o: Ontology) -> object:
@@ -190,6 +227,7 @@ def test_answers_applied_in_sequence_keep_the_ontology_valid(data: st.DataObject
         ontology = propagate(ontology, GROUPS, column_families(CLAIMS)).ontology
         for group in GROUPS.groups:
             group_semantic_type(ontology, group)  # 食い違えば InconsistentGroupError
+        _boolean_value_sets_only_on_boolean_columns(ontology)
     assert check(ontology) == []
 
 
@@ -238,6 +276,58 @@ def test_money_without_unit_drops_only_that_column() -> None:
     assert table is not None and table.columns is not None
     assert (table.columns["listprice"].semantic_type, table.columns["name"].semantic_type) == (None, "label")
     assert any(d.item == "column listprice" and "UNIT_MISSING" in d.reason for d in applied.dropped)
+
+
+def _typed(name: str, column: str) -> Claim:
+    return next(c for c in _claims(name) if c.predicate == "typed_as" and c.subject.column == column)
+
+
+def _flag(evidence: list[str], codes: Sequence[str] = ("true", "false")) -> dict[str, Any]:
+    return {"name": "make_flag", "type": "enum", "description": "自社で作るか", "confidence": 0.8, "evidence": evidence,
+            "values": [{"code": code, "label": f"ラベル {code}"} for code in codes]}
+
+
+def test_boolean_values_may_rest_on_the_type_claim_alone() -> None:
+    """コメントの無い真偽値の列：値の集合は型から決まるので、型の主張を根拠に enum にできる（データからは取らない）。"""
+    name = "production.product"
+    typed = _typed(name, "makeflag")
+    assert typed.family == "boolean"
+    answer = _answer(new_semantic_types=[_flag([typed.id])],
+                     columns=[{"name": "makeflag", "semantic_type": "make_flag", "confidence": 0.8,
+                               "evidence": [typed.id]}])
+    applied = v1.apply_answer(V0, _table(name), answer, _claims(name), GROUPS, "test")
+    assert set(applied.applied) == {"semantic_type make_flag", "column makeflag"}
+    values = (applied.ontology.vocabulary.semantic_types or {})["make_flag"].values or []
+    assert sorted(v.code for v in values) == ["false", "true"]
+    assert all(v.evidence == [typed.id] for v in values)
+
+
+@pytest.mark.parametrize("codes,column", [(("Y", "N"), "makeflag"), (("true",), "makeflag"),
+                                          (("true", "false", "unknown"), "makeflag"), (("true", "false"), "name")])
+def test_the_type_claim_grounds_only_the_two_boolean_values(codes: tuple[str, ...], column: str) -> None:
+    """型の主張が根拠になるのは、型族 boolean の列で、値がちょうど true / false のときだけ。"""
+    name = "production.product"
+    typed = _typed(name, column)
+    applied = v1.apply_answer(V0, _table(name), _answer(new_semantic_types=[_flag([typed.id], codes)]),
+                              _claims(name), GROUPS, "test")
+    assert [d.item for d in applied.dropped] == ["semantic_type make_flag"]
+    assert "enum の値の根拠" in applied.dropped[0].reason
+
+
+@pytest.mark.parametrize("column", ["color", "safetystocklevel"])
+def test_a_boolean_value_set_is_given_only_to_boolean_columns(column: str) -> None:
+    """型の主張で根拠づけた真偽値の意味型を、ほかの型族の列（text、integer）には当てない。同じ答えでも、後の答えでも。"""
+    name = "production.product"
+    typed = _typed(name, "makeflag")
+    column_answer = {"name": column, "semantic_type": "make_flag", "confidence": 0.8, "evidence": [typed.id]}
+    applied = v1.apply_answer(V0, _table(name), _answer(new_semantic_types=[_flag([typed.id])], columns=[column_answer]),
+                              _claims(name), GROUPS, "test")
+    assert applied.applied == ("semantic_type make_flag",)
+    assert [d.item for d in applied.dropped] == [f"column {column}"]
+    assert "型族 boolean の列だけ" in applied.dropped[0].reason
+    later = v1.apply_answer(applied.ontology, _table(name), _answer(columns=[column_answer]), _claims(name), GROUPS,
+                            "test")
+    assert later.applied == () and [d.item for d in later.dropped] == [f"column {column}"]
 
 
 def _address_id(evidence: list[str]) -> dict[str, Any]:

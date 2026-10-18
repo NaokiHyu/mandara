@@ -492,8 +492,9 @@ Each fact has a claim id like clm_0123abcd. Answer ONLY through the answer tool.
 - description: one Japanese sentence.
 - values: only when a comment or CHECK constraint states the fixed list of values: each code and a Japanese label,
   and cite that comment or CHECK claim id in values_evidence. Otherwise null and an empty values_evidence.
-- A boolean column (family boolean) always has the two values: give codes "true" and "false" with Japanese labels
-  saying what each means, and cite the column's comment claim id in values_evidence. If it has no comment, null."""
+- A boolean column (family boolean) always has the two values, fixed by its type: give codes "true" and "false" with
+  Japanese labels saying what each means. Cite the column's comment claim id in values_evidence when it has one;
+  otherwise cite the column's type claim id (family boolean) and read the labels from the column name."""
 
 
 class _Strict(BaseModel):
