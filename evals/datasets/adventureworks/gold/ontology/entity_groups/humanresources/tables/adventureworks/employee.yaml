@@ -1,7 +1,7 @@
 id: tbl_humanresources_employee
 name: humanresources.employee
 source: adventureworks
-context: humanresources
+entity_group: humanresources
 kind: domain
 grain: 1行 = 1従業員
 identity:

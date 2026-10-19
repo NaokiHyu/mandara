@@ -8,7 +8,7 @@ from mandara.om.invariants import check
 from mandara.omstore.yaml_store import dump_table, dump_vocabulary, load_ontology, parse_table, parse_vocabulary
 
 GOLD = Path(__file__).parent.parent / "evals/datasets/adventureworks/gold/ontology"
-TABLE_FILES = sorted(GOLD.glob("contexts/*/tables/*/*.yaml"))
+TABLE_FILES = sorted(GOLD.glob("entity_groups/*/tables/*/*.yaml"))
 
 
 def test_gold_has_no_violations() -> None:

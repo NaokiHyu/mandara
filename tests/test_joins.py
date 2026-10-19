@@ -335,7 +335,7 @@ def test_claims_for_keeps_only_the_measurements_that_back_a_relation() -> None:
                         via=[ColumnPair.model_validate({"from": "productid", "to": "productid"})],
                         status=ReviewStatus.proposed, confidence=0.8, evidence=[used.id], inferred_by="test")
     from mandara.om.model import Table as OmTable
-    table = OmTable(id="tbl_order", name="s.order", source="src", context="s", relations=[relation],
+    table = OmTable(id="tbl_order", name="s.order", source="src", entity_group="s", relations=[relation],
                     status=ReviewStatus.proposed, confidence=0.7, evidence=[key.id], inferred_by="test")
     kept = joins.claims_for(table, [key, used, unused])
     assert kept == (key, used)

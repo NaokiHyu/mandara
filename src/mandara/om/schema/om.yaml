@@ -427,7 +427,7 @@ classes:
   # ---------------------------------------------------------------- 表
   Table:
     tree_root: true
-    description: contexts/<context>/tables/<source>/<table>.yaml（4.2）
+    description: entity_groups/<entity_group>/tables/<source>/<table>.yaml（4.2）
     mixins:
       - Annotation
     attributes:
@@ -440,7 +440,9 @@ classes:
         required: true
       source:
         required: true
-      context:
+      entity_group:
+        description: >-
+          エンティティグループ：ドメインの意味的な集まり（仕様の用語集と 4.2）。境界づけられたコンテキストではない（それはスキーマコンテキスト。4.3）
         required: true
       kind:
         description: >-
@@ -931,8 +933,8 @@ classes:
     attributes:
       ontology:
         required: true
-      contexts:
-        description: OM のすべてのコンテキスト（名前の順。UI はこの並びでコンテキストの色を決める。グラフと同じ並び）
+      entity_groups:
+        description: OM のすべてのエンティティグループ（名前の順。UI はこの並びでエンティティグループの色を決める。グラフと同じ並び）
         multivalued: true
         required: true
       domains:
@@ -959,7 +961,7 @@ classes:
         required: true
       name:
         required: true
-      context:
+      entity_group:
         required: true
       kind:
         range: TableKind

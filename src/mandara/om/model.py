@@ -605,7 +605,7 @@ class AliasEntry(ConfiguredBaseModel):
 
 class Table(Annotation):
     """
-    contexts/<context>/tables/<source>/<table>.yaml（4.2）
+    entity_groups/<entity_group>/tables/<source>/<table>.yaml（4.2）
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om',
          'mixins': ['Annotation'],
@@ -624,7 +624,7 @@ class Table(Annotation):
                        'RelatedGroup',
                        'LinkGroup']} })
     source: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Claim', 'SourceRef']} })
-    context: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'DomainSummary']} })
+    entity_group: str = Field(default=..., description="""エンティティグループ：ドメインの意味的な集まり（仕様の用語集と 4.2）。境界づけられたコンテキストではない（それはスキーマコンテキスト。4.3）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'DomainSummary']} })
     kind: Optional[TableKind] = Field(default=None, description="""表種別。提案の段階では未決（無い）でもよい（規則や証拠で決まらないものを既定値で埋めない）。 approved の表には必須""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table',
                        'ClaimSource',
                        'OntologyListing',
@@ -1064,7 +1064,7 @@ class DomainIndex(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'tree_root': True})
 
     ontology: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ReviewQueue', 'DomainIndex']} })
-    contexts: list[str] = Field(default=..., description="""OM のすべてのコンテキスト（名前の順。UI はこの並びでコンテキストの色を決める。グラフと同じ並び）""", json_schema_extra = { "linkml_meta": {'domain_of': ['DomainIndex']} })
+    entity_groups: list[str] = Field(default=..., description="""OM のすべてのエンティティグループ（名前の順。UI はこの並びでエンティティグループの色を決める。グラフと同じ並び）""", json_schema_extra = { "linkml_meta": {'domain_of': ['DomainIndex']} })
     domains: list[DomainSummary] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['DomainIndex']} })
     hidden: list[HiddenTable] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['DomainIndex']} })
     readable: bool = Field(default=..., description="""行を読めるか（ソースへの接続がある）""", json_schema_extra = { "linkml_meta": {'domain_of': ['DomainIndex']} })
@@ -1097,7 +1097,7 @@ class DomainSummary(ConfiguredBaseModel):
                        'Instance',
                        'RelatedGroup',
                        'LinkGroup']} })
-    context: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'DomainSummary']} })
+    entity_group: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'DomainSummary']} })
     kind: TableKind = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table',
                        'ClaimSource',
                        'OntologyListing',

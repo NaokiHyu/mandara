@@ -1,7 +1,7 @@
 id: tbl_sales_store
 name: sales.store
 source: adventureworks
-context: sales
+entity_group: sales
 kind: domain
 identity:
   primary:

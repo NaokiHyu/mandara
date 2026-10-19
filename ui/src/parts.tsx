@@ -2,7 +2,7 @@
 import { type InstanceSummary, LabelSource } from "./om/model";
 import { asKind, KIND } from "./vocabulary";
 
-/** ドメインのアイコン：形（文字）は種類、色はカテゴリ（コンテキスト）。 */
+/** ドメインのアイコン：形（文字）は種類、色はカテゴリ（エンティティグループ）。 */
 export function DomainIcon({ kind, color, big = false }: { kind: string; color: string; big?: boolean }) {
   const k = KIND[asKind(kind)];
   return <span className={`icon${big ? " big" : ""}`} style={{ background: `var(${color})` }}

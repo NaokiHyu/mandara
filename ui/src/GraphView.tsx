@@ -2,7 +2,7 @@
 // 線の形と色は vocabulary.ts の表（関係型ごと、網羅は型で強制）から、色の値は theme.css のトークンから読む。
 import cytoscape, { type Core, type ElementDefinition, type StylesheetJson } from "cytoscape";
 import { useEffect, useRef } from "react";
-import { CONTEXT_COLORS, contextColor, type GraphEdge, type GraphNode } from "./graph";
+import { GROUP_COLORS, groupColor, type GraphEdge, type GraphNode } from "./graph";
 import type { RelationType } from "./om/model";
 import { asKind, KIND, RELATION } from "./vocabulary";
 
@@ -13,7 +13,7 @@ function token(style: CSSStyleDeclaration, name: string): string {
   return value;
 }
 
-function stylesheet(contextCount: number): StylesheetJson {
+function stylesheet(groupCount: number): StylesheetJson {
   const style = getComputedStyle(document.documentElement);
   const t = (name: string) => token(style, name);
   const relationStyles = (Object.entries(RELATION) as [RelationType, (typeof RELATION)[RelationType]][]).map(
@@ -35,9 +35,9 @@ function stylesheet(contextCount: number): StylesheetJson {
         "text-valign": "center", "text-halign": "center",
       },
     },
-    ...Array.from({ length: Math.min(contextCount, CONTEXT_COLORS) }, (_, i) => ({
+    ...Array.from({ length: Math.min(groupCount, GROUP_COLORS) }, (_, i) => ({
       selector: `node[colorIndex = ${i}]`,
-      style: { "border-color": t(contextColor(i)) },
+      style: { "border-color": t(groupColor(i)) },
     })),
     { selector: "node[status = 'proposed']", style: { "border-style": "dashed" } },
     { selector: "node[status = 'rejected']", style: { opacity: 0.35 } },
@@ -67,10 +67,10 @@ function stylesheet(contextCount: number): StylesheetJson {
   ];
 }
 
-export function GraphView({ nodes, edges, contexts, selected, onSelect }: {
+export function GraphView({ nodes, edges, entityGroups, selected, onSelect }: {
   nodes: GraphNode[];
   edges: GraphEdge[];
-  contexts: string[];
+  entityGroups: string[];
   selected: string | null;
   onSelect: (tableId: string | null) => void;
 }) {
@@ -82,14 +82,14 @@ export function GraphView({ nodes, edges, contexts, selected, onSelect }: {
   useEffect(() => {
     if (container.current === null) return;
     const elements: ElementDefinition[] = [
-      ...nodes.map((n) => ({ data: { ...n, colorIndex: n.contextIndex % CONTEXT_COLORS,
+      ...nodes.map((n) => ({ data: { ...n, colorIndex: n.groupIndex % GROUP_COLORS,
                                      display: `${n.kind === undefined ? "?" : KIND[asKind(n.kind)].mark}  ${n.label}` } })),
       ...edges.map((e) => ({ data: { ...e } })),
     ];
     const instance = cytoscape({
       container: container.current,
       elements,
-      style: stylesheet(contexts.length),
+      style: stylesheet(entityGroups.length),
       layout: { name: "cose", animate: false, randomize: false, nodeRepulsion: () => 9000, idealEdgeLength: () => 80 },
       wheelSensitivity: 0.3,
     });
@@ -98,7 +98,7 @@ export function GraphView({ nodes, edges, contexts, selected, onSelect }: {
     cy.current = instance;
     applySelection(instance, selectedRef.current); // 作り直したときも、今の選択を当てる
     return () => { instance.destroy(); cy.current = null; };
-  }, [nodes, edges, contexts, onSelect]);
+  }, [nodes, edges, entityGroups, onSelect]);
 
   useEffect(() => {
     if (cy.current !== null) applySelection(cy.current, selected);
@@ -112,20 +112,20 @@ export function GraphView({ nodes, edges, contexts, selected, onSelect }: {
   );
 }
 
-function countOf(counts: ReadonlyMap<string, number>, context: string): number {
-  const n = counts.get(context);
-  if (n === undefined) throw new Error(`コンテキスト ${context} の表の数が無い（同じ OM から作っているはず）`);
+function countOf(counts: ReadonlyMap<string, number>, entityGroup: string): number {
+  const n = counts.get(entityGroup);
+  if (n === undefined) throw new Error(`エンティティグループ ${entityGroup} の表の数が無い（同じ OM から作っているはず）`);
   return n;
 }
 
-/** グラフの凡例（左の帯）：コンテキストと表の数、関係型の線、表の種類。 */
-export function GraphLegend({ contexts, counts }: { contexts: readonly string[]; counts: ReadonlyMap<string, number> }) {
+/** グラフの凡例（左の帯）：エンティティグループと表の数、関係型の線、表の種類。 */
+export function GraphLegend({ entityGroups, counts }: { entityGroups: readonly string[]; counts: ReadonlyMap<string, number> }) {
   return (
     <aside className="graph-side" aria-label="凡例">
-      <div className="eyebrow">コンテキスト</div>
+      <div className="eyebrow">エンティティグループ</div>
       <ul>
-        {contexts.map((c, i) => (
-          <li key={c}><span className="sq" style={{ background: `var(${contextColor(i)})` }} /><span className="grow">{c}</span>
+        {entityGroups.map((c, i) => (
+          <li key={c}><span className="sq" style={{ background: `var(${groupColor(i)})` }} /><span className="grow">{c}</span>
             <span className="dim">{countOf(counts, c)}</span></li>
         ))}
       </ul>

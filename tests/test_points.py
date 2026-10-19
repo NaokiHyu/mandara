@@ -66,7 +66,7 @@ def test_non_geo_column_is_an_error() -> None:
 def test_unknown_encoding_is_an_error(tmp_path: Path) -> None:
     root = tmp_path / "ontology"
     shutil.copytree(GOLD, root)
-    path = root / "contexts/person/tables/adventureworks/address.yaml"
+    path = root / "entity_groups/person/tables/adventureworks/address.yaml"
     path.write_text(path.read_text().replace("    encoding: sqlserver_geography\n", ""))
     with pytest.raises(PointsError, match="encoding"):
         read_points(load_ontology(root), ADDRESS, "spatiallocation", FakeReader([]), 10)

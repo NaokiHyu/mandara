@@ -52,7 +52,7 @@ def test_one_table_per_object_and_one_relation_per_foreign_key(catalog: Catalog)
     ids = {(t.schema, t.name): by_name[qualify(t.schema, t.name)].id for t in catalog.tables}
     for source_table in catalog.tables:
         table = by_name[qualify(source_table.schema, source_table.name)]
-        assert table.context == source_table.schema
+        assert table.entity_group == source_table.schema
         assert list(table.columns or {}) == [c.name for c in source_table.columns]  # 位置の順
         relations = [(r.target, frozenset((p.from_, p.to) for p in r.via or [])) for r in table.relations or []]
         # 中身が同じ外部キー（名前だけ違う）は1つの関係にまとまる
@@ -162,7 +162,7 @@ def test_reference_outside_scope_is_skipped_not_dropped() -> None:
 
 
 @given(catalogs())
-def test_table_confidence_reflects_the_context_guess(catalog: Catalog) -> None:
+def test_table_confidence_reflects_the_entity_group_guess(catalog: Catalog) -> None:
     for table in _propose(catalog).ontology.tables:
         assert table.confidence is not None and table.confidence <= 0.7
 

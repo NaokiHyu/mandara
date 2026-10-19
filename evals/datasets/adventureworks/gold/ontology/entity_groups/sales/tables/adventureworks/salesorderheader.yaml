@@ -1,7 +1,7 @@
 id: tbl_sales_salesorderheader
 name: sales.salesorderheader
 source: adventureworks
-context: sales
+entity_group: sales
 kind: domain
 grain: 1行 = 1受注
 identity:

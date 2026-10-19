@@ -30,7 +30,9 @@
 | ソース | 接続先のRDB、DWH、ファイル群（CSV/Excel/Parquet/PDF/Markdown等）、メディア（画像・音声）、既存システムのAPI仕様（OpenAPI/WSDL/ストアド定義） |
 | オントロジカルメタデータ（OM） | 表種別・意味型（列の値の意味）・関係型などの意味注釈の集合 |
 | 語彙 | OMで使用を許可されたアノテーション値の閉じた集合 |
-| コンテキスト | DDDの境界づけられたコンテキスト。同名概念が別物であることを許す単位 |
+| ドメイン | 一つの識別できるデータ（エンティティの一種）。表種別 domain の表 |
+| エンティティグループ | ドメインの意味的な集まり（例：person 系、sales 系）。表の整理の単位で、境界づけられたコンテキストではない。既定はソースのスキーマ名から推定する |
+| スキーマコンテキスト | エンティティグループの集合（世界）。DDDの境界づけられたコンテキストで、同名概念が別物であることを許す単位。フェーズ0では1つ（ontology/ 全体） |
 | ドメインオブジェクト | domain種別の表から生成される、メソッドを持つ型 |
 | 型つきモデルコード（TMC） | Typed Model Code。OMから自動生成した型と、その上に人が書く小さな参照透過な関数（メソッド）からなるコード層。OMが「何があるか」、TMCが「どう振る舞うか」を担う（7章） |
 | クエリ / コマンド | 値を返すメソッド / 実行したい操作を `Command` の値として返すメソッド。どちらも参照透過で、実際の読み書きは実行環境が行う（7.3） |
@@ -210,12 +212,12 @@ command_backends:                                      # 7.4 参照。この2種
 
 意味型（semantic type）は、列の値が何を意味するか（住所の ID、受注日、金額）を表す。別の表の列でも、意味が同じなら同じ意味型にする。同じ値の型でも意味が違えば別の意味型にする（例：`order_date` と `ship_date`）。尺度になりうる意味型は `additivity` を持つ。`role: technical` の意味型（行の技術ID、監査用の日時・更新者）は業務の意味を持たない列を表し、UI・オペレーターのツール面・セマンティックモデルでは既定で隠す。関係や同一性の推論にも使わない。
 
-### 4.2 表メタデータ（`contexts/<context>/tables/<source>/<table>.yaml`）
+### 4.2 表メタデータ（`entity_groups/<entity_group>/tables/<source>/<table>.yaml`）
 
 ```yaml
 id: tbl_01HXY...            # 安定ID。改名しても変わらない
 name: sales.orders          # 表示名（ソース上の名前）
-context: sales
+entity_group: sales
 kind: domain                # 注文は状態（受注→出荷→取消）を持つので domain。出来事の記録は event（例：order_status_history）
 grain: "1行 = 1注文"         # 尺度を持つ domain 表と event 表では必須（10.4）
 # derived: true             # 計算・集計で導出された表（ビューなど）。kind とは別の軸（4.1）。実体の表には書かない
@@ -293,15 +295,15 @@ relations:
 - 分類への所属（製品 → 製品分類）は `classified-as` で書く。上司への参照は `has`（reference）で書く。どちらも全体と部分ではないので `part-of` にしない
 - enum の意味型は、値ごとに `code`・`label`・`observed`（データで観測されたか）と注釈の共通フィールド（4.4）を持ち、値ごとにレビューする。値の集合はデータからではなく、宣言と証拠から決める
 
-### 4.3 コンテキストとコンテキストマップ（`contexts/<context>/context.yaml`, `context-map.yaml`）
+### 4.3 スキーマコンテキストとコンテキストマップ（`context-map.yaml`）
 
-同じ「顧客」でも営業と請求では別の概念であることを許す。
+同じ「顧客」でも営業と請求では別の概念であることを許す。営業と請求はそれぞれスキーマコンテキスト（境界づけられたコンテキスト）で、エンティティグループ（4.2。表の整理の単位）とは別のもの。フェーズ0ではスキーマコンテキストは1つで、`ontology/` 全体がそれに当たる。TMC（7章）の型の名前空間はスキーマコンテキストで、エンティティグループは名前空間にしない（置き場所の整理だけ）。複数のスキーマコンテキストと、それらをつなぐ `context-map.yaml` のファイルの配置はフェーズ2で決める（コンテキストマップは1つのスキーマコンテキストの外に置くもの）。
 
 ```yaml
 # context-map.yaml
 mappings:
-  - from: { context: sales,   table: tbl_01HXZ... }   # 営業の顧客
-    to:   { context: billing, table: tbl_01HYA... }   # 請求の顧客先
+  - from: { schema_context: sales_ctx,   table: tbl_01HXZ... }   # 営業の顧客
+    to:   { schema_context: billing_ctx, table: tbl_01HYA... }   # 請求の顧客先
     kind: translation            # shared-kernel | translation | anti-corruption
     via:
       - { from: customer_id, to: account_no, method: lookup_table, source: "billing.customer_map" }
@@ -342,10 +344,8 @@ mappings:
 ```
 ontology/
   vocabulary.yaml
-  context-map.yaml
-  contexts/
+  entity_groups/
     sales/
-      context.yaml
       tables/
         pg_main/
           orders.yaml
@@ -556,7 +556,7 @@ LLMは構造化できない最後の層だけに使う。
 - 文書証拠（6.6）との照合
 
 **D. 大域整合**
-- 候補を列単位で独立に決めず、全体で割り当てを解く。事前分布：1列は1参照先、コード表は多数から参照される、コンテキストをまたぐ参照は少ない
+- 候補を列単位で独立に決めず、全体で割り当てを解く。事前分布：1列は1参照先、コード表は多数から参照される、エンティティグループをまたぐ参照は少ない
 - 負の証拠：孤児値（参照元にあって参照先に無い）、型不一致、不自然な自己参照。`not_references` として台帳に残す
 
 #### 6.7.3 低カーディナリティ列の処方箋
@@ -596,10 +596,10 @@ Customer.isA(Account)      # is-a 判定（推移的）
 | コマンド | `link(rel, target)`, `unlink` | relation |
 
 ### 7.3 ユーザー定義メソッド（参照透過な関数）
-`contexts/<context>/methods/<table>.<拡張子>` に定義する。クエリかコマンドかを必ず宣言する。
+`entity_groups/<entity_group>/methods/<table>.<拡張子>` に定義する。クエリかコマンドかを必ず宣言する。
 
 ```scala
-// contexts/sales/methods/orders.scala（例。言語は 7.6）
+// entity_groups/sales/methods/orders.scala（例。言語は 7.6）
 
 // クエリ：必要な部分グラフを宣言し、値を返す
 @query(reads = "self { totaldue, customer { creditlimit } }")
@@ -698,7 +698,7 @@ REPL（7.1）はオペレーターが世界に問いかける方向。watch は�
 watch は表メタデータの注釈であり、他の注釈と同じくモデラーが提案し、人がレビューする。コードではない。
 
 ```yaml
-# contexts/sales/tables/pg_main/orders.yaml（抜粋）
+# entity_groups/sales/tables/pg_main/orders.yaml（抜粋）
 watches:
   - id: wch_01J...
     on: transition             # transition | threshold | staleness | arrival | schedule | anomaly
@@ -767,7 +767,7 @@ watch の評価とオペレーターの起動は Temporal のワークフロー�
 | `part-of` | `parts`／`whole` を持つ型 |
 | 表種別 `event`、`derived: true` の表 | コマンドを持たない型 |
 | `@query`／`@command` | 戻り値は値／`Command` の値。クエリは `Command` を返せない |
-| コンテキスト | 名前空間。`sales.Customer` と `billing.Customer` は別の型で、変換はコンテキストマップ（4.3）から生成した関数だけが行う |
+| スキーマコンテキスト | 名前空間。`sales_ctx.Customer` と `billing_ctx.Customer` は別の型で、変換はコンテキストマップ（4.3）から生成した関数だけが行う |
 | `temporal` | `history(at)` を持つ型 |
 
 #### 規則
@@ -802,7 +802,7 @@ watch の評価とオペレーターの起動は Temporal のワークフロー�
 subject: ai:ops-agent
 grants:
   - methods: ["*.query.*"]
-    scope: { context: sales }
+    scope: { schema_context: sales_ctx }
   - methods: ["Order.ship"]
     scope: { rows: "region in (JP)" }
     limits: { per_hour: 50, max_amount_jpy: 1000000 }
@@ -895,7 +895,7 @@ overrides:
 | relation: has n:1 | リンク + 検索つき選択 |
 | relation: is-a | 親UIを継承し差分のみ定義 |
 | 近隣の集まり（1:n の子、n:m の向こう） | 件数と OM から機械的に選ぶ：出来事の時刻（`role: event_time`）があり件数が多い → 時系列の線グラフ、期間（`valid_from` / `valid_to`）→ 期間の帯、件数が少ない → 個々のサマリ、それ以外 → 集計の頭出し（件数、尺度の集計、enum の内訳、新しい数件）。尺度は加法性に従う（additive は合計、non-additive は平均、semi-additive は集まり全体では集計せず、出来事の時刻の列があれば最新の時点の行だけで合計する。時間の軸が無いことは OM から言えないので、軸が分からないときも合計しない）。時系列は行の無い区切りも 0 件として並べる（時間軸を詰めない）。単位が混ざれば合計しない。「今日」はデータが今日まで届いていればそう出し、届いていなければ最新の日を基準日として明示する。集計はソースに押し下げる。集まりは、そのドメインの集合を親のインスタンスで絞った部分集合と同じもの（見せ方・集計・行）。n:m の集まりはつながる先の行（重複しない）で、relation の行（つながりの期間・数量など）はドメインのように見せず、集まりに控えめに添える |
-| context map | コンテキスト切替。対応する概念へのリンク |
+| context map | スキーマコンテキストの切替。対応する概念へのリンク |
 | @query | 絞り込み・集計UI |
 | @command | ボタン + 引数からのフォーム。認可がなければ非表示（`backend` の無い表にはそもそも出ない）。`approval: human` なら承認依頼として送信。`handoff` は完了判定まで「受付済」を表示 |
 | watch（7.5） | 対象オブジェクトの通知タイムライン。人への通知設定と、オペレーターの反応（提案・承認依頼）を同じ列に表示 |
@@ -963,7 +963,7 @@ OM から、集計・統計のためのディメンショナルモデル（セ�
 | valid_from / valid_to | 履歴ディメンション（SCD Type 2） |
 | role: event_time | 日付ディメンションと時間粒度 |
 | money / quantity 系意味型 | 尺度（メジャー）候補 |
-| context map | コンフォームドディメンション（コンテキストをまたいで同じ軸） |
+| context map | コンフォームドディメンション（スキーマコンテキストをまたいで同じ軸） |
 
 #### 10.4.2 OM に追加する注釈
 
@@ -974,7 +974,7 @@ OM から、集計・統計のためのディメンショナルモデル（セ�
 | `metric` | メトリクス定義ファイル | 名前、計算式、対象ファクト、既定フィルタ、「不明」値の扱い |
 
 ```yaml
-# contexts/sales/metrics/revenue.yaml
+# entity_groups/sales/metrics/revenue.yaml
 id: met_01J...
 name: 売上
 fact: tbl_01HXY...                 # sales.orders（domain、grain: 1行=1注文）
@@ -1017,7 +1017,7 @@ evidence:
 - 変換関数はコードとしてリポジトリに置き、OM・メソッド・表示アノテーションと同じPRで変更する
 
 ```yaml
-# contexts/facility/tables/s3_photos/equipment_photos.yaml（抜粋）
+# entity_groups/facility/tables/s3_photos/equipment_photos.yaml（抜粋）
 kind: domain
 columns:
   file:
@@ -1034,7 +1034,7 @@ relations:
 ```
 
 ```yaml
-# contexts/facility/functions/photo_to_equipment.yaml
+# entity_groups/facility/functions/photo_to_equipment.yaml
 id: fn_01J...
 name: photo_to_equipment
 kind: probabilistic
@@ -1159,7 +1159,7 @@ Foundry はソースを自社ストレージに取り込み、オントロジー
 - パイプライン：接続→プロファイル→推論→PR作成→バリデーション
 - 主張台帳：スキーマ制約とSQLパーサ（JOIN／CASE）の2抽出器。関係検出はA群とアンカー結合
 - UI：データソース指定（9.2）と、質問形式のOMレビュー（9.3）。この2画面が無いとレビューが回らないため、MVPに含める
-- 語彙は閉じる。コンテキストは1つ
+- 語彙は閉じる。スキーマコンテキストは1つ
 - 差し込み口（16章）を最初から切り、最小の4パック（16.6）で動かす
 
 ### フェーズ1：実行可能化
@@ -1175,7 +1175,7 @@ Foundry はソースを自社ストレージに取り込み、オントロジー
 - ユーザー定義メソッド（7.3、参照透過な関数）。メソッドの言語はここで決める
 - DDDワークベンチ（9.5）：ブラウザ内とローカルの両方、`dry-run`
 - 監視と通知（7.5）：transition / arrival から。anomaly はフェーズ3のメトリクス後
-- 複数コンテキストとコンテキストマップ
+- 複数のスキーマコンテキストとコンテキストマップ
 
 ### フェーズ3：DWH/ナレッジDB
 - 時間（有効期間）
@@ -1227,7 +1227,7 @@ Foundry はソースを自社ストレージに取り込み、オントロジー
 - 確率的関数の「サンプリングレビュー」の最小サンプル数と、承認が無効になる精度低下の基準
 - 正解隠蔽テスト（17.2）の合格基準（復元率・誤提案率の下限／上限）と、データセットごとの重み
 - 「不明」値のクエリ意味論。メトリクス定義ごとの `unknown_handling` で足りるか、全体既定も要るか
-- 複数コンテキストにまたがるメトリクス（全社売上）の定義をどのコンテキストに置くか
+- 複数のスキーマコンテキストにまたがるメトリクス（全社売上）の定義をどのスキーマコンテキストに置くか
 - 統計メソッドの結果（検定の p 値など）を導出表として保存するか、都度計算にとどめるか
 - モデル更新時に `frozen` の導出列をいつ解凍するか
 - カタログとの往復で、どちらの変更を優先するか（OMが常に正か、双方向か）
@@ -1302,7 +1302,7 @@ contributes:
 - 関数は隔離されたワーカーで実行し、ビューはモジュール分離（iframe／module federation）。プラグインのコードはコアと同じプロセスに入れない
 - `evidence` にパック名と版を残す。パックを外したとき、何が消えるか追える
 - 同じ `alias` を2つのパックが主張したら、語彙PRの衝突としてレビュー（9.3）に出す
-- パックの有効化はソースまたはコンテキスト単位（9.2 で申告）
+- パックの有効化はソースまたはスキーマコンテキスト単位（9.2 で申告）
 
 ### 16.6 最小構成
 コア＝OM・語彙・主張台帳・レビュー・バリデーション・レビューUI。最初のパックは「PostgreSQL接続」「SQLパーサ抽出器」「REST `call` バックエンド」「一覧＋詳細ビュー」の4つで、フェーズ0〜1（14章）はこれで成立する。

@@ -1,7 +1,7 @@
 -- AdventureWorks の Hello world。
 -- 実行: psql -X -d adventureworks -f evals/datasets/adventureworks/hello.sql
 
-\echo '== 1. 全体像：スキーマ（≒コンテキスト）ごとの表数と行数'
+\echo '== 1. 全体像：スキーマ（≒エンティティグループ）ごとの表数と行数'
 SELECT schemaname            AS schema,
        count(*)              AS tables,
        sum(n_live_tup)       AS rows

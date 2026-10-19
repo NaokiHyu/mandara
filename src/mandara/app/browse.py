@@ -255,21 +255,21 @@ def domain_index(ontology: Ontology, ontology_id: str, connected: set[str]) -> D
     _require_valid(ontology)
     domains: list[DomainSummary] = []
     hidden: list[HiddenTable] = []
-    for t in sorted(ontology.tables, key=lambda t: (t.context, t.name)):
+    for t in sorted(ontology.tables, key=lambda t: (t.entity_group, t.name)):
         reason = hidden_reason(t)
         if reason is not None:
             hidden.append(HiddenTable(table=t.id, name=t.name, reason=reason))
             continue
         parent = label_parent(ontology, t)
         alternates = [c for k in (t.identity.alternates or [] if t.identity else []) for c in k.columns]
-        domains.append(DomainSummary(table=t.id, name=t.name, context=t.context, kind=t.kind,  # pyright: ignore[reportArgumentType]
+        domains.append(DomainSummary(table=t.id, name=t.name, entity_group=t.entity_group, kind=t.kind,  # pyright: ignore[reportArgumentType]
                                      grain=t.grain, label_columns=label_columns(ontology, t),
                                      label_from=parent[1].id if parent else None,
                                      key_columns=list(t.identity.primary) if t.identity else [],
                                      natural_keys=list(dict.fromkeys(alternates)),
                                      searchable=searchable(ontology, t)))
     sources = {t.source for t in ontology.tables if hidden_reason(t) is None}
-    return DomainIndex(ontology=ontology_id, contexts=sorted({t.context for t in ontology.tables}), domains=domains,
+    return DomainIndex(ontology=ontology_id, entity_groups=sorted({t.entity_group for t in ontology.tables}), domains=domains,
                        hidden=hidden, readable=sources <= connected)
 
 

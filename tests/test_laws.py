@@ -88,7 +88,7 @@ def _table(table_id: str, *, kind: TableKind = TableKind.domain, columns: list[C
            relations: list[Relation] | None = None, grain: str | None = "1行 = 1件", derived: bool | None = None) -> Table:
     cols = columns or [_col("id")]
     return Table(
-        id=table_id, name=f"s.{table_id}", source="src", context="ctx", kind=kind, grain=grain, derived=derived,
+        id=table_id, name=f"s.{table_id}", source="src", entity_group="ctx", kind=kind, grain=grain, derived=derived,
         identity=Identity(primary=["id"]), columns={c.name: c for c in cols}, relations=relations, status=R,
     )
 

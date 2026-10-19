@@ -1,7 +1,7 @@
 id: tbl_person_person
 name: person.person
 source: adventureworks
-context: person
+entity_group: person
 kind: domain
 identity:
   primary:

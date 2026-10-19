@@ -1,7 +1,7 @@
 id: tbl_person_stateprovince
 name: person.stateprovince
 source: adventureworks
-context: person
+entity_group: person
 kind: domain
 identity:
   primary:

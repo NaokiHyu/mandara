@@ -8,7 +8,7 @@ import { amountText } from "./groupview";
 import { asKind, KIND } from "./vocabulary";
 import { GroupPanel, Links, Series, Timeline, Totals } from "./GroupPanel";
 import { DomainIcon, Label } from "./parts";
-import { contextColor, shortName } from "./graph";
+import { groupColor, shortName } from "./graph";
 import { type DomainIndex, type DomainRows, type DomainSummary, type Instance, type InstanceSummary,
          GroupView, LinkState, type RelatedGroup, RelatedKind } from "./om/model";
 
@@ -81,15 +81,15 @@ export function DomainView({ ontologyId, place, onPlace }: {
   );
 }
 
-/** ドメインの表引きと、ドメインのカテゴリ（コンテキスト）の色（CSS 変数の名前）。ドメインでない表は地味な色。地図と共通。 */
+/** ドメインの表引きと、ドメインのカテゴリ（エンティティグループ）の色（CSS 変数の名前）。ドメインでない表は地味な色。地図と共通。 */
 export function palette(index: DomainIndex): { byTable: Map<string, DomainSummary>; color: (table: string) => string } {
   const byTable = new Map(index.domains.map((d) => [d.table, d]));
-  const colors = new Map(index.contexts.map((c, i) => [c, contextColor(i)]));
+  const colors = new Map(index.entity_groups.map((c, i) => [c, groupColor(i)]));
   const color = (table: string) => {
     const d = byTable.get(table);
     if (d === undefined) return "--text-dim";
-    const found = colors.get(d.context);
-    if (found === undefined) throw new Error(`ドメインのコンテキスト ${d.context} が DomainIndex.contexts に無い（契約の誤り）`);
+    const found = colors.get(d.entity_group);
+    if (found === undefined) throw new Error(`ドメインのエンティティグループ ${d.entity_group} が DomainIndex.entity_groups に無い（契約の誤り）`);
     return found;
   };
   return { byTable, color };
@@ -105,14 +105,14 @@ function DomainList({ domains, filter, selected, color, onOpen }: {
   const groups = useMemo(() => {
     const f = filter.trim().toLowerCase();
     const shown = domains.filter((d) => f === "" || d.name.toLowerCase().includes(f));
-    const contexts = [...new Set(shown.map((d) => d.context))].sort();
-    return contexts.map((c) => [c, shown.filter((d) => d.context === c)] as const);
+    const entityGroups = [...new Set(shown.map((d) => d.entity_group))].sort();
+    return entityGroups.map((c) => [c, shown.filter((d) => d.entity_group === c)] as const);
   }, [domains, filter]);
   return (
     <div className="domain-groups">
-      {groups.map(([context, group]) => (
-        <section key={context} style={{ borderLeftColor: `var(${color(group[0]?.table ?? "")})` }}>
-          <h2 style={{ color: `var(${color(group[0]?.table ?? "")})` }}>{context}</h2>
+      {groups.map(([entityGroup, group]) => (
+        <section key={entityGroup} style={{ borderLeftColor: `var(${color(group[0]?.table ?? "")})` }}>
+          <h2 style={{ color: `var(${color(group[0]?.table ?? "")})` }}>{entityGroup}</h2>
           <ul>
             {group.map((d) => (
               <li key={d.table}>
@@ -194,7 +194,7 @@ function Collection({ ontologyId, domain, within, known, color, onOpen }: {
           </>
         )}
         <h1>{shortName(domain.name)}</h1>
-        <span className="context-tag" style={{ color: `var(${color(domain.table)})` }}>{domain.context}</span>
+        <span className="group-tag" style={{ color: `var(${color(domain.table)})` }}>{domain.entity_group}</span>
         <span className="dim">{domain.name}</span>
         {within !== undefined && (
           <button className="link small" onClick={() => onOpen({ table: domain.table, key: null })}>すべての {shortName(domain.name)} →</button>
@@ -307,8 +307,8 @@ export function InstancePane({ ontologyId, domain, instanceKey, known, color, on
     <article className="instance object" aria-label="インスタンス">
       <header className="object-head">
         <div className="object-kicker">
-          <span className="ctx-dot" style={{ background: `var(${color(domain.table)})` }} />
-          <span>{domain.context}</span>
+          <span className="group-dot" style={{ background: `var(${color(domain.table)})` }} />
+          <span>{domain.entity_group}</span>
           <span>· {KIND[asKind(domain.kind)].text}</span>
           {isA.map((l) => (
             <button key={l.relation} className="link small" onClick={() => l.target !== undefined && open(l.target)}>

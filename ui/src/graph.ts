@@ -7,9 +7,9 @@ export interface GraphNode {
   id: string;
   label: string;
   name: string;
-  context: string;
-  /** コンテキストの番号（名前の順）。色の割り当てに使う。 */
-  contextIndex: number;
+  entityGroup: string;
+  /** エンティティグループの番号（名前の順）。色の割り当てに使う。 */
+  groupIndex: number;
   kind: string | undefined;
   /** 計算で導出された表（ビューなど）。kind とは別の軸 */
   derived: boolean;
@@ -59,9 +59,9 @@ export function joins(relation: Relation): string {
 
 export function toGraph(doc: OntologyDocument): { nodes: GraphNode[]; edges: GraphEdge[] } {
   const byId = new Map(doc.tables.map((t) => [t.id, t]));
-  const contexts = [...new Set(doc.tables.map((t) => t.context))].sort();
+  const entityGroups = [...new Set(doc.tables.map((t) => t.entity_group))].sort();
   const nodes = doc.tables.map((t) => ({
-    id: t.id, label: shortName(t.name), name: t.name, context: t.context, contextIndex: contexts.indexOf(t.context),
+    id: t.id, label: shortName(t.name), name: t.name, entityGroup: t.entity_group, groupIndex: entityGroups.indexOf(t.entity_group),
     kind: t.kind, derived: t.derived === true, status: t.status,
   }));
   const edges: GraphEdge[] = [];
@@ -98,10 +98,10 @@ export function toGraph(doc: OntologyDocument): { nodes: GraphNode[]; edges: Gra
   return { nodes, edges };
 }
 
-/** コンテキストの色のトークンの数。これより多いコンテキストは色が巡回する（凡例に出すので、見えない衝突にはしない）。 */
-export const CONTEXT_COLORS = 6;
+/** エンティティグループの色のトークンの数。これより多いエンティティグループは色が巡回する（凡例に出すので、見えない衝突にはしない）。 */
+export const GROUP_COLORS = 6;
 
-/** コンテキスト（名前の順の位置）の色のトークン。グラフ、一覧、ドメインビューワで同じ割り当て。 */
-export function contextColor(index: number): string {
-  return `--ctx-${index % CONTEXT_COLORS}`;
+/** エンティティグループ（名前の順の位置）の色のトークン。グラフ、一覧、ドメインビューワで同じ割り当て。 */
+export function groupColor(index: number): string {
+  return `--group-${index % GROUP_COLORS}`;
 }

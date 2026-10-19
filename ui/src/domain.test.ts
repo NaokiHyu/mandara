@@ -88,7 +88,7 @@ describe("kpisOf", () => {
 });
 
 describe("objectsOf", () => {
-  const index = { ontology: "o", readable: true, contexts: ["s"],
+  const index = { ontology: "o", readable: true, entity_groups: ["s"],
                   domains: [{ table: "t1" }], hidden: [{ table: "t2", name: "s.t2", reason: "主キーが無い" }] };
   it("ドメインなら開ける、隠した表は理由、どちらでもなければ none、両方なら誤り", () => {
     expect(objectsOf(index as never, "t1")).toEqual({ state: "domain" });

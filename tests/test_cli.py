@@ -101,7 +101,7 @@ def test_validate(tmp_path: Path) -> None:
     assert code == 0 and "valid" in out
     broken = tmp_path / "ontology"
     shutil.copytree(GOLD, broken)
-    path = broken / "contexts/sales/tables/adventureworks/salesorderdetail.yaml"
+    path = broken / "entity_groups/sales/tables/adventureworks/salesorderdetail.yaml"
     path.write_text(path.read_text().replace("target: tbl_sales_salesorderheader", "target: tbl_nowhere"))
     code, out, _ = _run("validate", str(broken))
     assert code == 1 and "UNKNOWN_TARGET" in out

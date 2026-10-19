@@ -19,7 +19,7 @@ const CASES = [
   { name: "graph", query: "?ontology=gold:adventureworks&table=tbl_sales_salesorderdetail",
     expect: "document.querySelector('.graph canvas') !== null && document.querySelector('.detail h1')?.textContent === 'salesorderdetail'" },
   { name: "list", query: "?ontology=gold:adventureworks&view=list",
-    expect: "document.querySelectorAll('.contexts .table').length === 14" },
+    expect: "document.querySelectorAll('.entity-groups .table').length === 14" },
   { name: "map", query: "?ontology=gold:adventureworks&table=tbl_person_address&view=map",
     expect: "document.querySelector('.map canvas') !== null && document.querySelector('.map').getBoundingClientRect().height > 100 && /person\\.address\\.spatiallocation · 19,614 points/.test(document.querySelector('.map-status')?.textContent ?? '')" },
   // 運用室：地図（地図の画面と同じ部品）とレビュー待ちが出て、失敗の表示が無い（地図を作り直した直後の例外も、コンソールで落ちる）
@@ -57,8 +57,8 @@ const CASES = [
     expect: "document.querySelector('.domain-list .count') !== null && document.querySelector('.hidden-tables summary') !== null && !document.querySelector('.failure')" },
   // 承認した結果が、オントロジーの画面（表の詳細）に出る
   { name: "approved in ontology", query: "?ontology=work:adventureworks&view=list",
-    expect: "document.querySelectorAll('.contexts .table').length > 0",
-    act: "document.querySelector('.contexts .table').click()",
+    expect: "document.querySelectorAll('.entity-groups .table').length > 0",
+    act: "document.querySelector('.entity-groups .table').click()",
     after: "document.querySelectorAll('.detail tr.status-approved').length > 0" },
 ];
 

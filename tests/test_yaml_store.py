@@ -11,7 +11,7 @@ MINIMAL = """\
 id: tbl_x
 name: s.x
 source: src
-context: ctx
+entity_group: ctx
 kind: domain
 identity:
   primary: [id]
@@ -53,7 +53,7 @@ def test_name_inside_body_is_rejected() -> None:
 
 def test_dump_rejects_key_name_mismatch() -> None:
     table = Table(
-        id="tbl_x", name="s.x", source="src", context="ctx", kind=TableKind.domain,
+        id="tbl_x", name="s.x", source="src", entity_group="ctx", kind=TableKind.domain,
         identity=Identity(primary=["a"]),
         columns={"a": Column(name="b", semantic_type="key", status=ReviewStatus.rejected)},
         status=ReviewStatus.rejected,
@@ -69,7 +69,7 @@ def _ontology_root(tmp_path: Path) -> Path:
 
 def test_placement_mismatch_is_rejected(tmp_path: Path) -> None:
     root = _ontology_root(tmp_path)
-    path = root / "contexts/other/tables/src/x.yaml"
+    path = root / "entity_groups/other/tables/src/x.yaml"
     path.parent.mkdir(parents=True)
     path.write_text(MINIMAL, encoding="utf-8")
     with pytest.raises(OmLoadError, match="配置と中身が食い違う"):
@@ -78,7 +78,7 @@ def test_placement_mismatch_is_rejected(tmp_path: Path) -> None:
 
 def test_stray_file_is_rejected(tmp_path: Path) -> None:
     root = _ontology_root(tmp_path)
-    good = root / "contexts/ctx/tables/src/x.yaml"
+    good = root / "entity_groups/ctx/tables/src/x.yaml"
     good.parent.mkdir(parents=True)
     good.write_text(MINIMAL, encoding="utf-8")
     assert len(load_ontology(root).tables) == 1
@@ -89,8 +89,18 @@ def test_stray_file_is_rejected(tmp_path: Path) -> None:
 
 def test_malformed_name_is_a_load_error(tmp_path: Path) -> None:
     root = _ontology_root(tmp_path)
-    path = root / "contexts/ctx/tables/src/x.yaml"
+    path = root / "entity_groups/ctx/tables/src/x.yaml"
     path.parent.mkdir(parents=True)
     path.write_text(MINIMAL.replace("name: s.x", "name: 's.\"x'"), encoding="utf-8")
     with pytest.raises(OmLoadError, match="引用符が閉じていない"):
+        load_ontology(root)
+
+
+def test_old_contexts_layout_is_rejected(tmp_path: Path) -> None:
+    """改名（context → entity_group）より前の配置は読まない。黙って読み替えない（作り直す）。"""
+    root = _ontology_root(tmp_path)
+    path = root / "contexts/ctx/tables/src/x.yaml"
+    path.parent.mkdir(parents=True)
+    path.write_text(MINIMAL, encoding="utf-8")
+    with pytest.raises(OmLoadError, match="配置規則に合わない"):
         load_ontology(root)

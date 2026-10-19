@@ -84,13 +84,13 @@ h1, h2, h3, h4 { font-family: var(--font-heading); font-weight: 600; letter-spac
            font-family: var(--font-heading); font-weight: 600; letter-spacing: 0.04em; cursor: pointer; }
 .primary:hover { background: var(--accent-strong); }
 
-/* コンテキストの色（ドメインのカテゴリ。明るさと彩度を揃えた色相。oklch(0.78 0.08 h) を 16 進に）。
-   コンテキストの名前の順に割り当てる（グラフ、一覧、ドメインビューワ、地図で同じ色） */
+/* エンティティグループの色（ドメインのカテゴリ。明るさと彩度を揃えた色相。oklch(0.78 0.08 h) を 16 進に）。
+   エンティティグループの名前の順に割り当てる（グラフ、一覧、ドメインビューワ、地図で同じ色） */
 :root {
-  --ctx-0: #cfa7d8;  /* h 320 */
-  --ctx-1: #76c7cc;  /* h 200 */
-  --ctx-2: #93c69d;  /* h 150 */
-  --ctx-3: #d2b27c;  /* h 80 */
-  --ctx-4: #90bce9;  /* h 250 */
-  --ctx-5: #e6a599;  /* h 30 */
+  --group-0: #cfa7d8;  /* h 320 */
+  --group-1: #76c7cc;  /* h 200 */
+  --group-2: #93c69d;  /* h 150 */
+  --group-3: #d2b27c;  /* h 80 */
+  --group-4: #90bce9;  /* h 250 */
+  --group-5: #e6a599;  /* h 30 */
 }

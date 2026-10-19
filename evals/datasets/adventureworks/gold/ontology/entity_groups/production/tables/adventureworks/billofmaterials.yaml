@@ -1,7 +1,7 @@
 id: tbl_production_billofmaterials
 name: production.billofmaterials
 source: adventureworks
-context: production
+entity_group: production
 kind: relation
 grain: 1行 = ある期間に、ある組立品に使われる1つの構成部品（構成の1行）。組立品が NULL の行は最上位の製品そのもの
 identity:

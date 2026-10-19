@@ -392,7 +392,7 @@ export interface AliasEntry {
 
 
 /**
- * contexts/<context>/tables/<source>/<table>.yaml（4.2）
+ * entity_groups/<entity_group>/tables/<source>/<table>.yaml（4.2）
  */
 export interface Table extends Annotation {
     /** 安定ID。改名しても変わらない */
@@ -400,7 +400,8 @@ export interface Table extends Annotation {
     /** ソース上の名前（schema.table） */
     name: string,
     source: string,
-    context: string,
+    /** エンティティグループ：ドメインの意味的な集まり（仕様の用語集と 4.2）。境界づけられたコンテキストではない（それはスキーマコンテキスト。4.3） */
+    entity_group: string,
     /** 表種別。提案の段階では未決（無い）でもよい（規則や証拠で決まらないものを既定値で埋めない）。 approved の表には必須 */
     kind?: string,
     /** 計算・集計で導出された表（ビューなど）。kind（何を表すか）とは別の軸で、どの kind とも組み合わさる。 コマンド不可。part-of の全体側にならない。ソースが実体の表なら書かない */
@@ -720,8 +721,8 @@ export interface TableApproval {
  */
 export interface DomainIndex {
     ontology: string,
-    /** OM のすべてのコンテキスト（名前の順。UI はこの並びでコンテキストの色を決める。グラフと同じ並び） */
-    contexts: string[],
+    /** OM のすべてのエンティティグループ（名前の順。UI はこの並びでエンティティグループの色を決める。グラフと同じ並び） */
+    entity_groups: string[],
     domains: DomainSummary[],
     hidden: HiddenTable[],
     /** 行を読めるか（ソースへの接続がある） */
@@ -734,7 +735,7 @@ export interface DomainSummary {
     /** 表の安定 ID */
     table: string,
     name: string,
-    context: string,
+    entity_group: string,
     kind: string,
     grain?: string,
     /** 見出しに使う列（推定：name という列、無ければ名前が name で終わる文字の列を3つまで）。 空なら label_from の見出し、それも無ければキーが見出し */

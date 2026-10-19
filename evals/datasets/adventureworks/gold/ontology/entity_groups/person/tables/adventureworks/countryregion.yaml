@@ -1,7 +1,7 @@
 id: tbl_person_countryregion
 name: person.countryregion
 source: adventureworks
-context: person
+entity_group: person
 kind: domain
 identity:
   primary:

@@ -44,8 +44,8 @@ MODELER = "modeler-rules 0.1"
 
 DECLARED_CONFIDENCE = 1.0
 """列が存在すること（カタログの宣言）。"""
-CONTEXT_CONFIDENCE = 0.7
-"""コンテキストをスキーマ名と同じにするのは当て推量（仕様 4.3 のコンテキストはソースの区切りと一致するとは限らない）。"""
+ENTITY_GROUP_CONFIDENCE = 0.7
+"""エンティティグループをスキーマ名と同じにするのは当て推量（ドメインの意味的な集まりは、ソースの区切りと一致するとは限らない）。"""
 KIND_CONFIDENCE = 0.9
 """表の種類の規則は、仕様 4.1 の定義にそのまま当たる（ビューは計算で導出される、中間表は複数の参照の組で識別される）。
 ただしソースの命名・使われ方とずれることはあるので 1.0 にはしない。"""
@@ -152,7 +152,7 @@ def _table(
     declared_joins = {joins.claim_join(fk) for fk in references}
     inferred = [c for c in inferred if joins.claim_join(c.claim) not in declared_joins]
     kind, kind_evidence = _kind(declared, primary, [*references, *(c.claim for c in inferred)])
-    confidence = min([CONTEXT_CONFIDENCE, *([KIND_CONFIDENCE] if kind is not None else list[float]())])
+    confidence = min([ENTITY_GROUP_CONFIDENCE, *([KIND_CONFIDENCE] if kind is not None else list[float]())])
     evidence = [declared.id, *(c.id for c in [primary, *alternates] if c is not None), *nulls_evidence, *kind_evidence]
 
     # 中身が同じ外部キー（名前だけ違う冗長な制約）は、1つの関係にまとめて根拠を併記する
@@ -203,14 +203,14 @@ def _table(
         id=table_ids[key],
         name=qualify(schema, name),
         source=source,
-        context=schema,
+        entity_group=schema,
         kind=kind,
         derived=True if _derived(declared) else None,
         identity=identity,
         columns=columns or None,
         relations=relations or None,
         **_proposed(confidence, evidence),
-        note="context はスキーマ名からの推定" + ("" if kind is not None else "。kind は未決（規則では決まらない）"),
+        note="entity_group はスキーマ名からの推定" + ("" if kind is not None else "。kind は未決（規則では決まらない）"),
     )
     return table, skipped
 

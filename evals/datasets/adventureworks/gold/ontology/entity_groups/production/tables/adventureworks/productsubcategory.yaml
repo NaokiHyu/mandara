@@ -1,18 +1,25 @@
-id: tbl_production_productcategory
-name: production.productcategory
+id: tbl_production_productsubcategory
+name: production.productsubcategory
 source: adventureworks
-context: production
+entity_group: production
 kind: domain
 identity:
   primary:
-  - productcategoryid
+  - productsubcategoryid
 columns:
+  productsubcategoryid:
+    semantic_type: product_subcategory_id
+    status: proposed
+    confidence: 0.95
+    evidence:
+    - PK
+    inferred_by: gold-draft
   productcategoryid:
     semantic_type: product_category_id
     status: proposed
     confidence: 0.95
     evidence:
-    - PK
+    - FK → productcategory
     inferred_by: gold-draft
   name:
     semantic_type: display_name
@@ -35,6 +42,21 @@ columns:
     evidence:
     - 列名 modifieddate
     inferred_by: gold-draft
+relations:
+- id: rel_subcategory_category
+  type: classified-as
+  target: tbl_production_productcategory
+  via:
+  - from: productcategoryid
+    to: productcategoryid
+  cardinality: n:1
+  status: proposed
+  confidence: 0.85
+  evidence:
+  - FK 制約
+  - 分類の階層
+  inferred_by: gold-draft
+  note: 分類の階層。サブカテゴリはカテゴリの部分ではないので part-of にしない
 status: proposed
 confidence: 0.9
 evidence:

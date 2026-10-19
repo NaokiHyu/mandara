@@ -1,7 +1,7 @@
 """OM ファイル（仕様 5章）の読み書き。
 
 Adapter 層。
-- 配置：vocabulary.yaml と contexts/<context>/tables/<source>/<table>.yaml。中身の context / source / name と一致させる。
+- 配置：vocabulary.yaml と entity_groups/<entity_group>/tables/<source>/<table>.yaml。中身の entity_group / source / name と一致させる。
   ディレクトリ名・ファイル名の部品は名前を符号化する（mandara.omstore.tree。安全な名前はそのまま）
 - 配置規則に合わないファイル・シンボリックリンクはエラー。黙って読み飛ばさない
 - 生成した OM（work/<source>/ontology）を書くときは丸ごと置き換える。ただし人の判断（approved / rejected）を
@@ -23,6 +23,7 @@ from mandara.omstore.tree import decode_name, encode_name, files_in, replace_tre
 
 _WHAT = "OM"
 _VOCABULARY = "vocabulary.yaml"
+_ENTITY_GROUPS = "entity_groups"
 
 
 class InvalidOntologyError(Exception):
@@ -41,7 +42,7 @@ class OntologyWriteRefusedError(Exception):
 def _layout(parts: tuple[str, ...], is_dir: bool) -> bool:
     if parts == (_VOCABULARY,):
         return not is_dir
-    if not parts or parts[0] != "contexts" or len(parts) > 5 or (len(parts) >= 3 and parts[2] != "tables"):
+    if not parts or parts[0] != _ENTITY_GROUPS or len(parts) > 5 or (len(parts) >= 3 and parts[2] != "tables"):
         return False
     return is_dir if len(parts) < 5 else (not is_dir and parts[4].endswith(".yaml"))
 
@@ -74,20 +75,20 @@ def load_ontology(root: Path) -> Ontology:
             continue
         table = load_table(path)
         try:
-            context, source, table_name = decode_name(parts[1]), decode_name(parts[3]), decode_name(path.stem)
+            entity_group, source, table_name = decode_name(parts[1]), decode_name(parts[3]), decode_name(path.stem)
             actual_part = _table_part(table)
         except ValueError as e:
             raise OmLoadError(path, e) from e
-        _check_placement(path, table, context=context, source=source, table_name=table_name, actual_part=actual_part)
+        _check_placement(path, table, entity_group=entity_group, source=source, table_name=table_name, actual_part=actual_part)
         tables.append(table)
     return Ontology(vocabulary=load_vocabulary(root / _VOCABULARY), tables=tuple(tables))
 
 
 def _check_placement(
-    path: Path, table: Table, *, context: str, source: str, table_name: str, actual_part: str
+    path: Path, table: Table, *, entity_group: str, source: str, table_name: str, actual_part: str
 ) -> None:
-    expected = {"context": context, "source": source, "name の表名部分": table_name}
-    actual = {"context": table.context, "source": table.source, "name の表名部分": actual_part}
+    expected = {"entity_group": entity_group, "source": source, "name の表名部分": table_name}
+    actual = {"entity_group": table.entity_group, "source": table.source, "name の表名部分": actual_part}
     mismatched = [f"{k}: 配置={expected[k]!r}, 中身={actual[k]!r}" for k in expected if expected[k] != actual[k]]
     if mismatched:
         raise OmLoadError(path, ValueError("配置と中身が食い違う: " + "; ".join(mismatched)))
@@ -132,7 +133,7 @@ def write_reviewed_ontology(root: Path, ontology: Ontology) -> None:
 def _replace(root: Path, ontology: Ontology) -> None:
     files: dict[tuple[str, ...], str] = {(_VOCABULARY,): dump_vocabulary(ontology.vocabulary)}
     for table in ontology.tables:
-        parts = ("contexts", encode_name(table.context), "tables", encode_name(table.source),
+        parts = (_ENTITY_GROUPS, encode_name(table.entity_group), "tables", encode_name(table.source),
                  f"{encode_name(_table_part(table))}.yaml")
         if parts in files:
             raise OntologyWriteRefusedError(f"同じファイルに2つの表が当たる: {'/'.join(parts)}")

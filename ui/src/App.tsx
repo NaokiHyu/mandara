@@ -4,7 +4,7 @@ import type { DomainIndex, OntologyDocument, OntologyListing, Table } from "./om
 import { geoColumns, type GeoColumn } from "./geo";
 import { GraphLegend, GraphView } from "./GraphView";
 import { objectsOf, type Place, type Within } from "./domain";
-import { contextColor } from "./graph";
+import { groupColor } from "./graph";
 import { shortName, toGraph } from "./graph";
 import { DomainView } from "./DomainView";
 import { ReviewView } from "./ReviewView";
@@ -193,11 +193,11 @@ function Workspace({ ontologyId, doc, view, table, onSelect, onChanged, onOpenTa
     }
   }, [doc]);
   const current = doc.tables.find((t) => t.id === table);
-  const contexts = useMemo(() => [...new Set(doc.tables.map((t) => t.context))].sort(), [doc]);
+  const entityGroups = useMemo(() => [...new Set(doc.tables.map((t) => t.entity_group))].sort(), [doc]);
   const geo = useMemo(() => geoColumns(doc), [doc]);
   const counts = useMemo(() => {
     const m = new Map<string, number>();
-    for (const t of doc.tables) m.set(t.context, (m.get(t.context) ?? 0) + 1);
+    for (const t of doc.tables) m.set(t.entity_group, (m.get(t.entity_group) ?? 0) + 1);
     return m;
   }, [doc]);
   // どの表をドメインビューワで開けるか（API が決める。承認の後で変わるので OM を読み直すたびに）。表の詳細を出す画面だけで読む
@@ -226,17 +226,17 @@ function Workspace({ ontologyId, doc, view, table, onSelect, onChanged, onOpenTa
   }
   return (
     <div className="workspace">
-      {view === "graph" && <GraphLegend contexts={contexts} counts={counts} />}
+      {view === "graph" && <GraphLegend entityGroups={entityGroups} counts={counts} />}
       <div className={`canvas${view === "graph" ? " graph-canvas" : ""}`}>
         {domains.state === "error" && <Failure error={domains.error} />}
         {table !== null && current === undefined && (
           <p className="failure">表 {table} はこの OM に無い（URL の table を確かめる）</p>
         )}
-        {view === "list" && <TableList tables={doc.tables} contexts={contexts} selected={table} onSelect={onSelect} />}
+        {view === "list" && <TableList tables={doc.tables} entityGroups={entityGroups} selected={table} onSelect={onSelect} />}
         {view === "map" && <MapPane ontologyId={ontologyId} columns={geo} table={table} onOpenDomain={onOpenDomain} />}
         {view === "graph" && graph.state === "error" && <Failure error={graph.error} />}
         {view === "graph" && graph.state === "ok" && (
-          <GraphView nodes={graph.value.nodes} edges={graph.value.edges} contexts={contexts} selected={table}
+          <GraphView nodes={graph.value.nodes} edges={graph.value.edges} entityGroups={entityGroups} selected={table}
                      onSelect={onSelect} />
         )}
       </div>
@@ -281,10 +281,10 @@ function Summary({ doc }: { doc: OntologyDocument }) {
   const relations = tables.reduce((n, t) => n + (t.relations?.length ?? 0), 0);
   const pending = tables.filter((t) => t.status === "proposed").length;
   const approved = tables.filter((t) => t.status === "approved").length;
-  const contexts = new Set(tables.map((t) => t.context)).size;
+  const entityGroups = new Set(tables.map((t) => t.entity_group)).size;
   return (
     <span className="summary">
-      表 {tables.length} · コンテキスト {contexts} · 関係 {relations} · 承認済み {approved}
+      表 {tables.length} · エンティティグループ {entityGroups} · 関係 {relations} · 承認済み {approved}
       {pending > 0 && <span className="warn"> · 未決 {pending}</span>}
     </span>
   );
@@ -300,21 +300,21 @@ function Clock() {
   return <span className="clock" title="UTC">{now.toISOString().slice(11, 19)} <i>UTC</i></span>;
 }
 
-function TableList({ tables, contexts, selected, onSelect }: {
+function TableList({ tables, entityGroups, selected, onSelect }: {
   tables: Table[];
-  contexts: string[];
+  entityGroups: string[];
   selected: string | null;
   onSelect: (id: string) => void;
 }) {
-  const byContext = useMemo(() => contexts.map((context) => [
-    context, tables.filter((t) => t.context === context).sort((a, b) => a.name.localeCompare(b.name)),
-  ] as const), [tables, contexts]);
+  const byGroup = useMemo(() => entityGroups.map((entityGroup) => [
+    entityGroup, tables.filter((t) => t.entity_group === entityGroup).sort((a, b) => a.name.localeCompare(b.name)),
+  ] as const), [tables, entityGroups]);
 
   return (
-    <div className="contexts">
-      {byContext.map(([context, group], i) => (
-        <section key={context} className="context" style={{ borderTopColor: `var(${contextColor(i)})` }}>
-          <h2>{context} <span className="dim">{group.length}</span></h2>
+    <div className="entity-groups">
+      {byGroup.map(([entityGroup, group], i) => (
+        <section key={entityGroup} className="entity-group" style={{ borderTopColor: `var(${groupColor(i)})` }}>
+          <h2>{entityGroup} <span className="dim">{group.length}</span></h2>
           <ul>
             {group.map((t) => (
               <li key={t.id}>

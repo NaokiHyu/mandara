@@ -1,7 +1,7 @@
 id: tbl_production_product
 name: production.product
 source: adventureworks
-context: production
+entity_group: production
 kind: domain
 grain: 1行 = 1製品
 identity:
