@@ -51,13 +51,16 @@ from mandara.modeler import meaning
 from mandara.modeler import nameless_joins
 from mandara.modeler import same_meaning
 from mandara.modeler import rules as modeler
+from mandara.modeler import coordinator, writer
 from mandara.om.invariants import Violation, check
 from mandara.om.encoding_traits import ENCODING_TARGETS
-from mandara.om.model import (Claim, ClaimPredicate, ReviewStatus, SemanticType, SourceRef, Table, TypeFamily, Unit,
+from mandara.om.model import (Claim, Primer, ClaimPredicate, ReviewStatus, SemanticType, SourceRef, Table, TypeFamily, Unit,
                               ValueType)
 from mandara.om.names import qualify, split_qualified
 from mandara.om.ontology import Ontology
 from mandara.omstore.declaration_store import load_declarations
+from mandara.omstore.document_store import (LoadedPrimer, PrimerExistsError, load_primer, primer_path, read_documents,
+                                            write_primer)
 from mandara.omstore.claim_store import load_claim_ledger, load_ledger_scope, write_claim_ledger
 from mandara.omstore.json_store import write_json
 from mandara.modeler.rules import InvalidInputError
@@ -492,6 +495,8 @@ class Refined:
     """双子の段をまるごと問わなかった理由（外部キーを宣言しているソース）。None は問うた（組が無ければ twins は空）。"""
     same_meaning: "SameMeaningRun | None" = None
     """値の似た列の組が同じ意味かを問うた結果（表の分類の後。T2.6）。None は、その段まで来なかった（止めた）。"""
+    primer: str | None = None
+    """使った手引き（書き手と、ファイルの sha256）。None は手引きなし（背景を足していない）。"""
 
 
 @dataclass(frozen=True)
@@ -582,12 +587,19 @@ class _TableFailed(Exception):
         self.answer = answer
 
 
-def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, first: Sequence[str] = ()) -> Refined:
+def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, first: Sequence[str] = (),
+           primer: LoadedPrimer | None = None) -> Refined:
     """v0 の提案を、表ごとに詰める。分類は判断モデル、名前と文は LLM（T3.7）。first に挙げた表（名前）を先に問う。
 
     答えを得られなかった表は記録して次へ。予算の上限や見積もりの崩れでは、そこで止めて残りは v0 のまま。
     結果の OM は検証を通したうえで書く（人の判断を含む OM は上書きしない）。
     """
+    refined = _refine(workspace, model, decider, first, primer)
+    return refined if primer is None else replace(refined, primer=f"{primer.primer.written_by} sha256 {primer.sha256}")
+
+
+def _refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, first: Sequence[str],
+            primer: LoadedPrimer | None) -> Refined:
     claims = load_claim_ledger(workspace.claims, workspace.source)
     ontology = load_ontology(workspace.ontology)
     # 問う前に止まる条件を確かめる（予算を使ってから書けない、とならないように）
@@ -603,6 +615,8 @@ def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, f
         raise InvalidInputError(f"先に問う表が OM に無い: {unknown}")
     if missing := sorted(names - set(by_table)):
         raise LedgerMismatchError(f"主張台帳に無い表が OM にある（台帳を作り直したら、OM も作り直す）: {missing[:3]}")
+    if primer is not None and (problems := writer.check_catalog(primer.primer, writer.overview(claims))):
+        raise InvalidPrimerError("手引きの名前が台帳のカタログに無い（別の世界の手引き？）: " + "; ".join(problems[:5]))
     priority = {name: i for i, name in enumerate(first)}
     order = sorted(ontology.tables, key=lambda t: (priority.get(t.name, len(priority)), t.name))
     # 作者の区切り " + "（llm_modeler.AUTHOR_SEPARATOR）は使わない
@@ -668,7 +682,8 @@ def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, f
                            [t.name for t in order[i:]], defect=True)
         record: dict[str, object] = {}
         try:
-            asked = _ask_table(table, table_claims, ontology, hints, model, decider, record)
+            asked = _ask_table(table, table_claims, ontology, hints, model, decider, record,
+                               primer.primer if primer is not None else None)
         except (BudgetExceededError, EstimateViolatedError) as e:
             stopped = str(e)
             if record:  # 途中まで課金済みの答えは記録に残す（この表には当てない）
@@ -679,7 +694,8 @@ def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, f
             outcomes.append(TableOutcome(table.name, "failed", str(e), (), (), e.answer))
             continue
         if asked.answer is None:
-            outcomes.append(TableOutcome(table.name, "nothing_applied", "問うことが無い", (), tuple(asked.notes), record))
+            outcomes.append(TableOutcome(table.name, "nothing_applied", "問うことが無い", (), tuple(asked.notes), record,
+                                         stage_failures=tuple(asked.stage_failures)))
             continue
         try:
             applied = llm_modeler.apply_answer(ontology, table.id, asked.answer, table_claims, groups, inferred_by)
@@ -758,8 +774,11 @@ class _Asked:
 
 def _ask_table(table: Table, table_claims: joins_modeler.InferenceClaims, ontology: Ontology,
                hints: dict[str, llm_modeler.MeaningHint], model: LanguageModel, decider: DecisionModel,
-               record: dict[str, object]) -> _Asked:
+               record: dict[str, object], primer: Primer | None = None) -> _Asked:
     """1つの表を、分類 → 命名 → 性質 → 単位 → grain の順に問い、従来の答えの形に組み立てる（T3.7）。
+
+    手引き（primer）があれば、問う前にコーディネーターに表の背景を組み立てさせ、各段の材料に背景として足す。背景を得られ
+    なければ、背景なしで続ける（失敗した段として記録する。黙って続けない）。問うことの無い表には背景を作らない。
 
     答えは段ごとに record に書く（再現のため。答えの形が不正でも、受け取った答えはそのまま残す）。
     分類の失敗は表の失敗（_TableFailed）。命名・性質・単位・grain の失敗は、その段に関わる項目だけを理由つきで落として続け、
@@ -780,6 +799,21 @@ def _ask_table(table: Table, table_claims: joins_modeler.InferenceClaims, ontolo
             if c.semantic_type is not None}
     asked = classify.classify(table, table_claims, vocabulary, hints, shared, decider.max_options,
                               f"classify {table.name}", elsewhere_only=used - mine)
+    background: coordinator.Background | None = None
+    if primer is not None and (asked.request is not None or asked.new_only):
+        coordinated: object = None
+        try:
+            coordinated = model.ask(coordinator.request(primer, table.name, classify.state(table_claims))).data
+            background, dropped_terms = coordinator.read(coordinator.parse(coordinated), primer)
+            notes += dropped_terms
+            record["coordinate"] = {"coordinator": coordinator.COORDINATOR, "data": coordinated}
+        except (BudgetExceededError, EstimateViolatedError):
+            raise
+        except (LlmError, llm_modeler.InvalidAnswerError) as e:
+            record["coordinate"] = {"coordinator": coordinator.COORDINATOR, "data": coordinated, "error": failed("背景", e)}
+        if background is not None:
+            asked = classify.classify(table, table_claims, vocabulary, hints, shared, decider.max_options,
+                                      f"classify {table.name}", elsewhere_only=used - mine, background=background)
     response = None
     if asked.request is not None:
         try:
@@ -805,7 +839,7 @@ def _ask_table(table: Table, table_claims: joins_modeler.InferenceClaims, ontolo
             """命名を 1 回問う。答えの形の崩れた意味型だけを理由つきで落とす。答えを得られなければ None（理由は記録）。"""
             request = StructuredRequest(
                 purpose=purpose, system=classify.NAMING_SYSTEM,
-                prompt=classify.naming_prompt(table_claims, taken, kind, hints, columns, decided),
+                prompt=classify.naming_prompt(table_claims, taken, kind, hints, columns, decided, background),
                 schema=classify.NamingAnswer.model_json_schema(), max_output_tokens=NAMING_MAX_OUTPUT_TOKENS)
             data: object = None
             try:
@@ -841,7 +875,7 @@ def _ask_table(table: Table, table_claims: joins_modeler.InferenceClaims, ontolo
                 named = classify.merge_named(named, retry, missing)
         if named is not None:
             notes += named.dropped
-            props = classify.properties(table, table_claims, named, f"properties {table.name}")
+            props = classify.properties(table, table_claims, named, f"properties {table.name}", background)
             props_response = None
             if props.request is not None:
                 try:
@@ -874,7 +908,7 @@ def _ask_table(table: Table, table_claims: joins_modeler.InferenceClaims, ontolo
                         if name in final_types and final_types[name].requires_unit)
     code_columns = sorted(name for name, d in final_types.items() if d.type == ValueType.code.value)
     money = sorted(name for name in needs_unit if final_types[name].type == ValueType.money.value)
-    unit_asked = classify.units(table_claims, needs_unit, money, code_columns, f"units {table.name}")
+    unit_asked = classify.units(table_claims, needs_unit, money, code_columns, f"units {table.name}", background)
     unit_answers: dict[str, tuple[Unit | None, str | None, float]] = {}
     if unit_asked.request is not None:
         try:
@@ -898,7 +932,7 @@ def _ask_table(table: Table, table_claims: joins_modeler.InferenceClaims, ontolo
             prompt=classify.grain_prompt(table_claims, kind, hints,
                                          classify.decided_lines(classified, table_claims, vocabulary, {
                                              n: d for n, d in final_types.items()  # 単位が決まらず落ちる列は除く
-                                             if n not in needs_unit or n in unit_answers})),
+                                             if n not in needs_unit or n in unit_answers}), background),
             schema=classify.GrainAnswer.model_json_schema(), max_output_tokens=GRAIN_MAX_OUTPUT_TOKENS)
         grain_data: object = None
         try:
@@ -912,7 +946,7 @@ def _ask_table(table: Table, table_claims: joins_modeler.InferenceClaims, ontolo
             record["grain"] = {"data": grain_data, "error": detail}
             notes.append(llm_modeler.Dropped("grain", f"grain を得られなかった: {detail}"))
 
-    if not record:  # 何も問わなかった
+    if not record.keys() - {"coordinate"}:  # 何も問わなかった（背景は問いの材料で、それだけでは答えにならない）
         return _Asked(None, notes, failures)
     answer, dropped = classify.assemble(table, table_claims, asked, classified, new_types, named, unit_answers,
                                         unit_asked.evidence, grain)
@@ -1168,6 +1202,57 @@ def _inclusion_text(claim: Claim) -> str:
 
 
 @dataclass(frozen=True)
+class WrittenPrimer:
+    path: Path
+    """書いた手引き（<docs>/primer.yaml）。"""
+    record: Path
+    """ライターの答え（そのまま）と落とした項目の記録（work/<source>/primer/<時刻>.json）。"""
+    written: writer.Written
+
+
+def read_primer(docs: Path) -> LoadedPrimer:
+    """文書の置き場所の手引き。無ければ誤り（--docs を渡したのに手引きが無い。黙って背景なしで進めない）。
+    人が直してよいファイルなので、今の文書と食い違えば誤り（writer.check_documents）。カタログとの照合は refine の入口。"""
+    loaded = load_primer(docs)
+    if loaded is None:
+        raise PrimerMissingError(f"手引きが無い（先に mandara write-primer で書く）: {primer_path(docs)}")
+    if problems := writer.check_documents(loaded.primer, read_documents(docs)):
+        raise InvalidPrimerError(f"手引きが文書と食い違う（{primer_path(docs)}）: " + "; ".join(problems[:5]))
+    return loaded
+
+
+class PrimerMissingError(Exception):
+    """文書の置き場所に手引きが無い。"""
+
+
+class InvalidPrimerError(Exception):
+    """手引きが、今の文書かカタログと食い違う。"""
+
+
+def write_primer_for(workspace: Workspace, docs: Path, model: LanguageModel, clock: Clock) -> WrittenPrimer:
+    """ライター：置いた文書と、台帳のカタログの全体像から、業界の手引きを書く（世界ごとに 1 回）。
+
+    手引きがもうあれば、問う前に止める（人が直したかもしれない。作り直すなら人が消す）。答え（課金済み）は、形が崩れて
+    いても記録に残してから伝える。"""
+    if primer_path(docs).exists():
+        raise PrimerExistsError(f"手引きがもうある（作り直すなら消す）: {primer_path(docs)}")
+    documents = read_documents(docs)
+    view = writer.overview(load_claim_ledger(workspace.claims, workspace.source))
+    request = writer.request(documents, view, model.model)
+    record = workspace.root / "primer" / f"{_utc(clock()).strftime('%Y%m%dT%H%M%S%fZ')}.json"
+    data: object = None
+    try:
+        data = model.ask(request).data
+        written = writer.read(writer.parse(data), documents, view, f"{writer.WRITER} ({model.model})")
+    except (LlmError, llm_modeler.InvalidAnswerError) as e:  # 課金済みかもしれない答えと理由を残してから伝える
+        write_json(record, {"docs": str(docs), "data": data, "error": f"{type(e).__name__}: {e}"})
+        raise
+    write_json(record, {"docs": str(docs), "data": data,
+                        "dropped": [{"item": d.item, "reason": d.reason} for d in written.dropped]})
+    return WrittenPrimer(write_primer(docs, written.primer), record, written)
+
+
+@dataclass(frozen=True)
 class RunResult:
     extracted: Extracted
     proposed: Proposed
@@ -1195,8 +1280,11 @@ class Inference:
 def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, coverage: CoverageReader,
         inclusion: InclusionReader, uniqueness: UniquenessReader, sampler: ValueSampler | None, scope: Scope,
         gold: Path | None, clock: Clock,
-        inference: Inference | None = None) -> RunResult:
+        inference: Inference | None = None, docs: Path | None = None) -> RunResult:
     """抽出 → 提案 → （LLM があれば）推論 → （正解があれば）評価を通しで行い、実行の記録を書く。失敗も記録してから伝える。"""
+    if docs is not None and inference is None:
+        raise ValueError("手引き（docs）は推論（inference）のときだけ使う")
+    primer = read_primer(docs) if docs is not None else None  # 抽出の前に確かめる（無ければ、時間を使う前に止める）
     started = _utc(clock())
     log = _RunLog(workspace.runs / f"{started.strftime('%Y%m%dT%H%M%S%fZ')}.json", clock, {
         "status": "running",
@@ -1210,7 +1298,8 @@ def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, cover
                      "nameless_joins_modeler": nameless_joins.MODELER, "keys_modeler": keys_modeler.MODELER,
                      "twins_modeler": twins_modeler.MODELER,
                      "resemblance_extractor": resemblance_extractor.EXTRACTOR,
-                     "same_meaning_modeler": same_meaning.MODELER},
+                     "same_meaning_modeler": same_meaning.MODELER, "writer": writer.WRITER,
+                     "coordinator": coordinator.COORDINATOR},
         "completed": [],
     })
     with log.stage("extract"):
@@ -1234,7 +1323,7 @@ def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, cover
         with log.stage("refine"):
             first = [t.name for t in load_ontology(gold).tables] if gold is not None else []
             try:
-                refined = refine(workspace, inference.model, inference.decider, first)
+                refined = refine(workspace, inference.model, inference.decider, first, primer)
             finally:
                 spends = inference.budget.spends
                 log.update(llm={"model": inference.model.model, "decision_model": inference.decider.model,
@@ -1242,6 +1331,7 @@ def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, cover
                                 "by_model": {m: summarize([s for s in spends if s.model == m])
                                              for m in sorted({s.model for s in spends})}})
             log.update(refine={
+                "primer": refined.primer,
                 "stopped": refined.stopped, "not_reached": list(refined.not_reached),
                 "outcomes": dict(sorted(Counter(o.status for o in refined.outcomes).items())),
                 "stage_failures": sum(len(o.stage_failures) for o in refined.outcomes),

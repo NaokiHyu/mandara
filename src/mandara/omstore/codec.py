@@ -42,6 +42,14 @@ def load[M: BaseModel](path: Path, model: type[M]) -> M:
         raise OmLoadError(path, e) from e
 
 
+def parse_at[M: BaseModel](path: Path, text: str, model: type[M]) -> M:
+    """読み済みの text を、path のファイルとして読む（誤りは OmLoadError。同じバイトのハッシュを取りたいとき）。"""
+    try:
+        return parse(text, model)
+    except (yaml.YAMLError, ValidationError, ValueError) as e:
+        raise OmLoadError(path, e) from e
+
+
 def dump(value: BaseModel) -> str:
     return yaml.safe_dump(_to_plain(value), sort_keys=False, allow_unicode=True, default_flow_style=False, width=1000)
 

@@ -5,6 +5,16 @@ export type AliasEntryName = string;
 export type TableId = string;
 export type ColumnName = string;
 /**
+* 手引きの項目の出所
+*/
+export enum PrimerOrigin {
+    
+    /** 置いた文書に書いてある（引用が文書にある） */
+    document = "document",
+    /** 業界の一般知識（ライターの LLM が補った。文書には無い） */
+    general = "general",
+};
+/**
 * 注釈のレビュー状態（4.4）
 */
 export enum ReviewStatus {
@@ -573,6 +583,51 @@ export interface Claim {
 export interface SourceDeclarations {
     /** ソースの金額の通貨（行が別の単位を言わない限り） */
     default_currency?: string,
+}
+
+
+/**
+ * 業界の手引き（ライターが、スキーマコンテキストに置いた文書とカタログの全体像から書く。<docs>/primer.yaml）。 人が読んで直してよく、あればそれを正とする（作り直すときは消す）。コーディネーターが表ごとの背景を組み立てる材料
+ */
+export interface Primer {
+    /** 書いたライターと LLM（例 "writer 0.1 (claude-haiku-5-5)"） */
+    written_by: string,
+    /** 書いたときに読んだ文書（名前の順） */
+    documents: PrimerDocument[],
+    /** 世界の要約（業種、業務の流れ、規模） */
+    summary: string,
+    entity_groups: PrimerGroup[],
+    entries: PrimerEntry[],
+}
+
+
+
+export interface PrimerDocument {
+    /** 文書の置き場所からの相対パス */
+    name: string,
+    sha256: string,
+}
+
+
+/**
+ * エンティティグループ（既定はスキーマ名）のひと言
+ */
+export interface PrimerGroup {
+    name: string,
+    description: string,
+}
+
+
+/**
+ * 用語集の項目。関わる表（schema.table）を付ける（コーディネーターが表ごとに選ぶ手がかり）
+ */
+export interface PrimerEntry {
+    term: string,
+    meaning: string,
+    tables: string[],
+    origin: string,
+    /** origin が document のとき、根拠の文書の原文（文書に実在すること） */
+    quote?: string,
 }
 
 

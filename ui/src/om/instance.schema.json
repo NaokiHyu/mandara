@@ -2126,6 +2126,130 @@
             "title": "PointSet",
             "type": "object"
         },
+        "Primer": {
+            "additionalProperties": false,
+            "description": "\u696d\u754c\u306e\u624b\u5f15\u304d\uff08\u30e9\u30a4\u30bf\u30fc\u304c\u3001\u30b9\u30ad\u30fc\u30de\u30b3\u30f3\u30c6\u30ad\u30b9\u30c8\u306b\u7f6e\u3044\u305f\u6587\u66f8\u3068\u30ab\u30bf\u30ed\u30b0\u306e\u5168\u4f53\u50cf\u304b\u3089\u66f8\u304f\u3002<docs>/primer.yaml\uff09\u3002 \u4eba\u304c\u8aad\u3093\u3067\u76f4\u3057\u3066\u3088\u304f\u3001\u3042\u308c\u3070\u305d\u308c\u3092\u6b63\u3068\u3059\u308b\uff08\u4f5c\u308a\u76f4\u3059\u3068\u304d\u306f\u6d88\u3059\uff09\u3002\u30b3\u30fc\u30c7\u30a3\u30cd\u30fc\u30bf\u30fc\u304c\u8868\u3054\u3068\u306e\u80cc\u666f\u3092\u7d44\u307f\u7acb\u3066\u308b\u6750\u6599",
+            "properties": {
+                "documents": {
+                    "description": "\u66f8\u3044\u305f\u3068\u304d\u306b\u8aad\u3093\u3060\u6587\u66f8\uff08\u540d\u524d\u306e\u9806\uff09",
+                    "items": {
+                        "$ref": "#/$defs/PrimerDocument"
+                    },
+                    "type": "array"
+                },
+                "entity_groups": {
+                    "items": {
+                        "$ref": "#/$defs/PrimerGroup"
+                    },
+                    "type": "array"
+                },
+                "entries": {
+                    "items": {
+                        "$ref": "#/$defs/PrimerEntry"
+                    },
+                    "type": "array"
+                },
+                "summary": {
+                    "description": "\u4e16\u754c\u306e\u8981\u7d04\uff08\u696d\u7a2e\u3001\u696d\u52d9\u306e\u6d41\u308c\u3001\u898f\u6a21\uff09",
+                    "type": "string"
+                },
+                "written_by": {
+                    "description": "\u66f8\u3044\u305f\u30e9\u30a4\u30bf\u30fc\u3068 LLM\uff08\u4f8b \"writer 0.1 (claude-haiku-5-5)\"\uff09",
+                    "type": "string"
+                }
+            },
+            "required": [
+                "written_by",
+                "documents",
+                "summary",
+                "entity_groups",
+                "entries"
+            ],
+            "title": "Primer",
+            "type": "object"
+        },
+        "PrimerDocument": {
+            "additionalProperties": false,
+            "description": "",
+            "properties": {
+                "name": {
+                    "description": "\u6587\u66f8\u306e\u7f6e\u304d\u5834\u6240\u304b\u3089\u306e\u76f8\u5bfe\u30d1\u30b9",
+                    "type": "string"
+                },
+                "sha256": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "name",
+                "sha256"
+            ],
+            "title": "PrimerDocument",
+            "type": "object"
+        },
+        "PrimerEntry": {
+            "additionalProperties": false,
+            "description": "\u7528\u8a9e\u96c6\u306e\u9805\u76ee\u3002\u95a2\u308f\u308b\u8868\uff08schema.table\uff09\u3092\u4ed8\u3051\u308b\uff08\u30b3\u30fc\u30c7\u30a3\u30cd\u30fc\u30bf\u30fc\u304c\u8868\u3054\u3068\u306b\u9078\u3076\u624b\u304c\u304b\u308a\uff09",
+            "properties": {
+                "meaning": {
+                    "type": "string"
+                },
+                "origin": {
+                    "$ref": "#/$defs/PrimerOrigin"
+                },
+                "quote": {
+                    "description": "origin \u304c document \u306e\u3068\u304d\u3001\u6839\u62e0\u306e\u6587\u66f8\u306e\u539f\u6587\uff08\u6587\u66f8\u306b\u5b9f\u5728\u3059\u308b\u3053\u3068\uff09",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "tables": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "term": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "term",
+                "meaning",
+                "tables",
+                "origin"
+            ],
+            "title": "PrimerEntry",
+            "type": "object"
+        },
+        "PrimerGroup": {
+            "additionalProperties": false,
+            "description": "\u30a8\u30f3\u30c6\u30a3\u30c6\u30a3\u30b0\u30eb\u30fc\u30d7\uff08\u65e2\u5b9a\u306f\u30b9\u30ad\u30fc\u30de\u540d\uff09\u306e\u3072\u3068\u8a00",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "name",
+                "description"
+            ],
+            "title": "PrimerGroup",
+            "type": "object"
+        },
+        "PrimerOrigin": {
+            "description": "\u624b\u5f15\u304d\u306e\u9805\u76ee\u306e\u51fa\u6240",
+            "enum": [
+                "document",
+                "general"
+            ],
+            "title": "PrimerOrigin",
+            "type": "string"
+        },
         "ReferentialAction": {
             "description": "\u5916\u90e8\u30ad\u30fc\u306e\u53c2\u7167\u5148\u306e\u884c\u304c\u6d88\u3048\u308b\u30fb\u5909\u308f\u308b\u3068\u304d\u306e\u52d5\u4f5c\uff08SQL \u6a19\u6e96\uff09\u3002cascade \u306f\u5408\u6210\u95a2\u4fc2\u306e\u8a3c\u62e0\u306b\u306a\u308b",
             "enum": [

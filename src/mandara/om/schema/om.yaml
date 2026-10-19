@@ -17,6 +17,13 @@ imports:
   - linkml:types
 
 enums:
+  PrimerOrigin:
+    description: 手引きの項目の出所
+    permissible_values:
+      document:
+        description: 置いた文書に書いてある（引用が文書にある）
+      general:
+        description: 業界の一般知識（ライターの LLM が補った。文書には無い）
   ReviewStatus:
     description: 注釈のレビュー状態（4.4）
     permissible_values:
@@ -725,6 +732,70 @@ classes:
       default_currency:
         description: ソースの金額の通貨（行が別の単位を言わない限り）
         range: Unit
+
+  Primer:
+    tree_root: true
+    description: >-
+      業界の手引き（ライターが、スキーマコンテキストに置いた文書とカタログの全体像から書く。<docs>/primer.yaml）。
+      人が読んで直してよく、あればそれを正とする（作り直すときは消す）。コーディネーターが表ごとの背景を組み立てる材料
+    attributes:
+      written_by:
+        description: 書いたライターと LLM（例 "writer 0.1 (claude-haiku-5-5)"）
+        required: true
+      documents:
+        description: 書いたときに読んだ文書（名前の順）
+        range: PrimerDocument
+        multivalued: true
+        required: true
+        inlined: true
+        inlined_as_list: true
+      summary:
+        description: 世界の要約（業種、業務の流れ、規模）
+        required: true
+      entity_groups:
+        range: PrimerGroup
+        multivalued: true
+        required: true
+        inlined: true
+        inlined_as_list: true
+      entries:
+        range: PrimerEntry
+        multivalued: true
+        required: true
+        inlined: true
+        inlined_as_list: true
+
+  PrimerDocument:
+    attributes:
+      name:
+        description: 文書の置き場所からの相対パス
+        required: true
+      sha256:
+        required: true
+
+  PrimerGroup:
+    description: エンティティグループ（既定はスキーマ名）のひと言
+    attributes:
+      name:
+        required: true
+      description:
+        required: true
+
+  PrimerEntry:
+    description: 用語集の項目。関わる表（schema.table）を付ける（コーディネーターが表ごとに選ぶ手がかり）
+    attributes:
+      term:
+        required: true
+      meaning:
+        required: true
+      tables:
+        multivalued: true
+        required: true
+      origin:
+        range: PrimerOrigin
+        required: true
+      quote:
+        description: origin が document のとき、根拠の文書の原文（文書に実在すること）
 
   SourceRef:
     description: データソース上の表または列。OM の安定 ID ができる前の段階なので、ソース上の名前で指す

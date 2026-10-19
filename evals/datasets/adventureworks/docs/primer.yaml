@@ -1,0 +1,256 @@
+written_by: writer 0.2 (claude-haiku-5-5)
+documents:
+- name: lorint-README.md
+  sha256: 88ee06dab2737579098311b3a1dcf3cec71c0699657c6f739b2af53c7d5a5e6c
+summary: The documents describe a fictitious bicycle parts wholesaler, a business-to-business distributor that buys finished goods and parts from vendors and sells them to retail and commercial customers. Its main processes are order-to-cash (customer and store sales orders, special offers, shipping, sales territories and quotas), procure-to-pay (purchase orders to vendors, product-vendor agreements, shipping methods), and make-to-stock manufacturing (bills of materials, work orders, routings, scrap, inventory by location). Supporting processes cover human resources (employees, departments, pay and job history, job candidates), and master data on people, addresses, products, currencies and documents. The sample scale stated in the documents is roughly 300 employees, 500 products, 20,000 customers and 31,000 sales orders, with an average of about 4 line items per order.
+entity_groups:
+- name: humanresources
+  description: 'Covers the workforce: employees, departments and shifts, their pay and department history, and job candidates applying for positions.'
+- name: person
+  description: 'Holds master data about people and organizations: names, addresses, contact types, phone numbers, email, passwords for web accounts, and countries and states/provinces, including business entities that can be people, vendors or stores.'
+- name: production
+  description: 'Covers manufacturing and product master data: products and categories, bills of materials, work orders and routings, inventory by location, scrap reasons, product cost and price history, descriptions, photos and documents, and transaction history.'
+- name: purchasing
+  description: 'Covers procurement from suppliers: vendors, product-vendor sourcing, purchase order headers and lines, and shipping methods.'
+- name: sales
+  description: 'Covers selling to customers: sales orders and their lines, customers, stores and salespeople, sales territories and quotas, special offers and discounts, currencies and exchange rates, tax rates, credit cards, and the shopping cart.'
+entries:
+- term: Bill of materials (BOM)
+  meaning: A structured list of components and quantities needed to assemble a parent product, often multi-level and versioned by effective dates.
+  tables:
+  - production.billofmaterials
+  - production.product
+  origin: general
+- term: Work order
+  meaning: An internal production order to manufacture a quantity of a product, with planned and actual start and end dates, and quantities ordered and scrapped.
+  tables:
+  - production.workorder
+  origin: general
+- term: Work order routing
+  meaning: The sequence of manufacturing operations at work centers/locations that a work order passes through, with planned and actual costs and times.
+  tables:
+  - production.workorderrouting
+  - production.location
+  origin: general
+- term: Scrap reason
+  meaning: A coded explanation for why produced parts or work order quantities were rejected as scrap during manufacturing.
+  tables:
+  - production.scrapreason
+  - production.workorder
+  origin: general
+- term: Product cost history
+  meaning: Dated records of a product's standard cost, so cost in effect at any date can be found.
+  tables:
+  - production.productcosthistory
+  origin: general
+- term: List price history
+  meaning: Dated records of a product's list price, showing how the catalogue price changed over time.
+  tables:
+  - production.productlistpricehistory
+  origin: general
+- term: Product inventory
+  meaning: Quantity of a product on hand at a storage location or shelf bin, used for stock control and reorder decisions.
+  tables:
+  - production.productinventory
+  - production.location
+  origin: general
+- term: Inventory transaction history
+  meaning: Log of stock movements such as purchases, sales, work order issues and receipts, with quantity, cost and date for each product.
+  tables:
+  - production.transactionhistory
+  - production.transactionhistoryarchive
+  origin: general
+- term: Product category and subcategory
+  meaning: Two-level grouping of products (for example a category containing subcategories) used for reporting and merchandising.
+  tables:
+  - production.productcategory
+  - production.productsubcategory
+  - production.product
+  origin: general
+- term: Product model
+  meaning: A family of products sharing a design, used to group variants and to attach descriptions and catalogue text in several cultures.
+  tables:
+  - production.productmodel
+  - production.productmodelproductdescriptionculture
+  - production.productdescription
+  - production.culture
+  origin: general
+- term: Unit of measure
+  meaning: A standard unit in which quantities are counted or weighed, such as each, box, kilogram or litre, used for products, purchases and bills of materials.
+  tables:
+  - production.unitmeasure
+  - production.product
+  - purchasing.purchaseorderdetail
+  origin: general
+- term: Product photo and document
+  meaning: Images, illustrations, assembly instructions and other files attached to products or product models.
+  tables:
+  - production.productphoto
+  - production.productproductphoto
+  - production.document
+  - production.productdocument
+  - production.illustration
+  - production.productmodelillustration
+  origin: general
+- term: Product review
+  meaning: Feedback written by a customer about a product, with a rating and date.
+  tables:
+  - production.productreview
+  origin: general
+- term: Purchase order
+  meaning: A formal order sent to a vendor to buy products, with a header for the order and detail lines for each product, quantity and unit price.
+  tables:
+  - purchasing.purchaseorderheader
+  - purchasing.purchaseorderdetail
+  origin: general
+- term: Vendor and product-vendor agreement
+  meaning: A supplier of purchased goods, and the record of which products it supplies, at what cost, lead time and minimum order quantity.
+  tables:
+  - purchasing.vendor
+  - purchasing.productvendor
+  origin: general
+- term: Ship method
+  meaning: The carrier and service level used to deliver goods, such as ground or express, with associated shipping cost rates.
+  tables:
+  - purchasing.shipmethod
+  - sales.salesorderheader
+  - purchasing.purchaseorderheader
+  origin: general
+- term: Sales order
+  meaning: A customer's order for products, with a header that holds customer, dates, addresses, payment terms and totals, and detail lines for each product sold.
+  tables:
+  - sales.salesorderheader
+  - sales.salesorderdetail
+  origin: general
+- term: Customer
+  meaning: A party that buys from the business, either an individual or a store (retailer) that resells the products.
+  tables:
+  - sales.customer
+  - sales.store
+  - sales.vindividualcustomer
+  origin: general
+- term: Store (retail account)
+  meaning: A business customer such as a bicycle shop, with an assigned salesperson and contacts.
+  tables:
+  - sales.store
+  - sales.vstorewithaddresses
+  - sales.vstorewithcontacts
+  origin: general
+- term: Sales territory
+  meaning: A geographic region assigned to a salesperson or used for sales reporting, with its sales and cost totals and country.
+  tables:
+  - sales.salesterritory
+  - sales.salesterritoryhistory
+  - person.stateprovince
+  origin: general
+- term: Salesperson and sales quota
+  meaning: A sales representative linked to a territory, with commission and sales totals, and quota targets recorded by date.
+  tables:
+  - sales.salesperson
+  - sales.salespersonquotahistory
+  - sales.vsalesperson
+  origin: general
+- term: Sales reason
+  meaning: A coded reason a customer gave for buying, such as price, advertising or promotion, linked to sales orders for analysis.
+  tables:
+  - sales.salesreason
+  - sales.salesorderheadersalesreason
+  origin: general
+- term: Special offer
+  meaning: A promotional discount on a product or product category, valid for a date range and a minimum quantity, and tied to a discount type.
+  tables:
+  - sales.specialoffer
+  - sales.specialofferproduct
+  origin: general
+- term: Sales tax rate
+  meaning: The tax percentage applied to sales in a state or province, by tax category.
+  tables:
+  - sales.salestaxrate
+  - person.stateprovince
+  origin: general
+- term: Currency and exchange rate
+  meaning: Currency codes, the rates between currencies by date, and the currencies used by each country, for foreign-currency sales.
+  tables:
+  - sales.currency
+  - sales.currencyrate
+  - sales.countryregioncurrency
+  - person.countryregion
+  origin: general
+- term: Credit card
+  meaning: A customer's payment card on file, with card type, number and expiry, used to pay sales orders.
+  tables:
+  - sales.creditcard
+  - sales.personcreditcard
+  origin: general
+- term: Shopping cart item
+  meaning: A product a visitor has placed in an online cart before ordering, with quantity and date added.
+  tables:
+  - sales.shoppingcartitem
+  origin: general
+- term: Address and address type
+  meaning: A postal address linked to a business entity, labelled by a type such as home, billing or shipping.
+  tables:
+  - person.address
+  - person.addresstype
+  - person.businessentityaddress
+  - person.stateprovince
+  - person.countryregion
+  origin: general
+- term: Business entity
+  meaning: A generic identity in the master data that can stand for a person, store, vendor or other organization, linked to contacts and addresses.
+  tables:
+  - person.businessentity
+  - person.businessentitycontact
+  - person.contacttype
+  - person.person
+  origin: general
+- term: Person and phone number
+  meaning: Name and personal details of an individual, with phone numbers classified by type such as cell, home or work.
+  tables:
+  - person.person
+  - person.personphone
+  - person.phonenumbertype
+  - person.emailaddress
+  - person.password
+  origin: general
+- term: Employee
+  meaning: A person employed by the business, with job title, hire date, salaried or hourly status, and vacation and sick leave balances.
+  tables:
+  - humanresources.employee
+  - humanresources.vemployee
+  origin: general
+- term: Department and shift
+  meaning: Organizational units employees belong to, and the work shifts they are scheduled on.
+  tables:
+  - humanresources.department
+  - humanresources.shift
+  - humanresources.employeedepartmenthistory
+  - humanresources.vemployeedepartment
+  origin: general
+- term: Pay history
+  meaning: Dated record of an employee's pay rate and pay frequency over time.
+  tables:
+  - humanresources.employeepayhistory
+  origin: general
+- term: Job candidate
+  meaning: A person applying for a job, whose résumé is captured with education and work experience details.
+  tables:
+  - humanresources.jobcandidate
+  - humanresources.vjobcandidate
+  - humanresources.vjobcandidateeducation
+  - humanresources.vjobcandidateemployment
+  origin: general
+- term: Demographics
+  meaning: Personal survey information about customers or employees, such as education, occupation, income and home ownership, stored as XML in the source system.
+  tables:
+  - person.person
+  - sales.vpersondemographics
+  - sales.vstorewithdemographics
+  origin: general
+- term: Standard cost
+  meaning: The expected unit cost of making or buying a product, used to value inventory and compare with actual cost.
+  tables:
+  - production.productcosthistory
+  - production.product
+  - production.workorderrouting
+  origin: general

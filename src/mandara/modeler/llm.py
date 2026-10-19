@@ -135,9 +135,13 @@ class TableAnswer(_Answer):
 # ---------------------------------------------------------------- 問いの材料
 
 
-def _q(text: object) -> str:
-    """自由文を JSON の文字列にする（改行や偽の行を作らせない）。< と > も逃がし、データの区画の終わりを偽造させない。"""
+def data_text(text: object) -> str:
+    """自由文を JSON の文字列にする（改行や偽の行を作らせない）。< と > も逃がし、データの区画の終わりを偽造させない。
+    LLM の問いのデータの区画に置く自由文は、すべてこれを通す（ライター、コーディネーターも）。"""
     return json.dumps(str(text), ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e")
+
+
+_q = data_text
 
 
 @dataclass(frozen=True)
@@ -160,9 +164,10 @@ def meaning_hints(ontology: Ontology, table: Table, groups: MeaningGroups) -> di
 
 
 def brief(table_claims: InferenceClaims, vocabulary: Mapping[str, SemanticType], decided_kind: str | None,
-          meaning: Mapping[str, MeaningHint], decided: Sequence[str] = ()) -> str:
+          meaning: Mapping[str, MeaningHint], decided: Sequence[str] = (), background: str | None = None) -> str:
     """表の主張を、根拠の ID つきで読める形にする。自由文はすべて JSON の文字列で、データの区画の中。
-    decided は前の段（判断モデルの分類）で決まったこと（classify.decided_lines。閾値を超えたものだけ）。"""
+    decided は前の段（判断モデルの分類）で決まったこと（classify.decided_lines。閾値を超えたものだけ）。
+    background はコーディネーターの背景の行（mandara.modeler.coordinator.background_line。事実ではないと明示した行）。"""
     by = {p.value: [c for c in table_claims if c.predicate == p.value] for p in ClaimPredicate}
     declared = by[ClaimPredicate.declared_as.value]
     if not declared:
@@ -215,6 +220,8 @@ def brief(table_claims: InferenceClaims, vocabulary: Mapping[str, SemanticType],
                      f"{_q(qualify(target.schema_name, target.table))}({', '.join(map(_q, c.target_columns or []))})")
     for c in by[ClaimPredicate.checks.value]:
         lines.append(f"check {c.id}: {_q(c.text)}")
+    if background is not None:
+        lines.append(background)
     if decided:
         lines.append("decided by the classification (facts; do not contradict them):")
         lines += [f"- {d}" for d in decided]

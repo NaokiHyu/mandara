@@ -52,6 +52,7 @@ from mandara.om.model import (
     Unit,
     ValueType,
 )
+from mandara.modeler.coordinator import Background, background_line, with_background
 from mandara.modeler.joins import InferenceClaims
 from mandara.modeler.resemblance import SHAPE_NOTATION, value_shape
 from mandara.om.names import qualify
@@ -346,7 +347,7 @@ class Classify:
 
 def classify(table: Table, table_claims: InferenceClaims, vocabulary: Mapping[str, SemanticType],
              hints: Mapping[str, MeaningHint], shared_keys: Collection[str], max_options: int, purpose: str,
-             *, elsewhere_only: Collection[str]) -> Classify:
+             *, elsewhere_only: Collection[str], background: Background | None = None) -> Classify:
     """分類の問い。表種別（v0 が決めていなければ）、外部キーごとの関係型、辺、列の意味型（組の意味型が決まっていなければ）。
 
     関係型の問いには、外部キーの構造とデータの事実（_fk_facts）を添える。is-a は主キーを共有する外部キー（shared_keys、
@@ -442,7 +443,8 @@ def classify(table: Table, table_claims: InferenceClaims, vocabulary: Mapping[st
         evidence[key] = _column_evidence(table_claims, name)
     for name in new_only:
         evidence[f"column {name}"] = _column_evidence(table_claims, name)
-    material = state(table_claims) | ({"semantic_types": dict(sorted(described.items()))} if described else {})
+    material = with_background(state(table_claims), background) | (
+        {"semantic_types": dict(sorted(described.items()))} if described else {})
     request = DecisionRequest(purpose, material, questions) if questions else None
     return Classify(request, {k: e for k, e in edges.items() if e is not None}, evidence, tuple(not_asked),
                     tuple(new_only))
@@ -586,11 +588,12 @@ def _qs(text: str) -> str:
 
 
 def naming_prompt(table_claims: InferenceClaims, taken: Collection[str], kind: str | None,
-                  hints: Mapping[str, MeaningHint], columns: Sequence[str], decided: Sequence[str] = ()) -> str:
+                  hints: Mapping[str, MeaningHint], columns: Sequence[str], decided: Sequence[str] = (),
+                  background: Background | None = None) -> str:
     """使ってはいけない名前（taken。既存の語彙と、問い直しなら最初の答えの名前）は名前だけを渡す（説明まで渡すと問いの大半が
     語彙になる）。名前は NAME の形（小文字・数字・_）に検証済みなので、データの区画の外に置いてよい。"""
     names = ", ".join(sorted(taken)) or "(none)"
-    return (brief(table_claims, {}, kind, hints, decided)
+    return (brief(table_claims, {}, kind, hints, decided, background_line(background))
             + f"\nexisting semantic type names (taken, do not reuse): {names}"
             + "\ncolumns to name: " + ", ".join(f'"{c}"' for c in columns))
 
@@ -691,7 +694,8 @@ class Properties:
     not_asked: tuple[Dropped, ...]
 
 
-def properties(table: Table, table_claims: InferenceClaims, named: Named, purpose: str) -> Properties:
+def properties(table: Table, table_claims: InferenceClaims, named: Named, purpose: str,
+               background: Background | None = None) -> Properties:
     """列に当ててよい値の型は、型族（主張）と OM の列の encoding から（型の主張の無い列には何も当てられない）。"""
     families = _families(table_claims)
     columns = table.columns or {}
@@ -726,7 +730,7 @@ def properties(table: Table, table_claims: InferenceClaims, named: Named, purpos
         if set(allowed) & _MEASURES:
             questions[f"additivity {t.name}"] = Choice(
                 {**about, "question": "If `semantic_type` is a measure, how can it be summed?"}, _ADDITIVITY)
-    request = DecisionRequest(purpose, state(table_claims), questions) if questions else None
+    request = DecisionRequest(purpose, with_background(state(table_claims), background), questions) if questions else None
     return Properties(request, candidates, tuple(not_asked))
 
 
@@ -783,7 +787,7 @@ class Units:
 
 
 def units(table_claims: InferenceClaims, needs_unit: Sequence[str], money: Collection[str], code_columns: Sequence[str],
-          purpose: str) -> Units:
+          purpose: str, background: Background | None = None) -> Units:
     """単位の要る列の単位。選択肢は固定の単位と、同じ表の code の列。
     金額の列（money）には、ソースの宣言（amounts_in：行が別の単位を言わない限りその通貨）を事実として添える。"""
     questions: dict[str, Choice] = {}
@@ -800,7 +804,7 @@ def units(table_claims: InferenceClaims, needs_unit: Sequence[str], money: Colle
                                      f"{c.fixed_unit}, unless a column of the row gives the unit." for c in cited]
         questions[f"unit {name}"] = Choice(instructions, options)
         evidence[f"unit {name}"] = sorted({*_column_evidence(table_claims, name), *(c.id for c in cited)})
-    request = DecisionRequest(purpose, state(table_claims), questions) if questions else None
+    request = DecisionRequest(purpose, with_background(state(table_claims), background), questions) if questions else None
     return Units(request, evidence)
 
 
@@ -835,8 +839,8 @@ class GrainAnswer(_Strict):
 
 
 def grain_prompt(table_claims: InferenceClaims, kind: str | None, hints: Mapping[str, MeaningHint],
-                 decided: Sequence[str] = ()) -> str:
-    return brief(table_claims, {}, kind, hints, decided)
+                 decided: Sequence[str] = (), background: Background | None = None) -> str:
+    return brief(table_claims, {}, kind, hints, decided, background_line(background))
 
 
 def parse_grain(data: object) -> GrainAnswer:

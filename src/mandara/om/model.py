@@ -84,6 +84,20 @@ linkml_meta = LinkMLMeta({'default_prefix': 'om',
      'source_file': 'src/mandara/om/schema/om.yaml',
      'title': 'Mandara OM メタモデル（①）'} )
 
+class PrimerOrigin(str, Enum):
+    """
+    手引きの項目の出所
+    """
+    document = "document"
+    """
+    置いた文書に書いてある（引用が文書にある）
+    """
+    general = "general"
+    """
+    業界の一般知識（ライターの LLM が補った。文書には無い）
+    """
+
+
 class ReviewStatus(str, Enum):
     """
     注釈のレビュー状態（4.4）
@@ -551,6 +565,8 @@ class SemanticType(ConfiguredBaseModel):
                        'AliasEntry',
                        'Table',
                        'Column',
+                       'PrimerDocument',
+                       'PrimerGroup',
                        'DomainSummary',
                        'HiddenTable',
                        'DomainRows',
@@ -558,7 +574,7 @@ class SemanticType(ConfiguredBaseModel):
                        'Instance',
                        'RelatedGroup',
                        'LinkGroup']} })
-    description: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType']} })
+    description: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'PrimerGroup']} })
     type: ValueType = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'Edge', 'Relation']} })
     role: Optional[SemanticRole] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'Relation', 'InstanceLink']} })
     additivity: Optional[Additivity] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType']} })
@@ -575,7 +591,7 @@ class EnumValue(Annotation):
                        'Within',
                        'InstanceSummary',
                        'Instance']} })
-    meaning: Optional[str] = Field(default=None, description="""語彙や公開オントロジーの概念への参照（CURIE）""", json_schema_extra = { "linkml_meta": {'domain_of': ['EnumValue']} })
+    meaning: Optional[str] = Field(default=None, description="""語彙や公開オントロジーの概念への参照（CURIE）""", json_schema_extra = { "linkml_meta": {'domain_of': ['EnumValue', 'PrimerEntry']} })
     observed: Optional[bool] = Field(default=None, description="""データで観測されたか。値の集合の根拠にはしない""", json_schema_extra = { "linkml_meta": {'domain_of': ['EnumValue']} })
     status: ReviewStatus = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation']} })
     confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0, json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation', 'Claim', 'ReviewQuestion']} })
@@ -593,6 +609,8 @@ class AliasEntry(ConfiguredBaseModel):
                        'AliasEntry',
                        'Table',
                        'Column',
+                       'PrimerDocument',
+                       'PrimerGroup',
                        'DomainSummary',
                        'HiddenTable',
                        'DomainRows',
@@ -616,6 +634,8 @@ class Table(Annotation):
                        'AliasEntry',
                        'Table',
                        'Column',
+                       'PrimerDocument',
+                       'PrimerGroup',
                        'DomainSummary',
                        'HiddenTable',
                        'DomainRows',
@@ -712,6 +732,8 @@ class Column(Annotation):
                        'AliasEntry',
                        'Table',
                        'Column',
+                       'PrimerDocument',
+                       'PrimerGroup',
                        'DomainSummary',
                        'HiddenTable',
                        'DomainRows',
@@ -873,6 +895,73 @@ class SourceDeclarations(ConfiguredBaseModel):
     default_currency: Optional[Unit] = Field(default=None, description="""ソースの金額の通貨（行が別の単位を言わない限り）""", json_schema_extra = { "linkml_meta": {'domain_of': ['SourceDeclarations']} })
 
 
+class Primer(ConfiguredBaseModel):
+    """
+    業界の手引き（ライターが、スキーマコンテキストに置いた文書とカタログの全体像から書く。<docs>/primer.yaml）。 人が読んで直してよく、あればそれを正とする（作り直すときは消す）。コーディネーターが表ごとの背景を組み立てる材料
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'tree_root': True})
+
+    written_by: str = Field(default=..., description="""書いたライターと LLM（例 \"writer 0.1 (claude-haiku-5-5)\"）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Primer']} })
+    documents: list[PrimerDocument] = Field(default=..., description="""書いたときに読んだ文書（名前の順）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Primer']} })
+    summary: str = Field(default=..., description="""世界の要約（業種、業務の流れ、規模）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Primer']} })
+    entity_groups: list[PrimerGroup] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Primer', 'DomainIndex']} })
+    entries: list[PrimerEntry] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Primer']} })
+
+
+class PrimerDocument(ConfiguredBaseModel):
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
+
+    name: str = Field(default=..., description="""文書の置き場所からの相対パス""", json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType',
+                       'AliasEntry',
+                       'Table',
+                       'Column',
+                       'PrimerDocument',
+                       'PrimerGroup',
+                       'DomainSummary',
+                       'HiddenTable',
+                       'DomainRows',
+                       'Within',
+                       'Instance',
+                       'RelatedGroup',
+                       'LinkGroup']} })
+    sha256: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['PrimerDocument']} })
+
+
+class PrimerGroup(ConfiguredBaseModel):
+    """
+    エンティティグループ（既定はスキーマ名）のひと言
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
+
+    name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType',
+                       'AliasEntry',
+                       'Table',
+                       'Column',
+                       'PrimerDocument',
+                       'PrimerGroup',
+                       'DomainSummary',
+                       'HiddenTable',
+                       'DomainRows',
+                       'Within',
+                       'Instance',
+                       'RelatedGroup',
+                       'LinkGroup']} })
+    description: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'PrimerGroup']} })
+
+
+class PrimerEntry(ConfiguredBaseModel):
+    """
+    用語集の項目。関わる表（schema.table）を付ける（コーディネーターが表ごとに選ぶ手がかり）
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
+
+    term: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['PrimerEntry']} })
+    meaning: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['EnumValue', 'PrimerEntry']} })
+    tables: list[str] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['PrimerEntry', 'OntologyDocument']} })
+    origin: PrimerOrigin = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['PrimerEntry']} })
+    quote: Optional[str] = Field(default=None, description="""origin が document のとき、根拠の文書の原文（文書に実在すること）""", json_schema_extra = { "linkml_meta": {'domain_of': ['PrimerEntry']} })
+
+
 class SourceRef(ConfiguredBaseModel):
     """
     データソース上の表または列。OM の安定 ID ができる前の段階なので、ソース上の名前で指す
@@ -948,7 +1037,7 @@ class OntologyDocument(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'tree_root': True})
 
     vocabulary: Vocabulary = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['OntologyDocument']} })
-    tables: list[Table] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['OntologyDocument']} })
+    tables: list[Table] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['PrimerEntry', 'OntologyDocument']} })
 
 
 class ReviewQueue(ConfiguredBaseModel):
@@ -1064,7 +1153,7 @@ class DomainIndex(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'tree_root': True})
 
     ontology: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ReviewQueue', 'DomainIndex']} })
-    entity_groups: list[str] = Field(default=..., description="""OM のすべてのエンティティグループ（名前の順。UI はこの並びでエンティティグループの色を決める。グラフと同じ並び）""", json_schema_extra = { "linkml_meta": {'domain_of': ['DomainIndex']} })
+    entity_groups: list[str] = Field(default=..., description="""OM のすべてのエンティティグループ（名前の順。UI はこの並びでエンティティグループの色を決める。グラフと同じ並び）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Primer', 'DomainIndex']} })
     domains: list[DomainSummary] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['DomainIndex']} })
     hidden: list[HiddenTable] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['DomainIndex']} })
     readable: bool = Field(default=..., description="""行を読めるか（ソースへの接続がある）""", json_schema_extra = { "linkml_meta": {'domain_of': ['DomainIndex']} })
@@ -1090,6 +1179,8 @@ class DomainSummary(ConfiguredBaseModel):
                        'AliasEntry',
                        'Table',
                        'Column',
+                       'PrimerDocument',
+                       'PrimerGroup',
                        'DomainSummary',
                        'HiddenTable',
                        'DomainRows',
@@ -1132,6 +1223,8 @@ class HiddenTable(ConfiguredBaseModel):
                        'AliasEntry',
                        'Table',
                        'Column',
+                       'PrimerDocument',
+                       'PrimerGroup',
                        'DomainSummary',
                        'HiddenTable',
                        'DomainRows',
@@ -1180,6 +1273,8 @@ class Within(ConfiguredBaseModel):
                        'AliasEntry',
                        'Table',
                        'Column',
+                       'PrimerDocument',
+                       'PrimerGroup',
                        'DomainSummary',
                        'HiddenTable',
                        'DomainRows',
@@ -1259,6 +1354,8 @@ class Instance(ConfiguredBaseModel):
                        'AliasEntry',
                        'Table',
                        'Column',
+                       'PrimerDocument',
+                       'PrimerGroup',
                        'DomainSummary',
                        'HiddenTable',
                        'DomainRows',
@@ -1374,6 +1471,8 @@ class DomainRows(GroupProfile):
                        'AliasEntry',
                        'Table',
                        'Column',
+                       'PrimerDocument',
+                       'PrimerGroup',
                        'DomainSummary',
                        'HiddenTable',
                        'DomainRows',
@@ -1441,6 +1540,8 @@ class RelatedGroup(GroupProfile):
                        'AliasEntry',
                        'Table',
                        'Column',
+                       'PrimerDocument',
+                       'PrimerGroup',
                        'DomainSummary',
                        'HiddenTable',
                        'DomainRows',
@@ -1501,6 +1602,8 @@ class LinkGroup(GroupProfile):
                        'AliasEntry',
                        'Table',
                        'Column',
+                       'PrimerDocument',
+                       'PrimerGroup',
                        'DomainSummary',
                        'HiddenTable',
                        'DomainRows',
@@ -1666,6 +1769,10 @@ ColumnPair.model_rebuild()
 ClaimFile.model_rebuild()
 Claim.model_rebuild()
 SourceDeclarations.model_rebuild()
+Primer.model_rebuild()
+PrimerDocument.model_rebuild()
+PrimerGroup.model_rebuild()
+PrimerEntry.model_rebuild()
 SourceRef.model_rebuild()
 ClaimSource.model_rebuild()
 OntologyIndex.model_rebuild()

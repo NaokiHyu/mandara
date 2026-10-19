@@ -44,7 +44,8 @@ from mandara.llm.model import (
 )
 from mandara.modeler import llm as v1
 from mandara.modeler.joins import InferenceClaims
-from mandara.modeler import meaning, nameless_joins
+from mandara.modeler import coordinator, meaning, nameless_joins
+from mandara.omstore.document_store import LoadedPrimer
 from mandara.omstore.claim_store import load_claim_ledger
 from mandara.modeler.meaning import (
     InconsistentGroupError,
@@ -57,7 +58,8 @@ from mandara.modeler.meaning import (
 from mandara.modeler.rules import propose
 from mandara.om.invariants import check
 from mandara.om.value_types import COMPATIBLE
-from mandara.om.model import Additivity, Claim, SemanticType, SemanticRole, ReviewStatus, Unit, ValueType
+from mandara.om.model import (Additivity, Claim, Primer, PrimerEntry, PrimerGroup, PrimerOrigin, SemanticType,
+                              SemanticRole, ReviewStatus, Unit, ValueType)
 from mandara.om.names import qualify
 from mandara.om.ontology import Ontology
 from mandara.omstore.yaml_store import load_ontology
@@ -481,10 +483,11 @@ CHEAP_JEV = Pricing("fakejev", (PriceTier(None, 0.0001, 0.0),))
 
 
 def _refine(workspace: Workspace, model: ScriptedModel, decider: ScriptedDecider, first: list[str],
-            limit: float = 1.0, pricing: Pricing = CHEAP, jev_pricing: Pricing = CHEAP_JEV) -> pipeline.Refined:
+            limit: float = 1.0, pricing: Pricing = CHEAP, jev_pricing: Pricing = CHEAP_JEV,
+            primer: LoadedPrimer | None = None) -> pipeline.Refined:
     budget = Budget(limit)
     return pipeline.refine(workspace, BudgetedModel(model, pricing, budget),
-                           BudgetedDecisionModel(decider, jev_pricing, budget), first)
+                           BudgetedDecisionModel(decider, jev_pricing, budget), first, primer)
 
 
 @pytest.fixture
@@ -865,3 +868,72 @@ def test_naming_asks_once_more_for_the_columns_its_answer_left_out(workspace: Wo
     assert answer["naming"]["broken"][0]["item"] == "semantic_type #1"
     assert {"city", "postalcode"} <= set(answer["naming_retry"]["columns"])
     assert "addressid" not in answer["naming_retry"]["columns"]  # 最初の答えで名前の付いた列は問い直さない
+
+
+# ---------------------------------------------------------------- 手引きと背景（ライター、コーディネーター）
+
+PRIMER = LoadedPrimer(Primer(written_by="writer test", documents=[], summary="A bicycle parts wholesaler.",
+                             entity_groups=[PrimerGroup(name="person", description="people and addresses")],
+                             entries=[PrimerEntry(term="Address", meaning="a postal address", tables=["person.address"],
+                                                  origin=PrimerOrigin.general)]), "abc")
+
+
+def test_the_background_is_coordinated_once_and_reaches_every_stage(workspace: Workspace) -> None:
+    address = "person.address"
+    decider = ScriptedDecider({
+        f"classify {address}": {"column addressid": "new"},
+        f"properties {address}": {"type address_id": "identifier", "role address_id": "none"}})
+    model = ScriptedModel({
+        f"coordinate {address}": {"background": "A postal address of a party.", "terms": ["Address", "Nowhere"]},
+        f"name {address}": {"semantic_types": [{"name": "address_id", "description": "住所", "columns": ["addressid"],
+                                                "values": None, "values_evidence": []}]}})
+    seen: list[StructuredRequest] = []
+    ask = model.ask
+
+    def spy(request: StructuredRequest) -> StructuredResponse:
+        seen.append(request)
+        return ask(request)
+
+    model.ask = spy  # type: ignore[method-assign]
+    refined = _refine(workspace, model, decider, [address], primer=PRIMER)
+    assert _about(model.asked, address)[0] == f"coordinate {address}"
+    assert _about(model.asked, address).count(f"coordinate {address}") == 1
+    background = {"note": coordinator.BACKGROUND_NOTE, "text": "A postal address of a party."}
+    assert decider.requests[f"classify {address}"].state["background"] == background
+    assert decider.requests[f"properties {address}"].state["background"] == background
+    naming = next(r for r in seen if r.purpose == f"name {address}")
+    assert 'background (industry knowledge, not facts about this table; it may be wrong): "A postal address' in naming.prompt
+    outcome = refined.outcomes[0]
+    assert any(d.item == "term Nowhere" for d in outcome.dropped)
+    assert refined.primer == "writer test sha256 abc"
+    record = cast(dict[str, object], outcome.answer)
+    assert record["coordinate"] == {
+        "coordinator": coordinator.COORDINATOR, "data": {"background": "A postal address of a party.", "terms": ["Address", "Nowhere"]}}
+
+
+def test_without_a_background_the_table_is_still_asked_and_the_failure_recorded(workspace: Workspace) -> None:
+    address = "person.address"
+    decider = ScriptedDecider({f"classify {address}": {}})
+    model = ScriptedModel({f"coordinate {address}": InvalidOutputError("切れた", Usage(1000, 800))})
+    refined = _refine(workspace, model, decider, [address], primer=PRIMER)
+    outcome = refined.outcomes[0]
+    assert f"classify {address}" in decider.asked and "background" not in decider.requests[f"classify {address}"].state
+    assert any(f.startswith("背景:") for f in outcome.stage_failures)
+
+
+def test_no_background_is_coordinated_without_a_primer(workspace: Workspace) -> None:
+    address = "person.address"
+    decider = ScriptedDecider({f"classify {address}": {}})
+    model = ScriptedModel({})
+    _refine(workspace, model, decider, [address])
+    assert not any(a.startswith("coordinate ") for a in model.asked)
+    assert "background" not in decider.requests[f"classify {address}"].state
+
+
+def test_a_primer_naming_tables_outside_the_catalog_is_refused_before_asking(workspace: Workspace) -> None:
+    other = LoadedPrimer(PRIMER.primer.model_copy(update={"entries": [PrimerEntry(
+        term="Ledger", meaning="m", tables=["finance.ledger"], origin=PrimerOrigin.general)]}), "abc")
+    model, decider = ScriptedModel({}), ScriptedDecider({})
+    with pytest.raises(pipeline.InvalidPrimerError, match="finance.ledger"):
+        _refine(workspace, model, decider, [], primer=other)
+    assert model.asked == [] and decider.asked == []

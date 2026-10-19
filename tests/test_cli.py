@@ -53,7 +53,8 @@ def test_run_writes_everything_and_is_deterministic(tmp_path: Path) -> None:
                                 "keys_extractor": "keys 0.1", "keys_modeler": "modeler-keys 0.1",
                                 "modeler": "modeler-rules 0.1", "joins_modeler": "modeler-joins 0.1",
                                 "nameless_joins_modeler": "modeler-nameless-joins 0.2", "twins_modeler": "modeler-twins 0.1",
-                                "resemblance_extractor": "resemblance 0.1", "same_meaning_modeler": "modeler-same-meaning 0.1"}
+                                "resemblance_extractor": "resemblance 0.1", "same_meaning_modeler": "modeler-same-meaning 0.1",
+                                "writer": "writer 0.2", "coordinator": "coordinator 0.1"}
     # 値の似かた（T2.6）：比べる列の形と、近い組の信号ごとの主張。並列で測っても 2 回目と同じ主張（下で比べる）
     assert data["resemblance"]["pairs"] > data["resemblance"]["kept"] > 0 and "主張にした組" in out
     assert data["claims"]["shaped_as"] > 300 and data["claims"]["resembles"] >= 3 * 1000

@@ -28,6 +28,9 @@ from mandara.connectors.postgres.sample_reader import PostgresSampleReader
 from mandara.connectors.postgres.record_reader import PostgresRecordReader
 from mandara.evaluation.score import InvalidForScoringError, Report
 from mandara.llm.claude.model import ClaudeModel
+from mandara.modeler.llm import InvalidAnswerError
+from mandara.modeler.writer import EmptyLedgerError
+from mandara.omstore.document_store import DocumentLoadError, PrimerExistsError
 from mandara.llm.decision import BudgetedDecisionModel, Choice, DecisionRequest
 from mandara.llm.model import Budget, BudgetedModel, LlmError, StructuredRequest, summarize
 from mandara.llm.typesafe.model import JevModel
@@ -54,7 +57,8 @@ class UsageError(Exception):
 _KNOWN_ERRORS = (SourceError, OmLoadError, InvalidClaimsError, LedgerRefusedError, UnstorableNameError,
                  InvalidOntologyError, OntologyWriteRefusedError, InvalidInputError, InvalidForScoringError,
                  ReviewError, LedgerMismatchError, BulkThresholdError, UsageError, LlmError, SettingsError,
-                 UnknownPricingError, InvalidDeclarationError)
+                 UnknownPricingError, InvalidDeclarationError, DocumentLoadError, PrimerExistsError, InvalidAnswerError,
+                 pipeline.PrimerMissingError, pipeline.InvalidPrimerError, EmptyLedgerError)
 """データ・ファイル・操作に原因のある失敗。これ以外（モデラーの出力が検証を通らない InvalidProposalError、
 pydantic の ValidationError など）はバグなので、捕まえずにトレースバックごと落とす。"""
 
@@ -115,14 +119,22 @@ def _parser() -> argparse.ArgumentParser:
     connection_args(p)
     p.add_argument("--gold", type=Path, help="正解 OM のディレクトリ（あれば評価する）")
     p.add_argument("--llm", action="store_true", help="LLM で推論する（.env の設定、1 回の予算の範囲で）")
+    p.add_argument("--docs", type=Path, help="スキーマコンテキスト（世界）の文書の置き場所。そこの手引き（write-primer で書く）から、表ごとに背景を足す（--llm のとき）")
     p.add_argument("--env", type=Path, default=Path(".env"), help="LLM の設定のファイル（既定 .env）。環境変数が優先")
     p.set_defaults(handler=_run)
 
     p = commands.add_parser("refine", help="提案した OM を LLM で詰める（.env の設定、1 回の予算の範囲で）")
     source_args(p)
+    p.add_argument("--docs", type=Path, help="スキーマコンテキスト（世界）の文書の置き場所。そこの手引き（write-primer で書く）から、表ごとに背景を足す")
     p.add_argument("--first", action="append", default=[], metavar="SCHEMA.TABLE", help="先に問う表（繰り返し指定）")
     p.add_argument("--env", type=Path, default=Path(".env"))
     p.set_defaults(handler=_refine)
+
+    p = commands.add_parser("write-primer", help="ライター：置いた文書と台帳のカタログから、業界の手引き（<docs>/primer.yaml）を書く")
+    source_args(p)
+    p.add_argument("--docs", type=Path, required=True, help="スキーマコンテキスト（世界）の文書の置き場所")
+    p.add_argument("--env", type=Path, default=Path(".env"))
+    p.set_defaults(handler=_write_primer)
 
     p = commands.add_parser("extract", help="カタログを読み、主張台帳を作り直す")
     source_args(p)
@@ -220,11 +232,13 @@ def _run(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
     scope = Scope(tuple(args.schema))
     _banner(out, style, workspace, scope)
     started = time.monotonic()
+    if args.docs is not None and not args.llm:
+        raise UsageError("--docs は --llm のときだけ使う（背景は推論の材料）")
     llm = _llm(args.env) if args.llm else None
     result = pipeline.run(workspace, _reader(args), _values(args), PostgresCoverageReader(args.conninfo),
                           PostgresInclusionReader(args.conninfo), PostgresUniquenessReader(args.conninfo),
                           _sampler(args), scope, args.gold, _now,
-                          llm[0] if llm else None)
+                          llm[0] if llm else None, args.docs)
     _extract_line(out, style, result.extracted)
     _propose_line(out, style, result.proposed)
     if result.refined is not None and llm is not None:
@@ -452,8 +466,23 @@ def _serve(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
 
 def _refine(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
     inference, settings = _llm(args.env)
-    refined = pipeline.refine(_workspace(args), inference.model, inference.decider, args.first)
+    primer = pipeline.read_primer(args.docs) if args.docs is not None else None
+    refined = pipeline.refine(_workspace(args), inference.model, inference.decider, args.first, primer)
     _refine_line(out, style, refined, inference, settings)
+    return 0
+
+
+def _write_primer(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
+    inference, settings = _llm(args.env)
+    done = pipeline.write_primer_for(_workspace(args), args.docs, inference.model, _now)
+    primer = done.written.primer
+    origins = Counter(str(e.origin) for e in primer.entries)
+    print(f"  {style.dim('primer')}    文書 {len(primer.documents)} · エンティティグループ {len(primer.entity_groups)} · "
+          f"用語 {len(primer.entries)}（{' · '.join(f'{k} {n}' for k, n in sorted(origins.items()))}） · "
+          f"落とした {len(done.written.dropped)}  ¥{inference.budget.spent_usd * settings.jpy_per_usd:.2f}", file=out)
+    for d in done.written.dropped:
+        print(style.dim(f"            {d.item}: {d.reason}"), file=out)
+    print(f"  {style.dim('wrote')}     {done.path}  {style.dim(f'record {done.record}')}", file=out)
     return 0
 
 
@@ -466,6 +495,8 @@ def _refine_line(out: TextIO, style: _Style, refined: pipeline.Refined, inferenc
     breakdown = " · ".join(f"{k} {n}" for k, n in sorted(counts.items()))
     print(f"  {style.dim('refine')}    {breakdown}  {style.dim(f'{inference.decider.model} + {inference.model.model}')}  "
           f"¥{spent * settings.jpy_per_usd:.2f} / ¥{settings.budget_jpy:g}", file=out)
+    if refined.primer is not None:
+        print(f"  {style.dim('primer')}    表ごとの背景の材料：{refined.primer}", file=out)
     if refined.keys:
         chosen = sum(1 for o in refined.keys if o.chosen is not None)
         failed = sum(1 for o in refined.keys if o.status == "failed")
