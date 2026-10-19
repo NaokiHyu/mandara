@@ -5,6 +5,10 @@ Domain 層の純粋な関数（呼び出しは Application がポート経由で
   表の 1 列のキー（主キー・代替キー）でもない列（_excluded）。キーは自分の ID が偶然、別の表の連番に含まれるだけ
   （主キーが別の表を指すのは名前が一致するときで、それは規則が選ぶ）。宣言の無いソース（ファイル）では、キーの推定が
   この前に来る前提（キーが分からないと、各表の ID の列を毎回問うことになる）
+- 参照先の候補：参照先の表に OM の identity があれば、その 1 列のキー（主キー・代替キー）だけ。無ければ（主キーを決められ
+  なかった表。T2.7）、測った参照先（データで一意な 1 列も）を全部。データで偶然一意な列（複合主キーの一部など）が候補に
+  入ると、本当の参照先の確率が割れる。宣言のあるソースでは、測る参照先がもともと identity の 1 列のキーなので変わらない。
+  ほかの表のキーと同じ値の集合で、そのキーへの関係を持つキー（双子の元でない側。mandara.modeler.twins）も参照先にしない
 - 問いに書く事実は、主張から確かめたものだけ（宣言が無いことは _excluded で、名前が候補を指さないことは name_strength で）
 - 選択肢：参照先の候補を、偶然の確率（chance）が低い順、同じなら最も狭い包含先（キーの値が少ない）の順に MAX_TARGETS 個
   まで ＋「参照ではない」＋「決められない」。切り詰めた数は問いに書く
@@ -30,7 +34,7 @@ from mandara.om.model import Claim, ClaimPredicate, Relation, Table, TypeFamily
 from mandara.om.names import qualify
 from mandara.om.ontology import SELF, Ontology
 
-MODELER = "modeler-nameless-joins 0.1"
+MODELER = "modeler-nameless-joins 0.2"
 """名前の手がかりの無い包含から、判断モデルが選んだ参照の提案者。問い方や選び方を変えたら版を上げる。"""
 CONFIDENCE_CAP = 0.7
 """確信度の上限（規則の推定の最低と同じ。名前の手がかりがあるものより上にしない）。"""
@@ -104,6 +108,50 @@ def _excluded(table: Table, table_claims: Sequence[Claim]) -> set[str]:
     return out
 
 
+def same_set(claim: Claim) -> bool:
+    """包含の測定が、互いに同じ値の集合を表す（参照元の異なる値がすべてキーにあり、数がキーの値の数と同じ）。"""
+    return (claim.predicate == ClaimPredicate.included_in.value and bool(claim.distinct_values)
+            and claim.distinct_values == claim.matched_values == claim.target_values)
+
+
+@dataclass(frozen=True)
+class TargetKeys:
+    """参照先にしてよい 1 列のキー。"""
+    keys: Mapping[str, frozenset[str] | None]
+    """表 → identity の 1 列のキー（主キーと代替キー）。identity の無い表は None（測った参照先を全部）。"""
+    shared: frozenset[tuple[str, str]]
+    """ほかの表のキーと同じ値の集合を持ち、そのキーへの関係の参照元になっているキー（双子の元でない側。
+    mandara.modeler.twins）。参照はその先の元の表を指す。"""
+
+    def allows(self, table: str, column: str) -> bool:
+        if table not in self.keys:
+            raise ValueError(f"参照先 {table} が OM に無い（台帳と OM が食い違う）")
+        keys = self.keys[table]
+        return (keys is None or column in keys) and (table, column) not in self.shared
+
+
+def target_keys(ontology: Ontology, claims: Sequence[Claim]) -> TargetKeys:
+    same = {c.id for c in claims if same_set(c)}
+    keys: dict[str, frozenset[str] | None] = {}
+    shared: set[tuple[str, str]] = set()
+    for t in ontology.tables:
+        if t.identity is None:
+            keys[t.name] = None
+        else:
+            found = [t.identity.primary or [], *(k.columns for k in t.identity.alternates or [])]
+            keys[t.name] = frozenset(k[0] for k in found if len(k) == 1)
+        shared |= {(t.name, r.via[0].from_) for r in t.relations or []
+                   if r.via and len(r.via) == 1 and same & set(r.evidence or [])}
+    return TargetKeys(keys, frozenset(shared))
+
+
+def _allowed(claim: Claim, targets: TargetKeys) -> bool:
+    t, keys = claim.target, claim.target_columns or []
+    if t is None or len(keys) != 1:
+        raise ValueError(f"included_in の形が崩れている（主張の検証を通ったはず）: {claim.id}")
+    return targets.allows(qualify(t.schema_name, t.table), keys[0])
+
+
 def questions(ontology: Ontology, claims: Sequence[Claim]) -> list[TableQuestions]:
     """問う列を表ごとにまとめ、表ごとに1つの問い（表の名前の順）。問うものが無ければ空。
 
@@ -112,6 +160,7 @@ def questions(ontology: Ontology, claims: Sequence[Claim]) -> list[TableQuestion
     by_table: dict[str, list[Claim]] = defaultdict(list)
     for c in claims:
         by_table[qualify(c.subject.schema_name, c.subject.table)].append(c)
+    targets = target_keys(ontology, claims)
     out: list[TableQuestions] = []
     for table in sorted(ontology.tables, key=lambda t: t.name):
         table_claims = by_table.get(table.name, [])
@@ -123,7 +172,7 @@ def questions(ontology: Ontology, claims: Sequence[Claim]) -> list[TableQuestion
                 continue
             columns = c.columns or []
             if (len(columns) != 1 or columns[0] in excluded or not c.distinct_values
-                    or c.matched_values != c.distinct_values):
+                    or c.matched_values != c.distinct_values or not _allowed(c, targets)):
                 continue
             if c.value_span is None or c.target_values_in_span is None:
                 if families.get(columns[0]) == TypeFamily.integer.value:

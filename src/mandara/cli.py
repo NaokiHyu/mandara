@@ -10,6 +10,7 @@ import argparse
 import os
 import sys
 import time
+from collections import Counter
 from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -471,6 +472,15 @@ def _refine_line(out: TextIO, style: _Style, refined: pipeline.Refined, inferenc
         print(f"  {style.dim('keys')}      主キーを {len(refined.keys)} 表に問うた → 主キーにした {chosen} 表 · "
               f"当てなかった {len(refined.keys) - chosen - failed}"
               + (f" · {style.bad(f'{failed} 表は答えを得られなかった')}" if failed else ""), file=out)
+    if refined.twins_skipped is not None:
+        print(f"  {style.dim('twins')}     双子のキーは問わなかった：{refined.twins_skipped}", file=out)
+    if refined.twins:
+        owned = [o for o in refined.twins if o.owner is not None]
+        count = Counter(o.status for o in refined.twins)
+        print(f"  {style.dim('twins')}     双子のキー {count['answered']} 組に答えを得た → 元の表を決めた {len(owned)} 組 · "
+              f"関係 {sum(len(o.added) for o in owned)} 本 · 問わなかった {count['not_asked']} 組"
+              + (style.bad(f" · 失敗 {count['failed']} 組") if count["failed"] else "")
+              + (style.bad(f" · 予算で止めた {count['not_reached']} 組") if count["not_reached"] else ""), file=out)
     if refined.nameless:
         asked = sum(len(o.asked) for o in refined.nameless)
         added = [f"{o.table}.{a}" for o in refined.nameless for a in o.added]

@@ -44,6 +44,7 @@ from mandara.llm.model import (
 )
 from mandara.modeler import joins as joins_modeler
 from mandara.modeler import keys as keys_modeler
+from mandara.modeler import twins as twins_modeler
 from mandara.modeler import classify
 from mandara.modeler import llm as llm_modeler
 from mandara.modeler import meaning
@@ -485,6 +486,10 @@ class Refined:
     """名前の手がかりの無い参照を問うた結果（表ごと。表の分類の前に、全部の表について1回）。"""
     keys: tuple["KeyOutcome", ...] = ()
     """主キーの宣言の無い表の主キーを問うた結果（T2.7。名前の手がかりの無い参照の前）。"""
+    twins: tuple["TwinOutcome", ...] = ()
+    """双子のキーの組の元の表を問うた結果（T2.7。主キーの後、名前の手がかりの無い参照の前）。"""
+    twins_skipped: str | None = None
+    """双子の段をまるごと問わなかった理由（外部キーを宣言しているソース）。None は問うた（組が無ければ twins は空）。"""
     same_meaning: "SameMeaningRun | None" = None
     """値の似た列の組が同じ意味かを問うた結果（表の分類の後。T2.6）。None は、その段まで来なかった（止めた）。"""
 
@@ -526,6 +531,21 @@ class KeyOutcome:
     """選択肢に出した組。"""
     chosen: str | None
     """主キーにした組。None は当てなかった（理由は dropped）。"""
+    dropped: tuple[llm_modeler.Dropped, ...]
+    answer: object = None
+
+
+@dataclass(frozen=True)
+class TwinOutcome:
+    group: str
+    """組（「表.列 = 表.列」）。"""
+    status: str
+    """"answered" / "failed" / "not_reached" / "not_applied" / "not_asked"（問わなかった。理由は detail）。"""
+    detail: str
+    owner: str | None
+    """元の表。None は当てなかった（理由は dropped か detail）。"""
+    added: tuple[str, ...]
+    """足した関係（「表.列 → 表.列」）。"""
     dropped: tuple[llm_modeler.Dropped, ...]
     answer: object = None
 
@@ -598,12 +618,26 @@ def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, f
         # 当てていない OM を書くので、記録も「当てなかった」にする（答えは課金済みなので残す）
         keys = [replace(o, status="not_applied", detail="当てた OM が検証を通らない", chosen=None) if o.chosen else o
                 for o in keys]
-        return _finish(workspace, ontology, order, keys, [], [], f"バグの疑いで止めた: 主キーを当てた OM が検証を"
+        return _finish(workspace, ontology, order, keys, [], None, [], [], f"バグの疑いで止めた: 主キーを当てた OM が検証を"
                        f"通らない: {violations[:3]}", [t.name for t in order], defect=True)
     ontology = keyed
     order = [next(t for t in ontology.tables if t.id == o.id) for o in order]
     if stopped is not None:  # 予算で止めた。それまでに得た答え（課金済み）は当てて書く
-        return _finish(workspace, ontology, order, keys, [], [], stopped, [t.name for t in order])
+        return _finish(workspace, ontology, order, keys, [], None, [], [], stopped, [t.name for t in order])
+    # 双子のキー（T2.7）：値の集合が同じキーの組の元の表。3b の前に決める（元でない表のキーは 3b の参照先にしない）
+    twins_skipped = ("外部キーを宣言しているソース（本物の双子は外部キーで結ばれている）"
+                     if twins_modeler.declared_references(claims) else None)
+    twinned, twins, stopped = ((ontology, [], None) if twins_skipped is not None else
+                               _decide_twins(ontology, claims, decider, f"{twins_modeler.MODELER} ({decider.model})"))
+    if violations := check(twinned):
+        twins = [replace(o, status="not_applied", detail="足した OM が検証を通らない", owner=None, added=())
+                 if o.added else o for o in twins]
+        return _finish(workspace, ontology, order, keys, twins, twins_skipped, [], [], f"バグの疑いで止めた: 双子のキーの関係を足した OM が"
+                       f"検証を通らない: {violations[:3]}", [t.name for t in order], defect=True)
+    ontology = twinned
+    order = [next(t for t in ontology.tables if t.id == o.id) for o in order]
+    if stopped is not None:
+        return _finish(workspace, ontology, order, keys, twins, twins_skipped, [], [], stopped, [t.name for t in order])
     # 名前の手がかりの無い参照（T2.2 の 3b）：問う前の確かめの後、表の分類の前に決める（決めた参照は、分類と LLM に参照として渡る）
     nameless_by = f"{nameless_joins.MODELER} ({decider.model})"
     decided, nameless, stopped = _decide_nameless(ontology, claims, decider, nameless_by)
@@ -611,12 +645,12 @@ def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, f
         # 足していない OM を書くので、記録も「当てなかった」にする（答えは課金済みなので残す）
         nameless = [replace(o, status="not_applied", detail="足した OM が検証を通らない", added=())
                     if o.added else o for o in nameless]
-        return _finish(workspace, ontology, order, keys, nameless, [], f"バグの疑いで止めた: 推定した参照を足した OM が検証を"
+        return _finish(workspace, ontology, order, keys, twins, twins_skipped, nameless, [], f"バグの疑いで止めた: 推定した参照を足した OM が検証を"
                        f"通らない: {violations[:3]}", [t.name for t in order], defect=True)
     ontology = decided
     order = [next(t for t in ontology.tables if t.id == o.id) for o in order]
     if stopped is not None:  # 予算で止めた。それまでに得た答え（課金済み）は当てて書く
-        return _finish(workspace, ontology, order, keys, nameless, [], stopped, [t.name for t in order])
+        return _finish(workspace, ontology, order, keys, twins, twins_skipped, nameless, [], stopped, [t.name for t in order])
 
     outcomes: list[TableOutcome] = []
     stopped: str | None = None
@@ -630,7 +664,7 @@ def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, f
         try:
             hints = llm_modeler.meaning_hints(ontology, table, groups)
         except defects as e:
-            return _finish(workspace, ontology, order, keys, nameless, outcomes, f"バグの疑いで止めた: {type(e).__name__}: {e}",
+            return _finish(workspace, ontology, order, keys, twins, twins_skipped, nameless, outcomes, f"バグの疑いで止めた: {type(e).__name__}: {e}",
                            [t.name for t in order[i:]], defect=True)
         record: dict[str, object] = {}
         try:
@@ -639,8 +673,8 @@ def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, f
             stopped = str(e)
             if record:  # 途中まで課金済みの答えは記録に残す（この表には当てない）
                 outcomes.append(TableOutcome(table.name, "failed", f"止めた: {e}", (), (), record))
-                return _finish(workspace, ontology, order, keys, nameless, outcomes, stopped, [t.name for t in order[i + 1:]])
-            return _finish(workspace, ontology, order, keys, nameless, outcomes, stopped, [t.name for t in order[i:]])
+                return _finish(workspace, ontology, order, keys, twins, twins_skipped, nameless, outcomes, stopped, [t.name for t in order[i + 1:]])
+            return _finish(workspace, ontology, order, keys, twins, twins_skipped, nameless, outcomes, stopped, [t.name for t in order[i:]])
         except _TableFailed as e:
             outcomes.append(TableOutcome(table.name, "failed", str(e), (), (), e.answer))
             continue
@@ -654,7 +688,7 @@ def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, f
             # この表の答えは当てずに、それまでの OM を書く。答え（課金済み）は記録に残す
             stopped = f"バグの疑いで止めた: {type(e).__name__}: {e}"
             outcomes.append(TableOutcome(table.name, "failed", stopped, (), (), record))
-            return _finish(workspace, ontology, order, keys, nameless, outcomes, stopped, [t.name for t in order[i + 1:]],
+            return _finish(workspace, ontology, order, keys, twins, twins_skipped, nameless, outcomes, stopped, [t.name for t in order[i + 1:]],
                            defect=True)
         ontology = propagated.ontology
         status = "kept" if applied.table_kept_as_is else ("refined" if applied.applied else "nothing_applied")
@@ -668,10 +702,10 @@ def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, f
     same_by = f"{same_meaning.MODELER} ({decider.model})"
     ontology, same = _decide_same_meaning(ontology, claims, decider, resemblances, groups, families, same_by)
     if same.violations:  # 当てた OM が検証を通らない：何も当てず（答えは課金済みなので記録に残す）、バグとして止める
-        return _finish(workspace, ontology, order, keys, nameless, outcomes, f"バグの疑いで止めた: 同じ意味の答えを当てた OM が"
+        return _finish(workspace, ontology, order, keys, twins, twins_skipped, nameless, outcomes, f"バグの疑いで止めた: 同じ意味の答えを当てた OM が"
                        f"検証を通らない: {list(same.violations)[:3]}", [], defect=True, same_meaning_run=same)
     stopped = next((t.detail for t in same.tables if t.status == "not_reached"), None)
-    return _finish(workspace, ontology, order, keys, nameless, outcomes, stopped, [], same_meaning_run=same)
+    return _finish(workspace, ontology, order, keys, twins, twins_skipped, nameless, outcomes, stopped, [], same_meaning_run=same)
 
 
 def _decide_same_meaning(ontology: Ontology, claims: Sequence[Claim], decider: DecisionModel,
@@ -893,12 +927,12 @@ def _decisions_record(response: DecisionResponse) -> dict[str, object]:
 
 
 def _finish(workspace: Workspace, ontology: Ontology, order: Sequence[Table], keys: Sequence[KeyOutcome],
-            nameless: Sequence[NamelessOutcome], outcomes: list[TableOutcome], stopped: str | None, not_reached: list[str],
+            twins: Sequence["TwinOutcome"], twins_skipped: str | None, nameless: Sequence[NamelessOutcome], outcomes: list[TableOutcome], stopped: str | None, not_reached: list[str],
             defect: bool = False, same_meaning_run: SameMeaningRun | None = None) -> Refined:
     """same_meaning_run が None なのは、同じ意味の段まで来なかったとき（止めた）。"""
     write_ontology(workspace.ontology, ontology)
     return Refined(tuple(t.name for t in order), tuple(outcomes), stopped, tuple(not_reached), defect, tuple(nameless),
-                   keys=tuple(keys), same_meaning=same_meaning_run)
+                   keys=tuple(keys), twins=tuple(twins), twins_skipped=twins_skipped, same_meaning=same_meaning_run)
 
 
 def _decide_keys(ontology: Ontology, claims: Sequence[Claim],
@@ -934,6 +968,43 @@ def _decide_keys(ontology: Ontology, claims: Sequence[Claim],
         else:
             outcomes.append(KeyOutcome(name, "answered", "", options, None, (read,), answer))
     return keys_modeler.apply(ontology, decided), outcomes, stopped
+
+
+def _decide_twins(ontology: Ontology, claims: Sequence[Claim], decider: DecisionModel,
+                  inferred_by: str) -> tuple[Ontology, list[TwinOutcome], str | None]:
+    """双子のキーの組ごとに元の表を判断モデルに問い、元でない表のキーから元の表のキーへの関係を足す
+    （mandara.modeler.twins）。答えを得られなかった組は記録して次へ。予算の上限や見積もりの崩れでは、そこで止めて理由を返す。"""
+    if twins_modeler.MAX_MEMBERS + 2 > decider.max_options:
+        raise ValueError(f"双子の選択肢 {twins_modeler.MAX_MEMBERS + 2} が判断モデルの上限 {decider.max_options} を超える")
+    groups, skipped = twins_modeler.questions(ontology, claims)
+    outcomes = [TwinOutcome(d.item, "not_asked", d.reason, None, (), ()) for d in skipped]
+    decided: list[twins_modeler.Decided] = []
+    stopped: str | None = None
+    for group in groups:
+        if stopped is not None:
+            outcomes.append(TwinOutcome(group.name, "not_reached", stopped, None, (), ()))
+            continue
+        try:
+            response = decider.decide(group.request)
+        except (BudgetExceededError, EstimateViolatedError) as e:
+            stopped = str(e)
+            outcomes.append(TwinOutcome(group.name, "not_reached", stopped, None, (), ()))
+            continue
+        except LlmError as e:
+            outcomes.append(TwinOutcome(group.name, "failed", f"{type(e).__name__}: {e}", None, (), ()))
+            continue
+        read = twins_modeler.read(group, response)
+        answer = {**_decisions_record(response), "evidence": twins_modeler.evidence(group)}
+        if isinstance(read, twins_modeler.Decided):
+            decided.append(read)
+            links = twins_modeler.links(read)
+            added = tuple(f"{a[0]}.{a[1]} → {b[0]}.{b[1]}" for a, b, _ in links.added)
+            missing = tuple(llm_modeler.Dropped(f"{t}.{c}", f"元のキー {read.owner} への直接の包含の測定が無い（関係を足さない）")
+                            for t, c in links.missing)
+            outcomes.append(TwinOutcome(group.name, "answered", "", read.owner, added, missing, answer))
+        else:
+            outcomes.append(TwinOutcome(group.name, "answered", "", None, (), (read,), answer))
+    return twins_modeler.apply(ontology, decided, inferred_by), outcomes, stopped
 
 
 def _decide_nameless(ontology: Ontology, claims: Sequence[Claim], decider: DecisionModel,
@@ -1137,6 +1208,7 @@ def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, cover
                      "keys_extractor": keys_extractor.EXTRACTOR,
                      "modeler": modeler.MODELER, "joins_modeler": joins_modeler.MODELER,
                      "nameless_joins_modeler": nameless_joins.MODELER, "keys_modeler": keys_modeler.MODELER,
+                     "twins_modeler": twins_modeler.MODELER,
                      "resemblance_extractor": resemblance_extractor.EXTRACTOR,
                      "same_meaning_modeler": same_meaning.MODELER},
         "completed": [],
@@ -1183,6 +1255,10 @@ def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, cover
                 "keys": [{"table": o.table, "status": o.status, "detail": o.detail, "candidates": list(o.candidates),
                           "chosen": o.chosen, "dropped": [{"item": d.item, "reason": d.reason} for d in o.dropped],
                           "answer": o.answer} for o in refined.keys],
+                "twins_skipped": refined.twins_skipped,
+                "twins": [{"group": o.group, "status": o.status, "detail": o.detail, "owner": o.owner,
+                           "added": list(o.added), "dropped": [{"item": d.item, "reason": d.reason} for d in o.dropped],
+                           "answer": o.answer} for o in refined.twins],
                 "nameless": [{"table": o.table, "status": o.status, "detail": o.detail, "asked": list(o.asked),
                               "added": list(o.added), "not_references": list(o.not_references),
                               "dropped": [{"item": d.item, "reason": d.reason} for d in o.dropped], "answer": o.answer}

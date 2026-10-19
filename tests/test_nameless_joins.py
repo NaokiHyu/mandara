@@ -152,7 +152,8 @@ def _ledgers(draw: st.DrawFn) -> list[Claim]:
         matched = draw(st.sampled_from([distinct, max(0, distinct - 1)]))
         span = distinct + draw(st.integers(0, 60)) if distinct else None
         in_span = draw(st.integers(matched, min(span, key_values))) if span is not None else None
-        claims.append(_included(table, column, target, f"{target}id", distinct, matched, key_values,
+        key = draw(st.sampled_from([f"{target}id", "x"]))  # x：データでたまたま一意な列（キーではない）
+        claims.append(_included(table, column, target, key, distinct, matched, key_values,
                                 (span, in_span) if span is not None and in_span is not None else None,
                                 draw(st.integers(1, 3)) if distinct else 0))
     for _ in range(draw(st.integers(0, 2))):  # 宣言された外部キー（範囲外の表を指すものも。関係にはならない）
@@ -167,7 +168,8 @@ def _ledgers(draw: st.DrawFn) -> list[Claim]:
 
 @given(_ledgers(), st.data())
 def test_questions_and_apply_laws(claims: list[Claim], data: st.DataObject) -> None:
-    """問う列は、関係の参照元・宣言された外部キーの列・1 列のキーのどれでもない。選択肢は上限まで、確率の低い順。
+    """問う列は、関係の参照元・宣言された外部キーの列・1 列のキーのどれでもない。参照先は、参照先の表の 1 列のキーだけ
+    （どの表も主キー <表>id を持つので、x は参照先にならない）。選択肢は上限まで、確率の低い順。
     名前の事実は、すべての候補で名前の手がかりが無いときだけ。どう答えても、当てた OM は検証を通り、確信度は上限以下で、
     足した列は次に問わない。"""
     from mandara.modeler import joins
@@ -189,7 +191,9 @@ def test_questions_and_apply_laws(claims: list[Claim], data: st.DataObject) -> N
             assert chances == sorted(chances) and all(c <= 0 for c in chances)
             every = [c for c in claims if c.predicate == ClaimPredicate.included_in.value and c.subject.table == short
                      and (c.columns or [None])[0] == a.column and c.distinct_values
-                     and c.matched_values == c.distinct_values]
+                     and c.matched_values == c.distinct_values and c.target is not None
+                     and c.target_columns == [f"{c.target.table}id"]]
+            assert all(t.claim.target_columns == [f"{t.claim.target.table}id"] for t in a.targets if t.claim.target)
             assert a.nameless == all(
                 joins.name_strength(a.column, c.target.table if c.target else "", (c.target_columns or [""])[0]) == 0
                 for c in every)
@@ -214,3 +218,31 @@ def test_an_integer_column_measured_without_its_range_is_an_old_ledger_and_an_er
     import pytest
     with pytest.raises(ValueError, match="範囲を測る前の台帳"):
         nameless_joins.questions(ontology, stale)
+
+
+def _unique_in_data(table: str, *columns: str) -> Claim:
+    return new_claim(subject=_ref(table), predicate=ClaimPredicate.unique_in_data,
+                     source=ClaimSource(kind=ClaimSourceKind.data, locator=f"unique {table} {columns}"),
+                     extracted_by="test", confidence=1.0, columns=list(columns), distinct_values=100)
+
+
+def test_targets_are_the_target_tables_keys_or_everything_measured_when_the_key_is_not_decided() -> None:
+    """参照先の表に identity があれば、その 1 列のキーだけを参照先にする（データで偶然一意な列は候補にしない。T2.7）。
+    identity の無い表（主キーを決められなかった表）は、測った参照先を全部。"""
+    keyless = Table("s", "photo", ObjectKind.table, None, (_column("photoid", 1), _column("productid", 2)), None,
+                    (), (), ())
+    catalog = Catalog(Scope(("s",)), (_table("product", "productid", "code"), _table("bom", "bomid", "componentid"),
+                                      keyless))
+    claims = [*catalog_extractor.extract("src", catalog),
+              _unique_in_data("photo", "photoid"), _unique_in_data("photo", "productid"),
+              _included("bom", "componentid", "product", "productid", 30, 30, 500, (999, 500)),
+              _included("bom", "componentid", "product", "code", 30, 30, 500, (999, 500)),
+              _included("bom", "componentid", "photo", "productid", 30, 30, 100, (999, 100)),
+              _included("bom", "componentid", "photo", "photoid", 30, 30, 100, (999, 100))]
+    assert check_claims(claims) == []
+    ontology = propose("src", ("s",), claims).ontology
+    [photo] = [t for t in ontology.tables if t.name == "s.photo"]
+    assert photo.identity is None  # 一意な組が 2 つ：規則は選ばない
+    [asked] = nameless_joins.questions(ontology, claims)
+    [a] = asked.asked
+    assert sorted(t.option for t in a.targets) == ["s.photo.photoid", "s.photo.productid", "s.product.productid"]
