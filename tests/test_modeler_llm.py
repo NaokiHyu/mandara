@@ -46,6 +46,7 @@ from mandara.modeler import llm as v1
 from mandara.modeler.joins import InferenceClaims
 from mandara.modeler import coordinator, meaning, nameless_joins
 from mandara.omstore.document_store import LoadedPrimer
+from mandara.omstore.pack_store import LoadedPack
 from mandara.omstore.claim_store import load_claim_ledger
 from mandara.modeler.meaning import (
     InconsistentGroupError,
@@ -58,7 +59,8 @@ from mandara.modeler.meaning import (
 from mandara.modeler.rules import propose
 from mandara.om.invariants import check
 from mandara.om.value_types import COMPATIBLE
-from mandara.om.model import (Additivity, Claim, Primer, PrimerEntry, PrimerGroup, PrimerOrigin, SemanticType,
+from mandara.om.claims import new_claim
+from mandara.om.model import (Additivity, Claim, ClaimPredicate, ClaimSource, ClaimSourceKind, SourceRef, PackManifest, Primer, Vocabulary, PrimerEntry, PrimerGroup, PrimerOrigin, SemanticType,
                               SemanticRole, ReviewStatus, Unit, ValueType)
 from mandara.om.names import qualify
 from mandara.om.ontology import Ontology
@@ -484,10 +486,10 @@ CHEAP_JEV = Pricing("fakejev", (PriceTier(None, 0.0001, 0.0),))
 
 def _refine(workspace: Workspace, model: ScriptedModel, decider: ScriptedDecider, first: list[str],
             limit: float = 1.0, pricing: Pricing = CHEAP, jev_pricing: Pricing = CHEAP_JEV,
-            primer: LoadedPrimer | None = None) -> pipeline.Refined:
+            primer: LoadedPrimer | None = None, knowledge: LoadedPack | None = None) -> pipeline.Refined:
     budget = Budget(limit)
     return pipeline.refine(workspace, BudgetedModel(model, pricing, budget),
-                           BudgetedDecisionModel(decider, jev_pricing, budget), first, primer)
+                           BudgetedDecisionModel(decider, jev_pricing, budget), first, primer, knowledge)
 
 
 @pytest.fixture
@@ -884,7 +886,8 @@ def test_the_background_is_coordinated_once_and_reaches_every_stage(workspace: W
         f"classify {address}": {"column addressid": "new"},
         f"properties {address}": {"type address_id": "identifier", "role address_id": "none"}})
     model = ScriptedModel({
-        f"coordinate {address}": {"background": "A postal address of a party.", "terms": ["Address", "Nowhere"]},
+        f"coordinate {address}": {"background": "A postal address of a party.", "terms": ["Address", "Nowhere"],
+                                  "semantic_types": []},
         f"name {address}": {"semantic_types": [{"name": "address_id", "description": "住所", "columns": ["addressid"],
                                                 "values": None, "values_evidence": []}]}})
     seen: list[StructuredRequest] = []
@@ -908,7 +911,7 @@ def test_the_background_is_coordinated_once_and_reaches_every_stage(workspace: W
     assert refined.primer == "writer test sha256 abc"
     record = cast(dict[str, object], outcome.answer)
     assert record["coordinate"] == {
-        "coordinator": coordinator.COORDINATOR, "data": {"background": "A postal address of a party.", "terms": ["Address", "Nowhere"]}}
+        "coordinator": coordinator.COORDINATOR, "data": {"background": "A postal address of a party.", "terms": ["Address", "Nowhere"], "semantic_types": []}}
 
 
 def test_without_a_background_the_table_is_still_asked_and_the_failure_recorded(workspace: Workspace) -> None:
@@ -937,3 +940,33 @@ def test_a_primer_naming_tables_outside_the_catalog_is_refused_before_asking(wor
     with pytest.raises(pipeline.InvalidPrimerError, match="finance.ledger"):
         _refine(workspace, model, decider, [], primer=other)
     assert model.asked == [] and decider.asked == []
+
+
+def test_a_pack_gives_its_types_as_options_narrowed_by_the_coordinator_and_unused_ones_are_removed(
+        workspace: Workspace) -> None:
+    address = "person.address"
+    label = "bikes 0.1.0"
+    types = {n: SemanticType(name=n, type=ValueType.identifier, description=n, pack=label)
+             for n in ("address_id", "vendor_id")}
+    knowledge = LoadedPack(PackManifest(name="bikes", version="0.1.0", description="d", written_by="w"),
+                           Vocabulary(semantic_types=types), "sha")
+    decider = ScriptedDecider({f"classify {address}": {"column addressid": "address_id"}})
+    model = ScriptedModel({f"coordinate {address}": {"background": "b", "terms": [], "semantic_types": ["address_id"]}})
+    refined = _refine(workspace, model, decider, [address], primer=PRIMER, knowledge=knowledge)
+    options = decider.requests[f"classify {address}"].questions["column addressid"].options
+    assert "address_id" in options and "vendor_id" not in options
+    assert refined.pack == f"{label} sha256 sha" and refined.pack_used == ("address_id",)
+    assert refined.pack_unused == ("vendor_id",)
+    vocabulary = load_ontology(workspace.ontology).vocabulary.semantic_types or {}
+    assert "vendor_id" not in vocabulary and vocabulary["address_id"].pack == label
+
+
+def test_enum_codes_citing_a_check_value_list_must_be_in_that_list() -> None:
+    listed = new_claim(subject=SourceRef(source="s", schema_name="s", table="t", column="g"),
+                       predicate=ClaimPredicate.allows_values,
+                       source=ClaimSource(kind=ClaimSourceKind.schema, locator="constraint ck on s.t"),
+                       extracted_by="test", confidence=1.0, allowed_values=["M", "F"], values_normalized=True)
+    assert v1._values_grounded([v1.EnumValueAnswer(code="m", label="男")], [listed])  # pyright: ignore[reportPrivateUsage]
+    assert not v1._values_grounded([v1.EnumValueAnswer(code="X", label="?")], [listed])  # pyright: ignore[reportPrivateUsage]
+    strict = listed.model_copy(update={"values_normalized": False})
+    assert not v1._values_grounded([v1.EnumValueAnswer(code="m", label="男")], [strict])  # pyright: ignore[reportPrivateUsage]

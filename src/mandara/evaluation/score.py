@@ -260,3 +260,75 @@ def _show(fact: object) -> str:
     if isinstance(fact, tuple):
         return "(" + ", ".join(_show(x) for x in cast(tuple[object, ...], fact)) + ")"
     return str(fact)
+
+
+# ---------------------------------------------------------------- 確信度の較正
+
+
+CALIBRATION_BINS = (0.6, 0.7, 0.8, 0.9, 0.95, 1.0)
+"""較正の帯の下端（最後は上端）。0.6 は提案の閾値、0.95 は一括承認の下限（BULK_MINIMUM）。"""
+
+
+@dataclass(frozen=True)
+class CalibrationBin:
+    low: float
+    high: float
+    """この帯は low 以上 high 未満（最後の帯だけ high を含む）。"""
+    proposed: int
+    correct: int
+
+
+@dataclass(frozen=True)
+class Calibration:
+    """提案の確信度が、正解と突き合わせてどれだけ当たっているか（観点ごと、帯ごと）。一括承認の帯を決める材料。
+    観点：表の種類（kind）、関係（端点が正解にあり型も合う。端点の外れも誤りに数える）、列の意味型の値の型（column_type）。
+    確信度の無い注釈と、閾値（最初の帯の下端）未満の注釈は数えない（提案されない）。"""
+
+    aspects: dict[str, tuple[CalibrationBin, ...]]
+
+
+def _bin_of(confidence: float) -> int | None:
+    if confidence < CALIBRATION_BINS[0] or confidence > CALIBRATION_BINS[-1]:
+        return None
+    for i in range(len(CALIBRATION_BINS) - 1):
+        if confidence < CALIBRATION_BINS[i + 1]:
+            return i
+    return len(CALIBRATION_BINS) - 2
+
+
+def calibrate(proposed: Ontology, gold: Ontology) -> Calibration:
+    for which, ontology in (("提案", proposed), ("正解", gold)):
+        if violations := check(ontology):
+            raise InvalidForScoringError(which, violations)
+    scope = frozenset(t.name for t in gold.tables)
+    gold_view, view = _View(gold, scope), _View(proposed, scope)
+    gold_tables = {t.name: t for t in gold_view.tables()}
+    gold_relations = {endpoint: f for f, (_, endpoint) in zip(_relation_types(gold_view), gold_view.relations())}
+    gold_types = {(t, c, ty) for t, c, ty in _column_types(gold_view)}
+    items: dict[str, list[tuple[float, bool]]] = {"kind": [], "relation": [], "column_type": []}
+    vocabulary = proposed.vocabulary.semantic_types or {}
+    for table in view.tables():
+        if table.kind is not None and table.confidence is not None:
+            items["kind"].append((table.confidence, gold_tables[table.name].kind == table.kind))
+        for relation in table.relations or []:
+            endpoint = view.endpoint(table, relation)
+            if endpoint is None or relation.confidence is None:
+                continue
+            fact = (endpoint, relation.type, relation.has_kind) if relation.type == RelationType.has.value \
+                else (endpoint, relation.type)
+            items["relation"].append((relation.confidence, gold_relations.get(endpoint) == fact))
+        for name, column in (table.columns or {}).items():
+            semantic_type = vocabulary.get(column.semantic_type or "")
+            if semantic_type is None or column.confidence is None:
+                continue
+            items["column_type"].append((column.confidence, (table.name, name, semantic_type.type) in gold_types))
+    aspects: dict[str, tuple[CalibrationBin, ...]] = {}
+    for aspect, pairs in items.items():
+        counts = [[0, 0] for _ in range(len(CALIBRATION_BINS) - 1)]
+        for confidence, correct in pairs:
+            if (i := _bin_of(confidence)) is not None:
+                counts[i][0] += 1
+                counts[i][1] += int(correct)
+        aspects[aspect] = tuple(CalibrationBin(CALIBRATION_BINS[i], CALIBRATION_BINS[i + 1], n, ok)
+                                for i, (n, ok) in enumerate(counts))
+    return Calibration(aspects)

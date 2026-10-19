@@ -1,0 +1,5 @@
+name: bicycle-wholesale
+version: 0.1.0
+description: 自転車部品の卸（製造を含む）の業界の語彙。販売・購買・製造・在庫・人事
+written_by: pack-writer 0.2 (claude-haiku-5-5)
+primer_sha256: 86a5b5d66ce73348a10fc27d86a97f96495a65c1684a440ecb390f8b36e58fd0

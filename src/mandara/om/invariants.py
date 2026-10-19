@@ -110,20 +110,20 @@ def _check_vocabulary(vocabulary: Vocabulary) -> Iterator[Violation]:
 
 
 _VALUE_TYPES = {t.value for t in ValueType}
-_MEASURES = {ValueType.integer.value, ValueType.ratio.value, ValueType.quantity.value, ValueType.money.value}
+MEASURES = {ValueType.integer.value, ValueType.ratio.value, ValueType.quantity.value, ValueType.money.value}
 """加法性を持てる型（尺度）。"""
-_TIME_ROLES = {SemanticRole.event_time.value, SemanticRole.valid_from.value, SemanticRole.valid_to.value}
+TIME_ROLES = {SemanticRole.event_time.value, SemanticRole.valid_from.value, SemanticRole.valid_to.value}
 _TIMES = {ValueType.date.value, ValueType.datetime.value}
 
 
 def _check_semantic_type_shape(semantic_type: SemanticType, loc: str) -> Iterator[Violation]:
-    if semantic_type.additivity is not None and semantic_type.type not in _MEASURES:
+    if semantic_type.additivity is not None and semantic_type.type not in MEASURES:
         yield Violation(Rule.SEMANTIC_TYPE_SHAPE, loc, f"{semantic_type.type} は尺度ではないので加法性を持たない")
     if semantic_type.type in UNIT_BEARING and semantic_type.requires_unit is not True:
         yield Violation(Rule.SEMANTIC_TYPE_SHAPE, loc, f"{semantic_type.type} は単位が要る（requires_unit: true）")
     if semantic_type.requires_unit and semantic_type.type not in UNIT_BEARING:
         yield Violation(Rule.SEMANTIC_TYPE_SHAPE, loc, f"{semantic_type.type} は単位を持たない")
-    if semantic_type.role in _TIME_ROLES and semantic_type.type not in _TIMES:
+    if semantic_type.role in TIME_ROLES and semantic_type.type not in _TIMES:
         yield Violation(Rule.SEMANTIC_TYPE_SHAPE, loc, f"役割 {semantic_type.role} は日付・日時の型だけ")
 
 

@@ -19,7 +19,7 @@ from mandara.om.model import Claim, ClaimPredicate, ClaimSource, ClaimSourceKind
 
 PAYLOAD_FIELDS = (
     "columns", "target", "target_columns", "on_delete", "on_update", "text", "type_name", "family", "position",
-    "object_kind", "encoding", "discriminator", "discriminator_values", "fixed_unit",
+    "object_kind", "encoding", "discriminator", "discriminator_values", "allowed_values", "values_normalized", "fixed_unit",
     "distinct_values", "matched_values", "target_values", "max_repeats", "value_span",
     "target_values_in_span", "patterns", "pattern_shares", "shape_level", "sampled_values", "target_sampled_values",
     "method", "score", "baseline",
@@ -52,6 +52,7 @@ SHAPES: dict[str, Shape] = {
     ClaimPredicate.defaults_to.value: _shape("column", "text"),
     ClaimPredicate.described_as.value: _shape("either", "text"),
     ClaimPredicate.checks.value: _shape("table", "text"),
+    ClaimPredicate.allows_values.value: _shape("column", "allowed_values", "values_normalized"),
     ClaimPredicate.typed_as.value: _shape("column", "type_name", "family", "position"),
     ClaimPredicate.aliased_as.value: _shape("column", "type_name"),
     ClaimPredicate.encoded_as.value: _shape("column", "encoding"),

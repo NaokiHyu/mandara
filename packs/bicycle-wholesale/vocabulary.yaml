@@ -1,0 +1,847 @@
+semantic_types:
+  row_guid:
+    description: Globally unique row identifier used for replication and merge tracking.
+    type: identifier
+    role: technical
+    pack: bicycle-wholesale 0.1.0
+  modified_date:
+    description: Timestamp of the last change to the row.
+    type: datetime
+    role: technical
+    pack: bicycle-wholesale 0.1.0
+  name:
+    description: Human-readable name of an entity such as a product, department, territory or category.
+    type: text
+    pack: bicycle-wholesale 0.1.0
+  description:
+    description: Free-text explanation of an entity, product, offer or reason.
+    type: text
+    pack: bicycle-wholesale 0.1.0
+  start_date:
+    description: Date on which a record, validity period, shift, job or price becomes effective.
+    type: date
+    pack: bicycle-wholesale 0.1.0
+  end_date:
+    description: Date on which a record, validity period, shift, job or price ceases to be effective.
+    type: date
+    pack: bicycle-wholesale 0.1.0
+  employee_id:
+    description: Identifier of an employee.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  employee_national_id_number:
+    description: Government or national identification number of an employee.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  employee_login_id:
+    description: Login or account name assigned to an employee for internal systems.
+    type: text
+    pack: bicycle-wholesale 0.1.0
+  job_title:
+    description: Position or role title held by an employee.
+    type: text
+    pack: bicycle-wholesale 0.1.0
+  birth_date:
+    description: Date of birth of a person.
+    type: date
+    pack: bicycle-wholesale 0.1.0
+  marital_status_code:
+    description: Code describing an employee's marital status.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  gender_code:
+    description: Code describing the gender of a person.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  hire_date:
+    description: Date on which an employee was hired.
+    type: date
+    pack: bicycle-wholesale 0.1.0
+  termination_date:
+    description: Date on which an employee's employment ended.
+    type: date
+    pack: bicycle-wholesale 0.1.0
+  salaried_flag:
+    description: Indicator whether an employee is salaried rather than hourly.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  current_flag:
+    description: Indicator whether a record is the current one.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  vacation_hours_balance:
+    description: Vacation hours available to an employee.
+    type: quantity
+    additivity: semi-additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  sick_leave_hours_balance:
+    description: Sick leave hours available to an employee.
+    type: quantity
+    additivity: semi-additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  organization_level:
+    description: Level of the employee's position in the organizational hierarchy.
+    type: integer
+    additivity: non-additive
+    pack: bicycle-wholesale 0.1.0
+  manager_id:
+    description: Identifier of the employee who manages another employee.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  department_id:
+    description: Identifier of an organizational department.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  department_group_name:
+    description: Name of the group a department belongs to.
+    type: text
+    pack: bicycle-wholesale 0.1.0
+  shift_id:
+    description: Identifier of a work shift.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  shift_start_time:
+    description: Start time of a work shift.
+    type: datetime
+    pack: bicycle-wholesale 0.1.0
+  shift_end_time:
+    description: End time of a work shift.
+    type: datetime
+    pack: bicycle-wholesale 0.1.0
+  pay_rate:
+    description: Pay amount per pay period or hour for an employee.
+    type: money
+    additivity: non-additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  pay_frequency:
+    description: Code for how often an employee is paid.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  job_candidate_id:
+    description: Identifier of a person applying for a job.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  resume_document:
+    description: Résumé of a job candidate with education and work experience details.
+    type: document.xml
+    pack: bicycle-wholesale 0.1.0
+  rating_score:
+    description: Numeric rating given on a review or evaluation.
+    type: integer
+    additivity: non-additive
+    pack: bicycle-wholesale 0.1.0
+  business_entity_id:
+    description: Identifier of a generic business entity that can be a person, store, vendor or organization.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  person_id:
+    description: Identifier of an individual person.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  person_type_code:
+    description: Code classifying a person record, such as employee, customer or contact.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  title:
+    description: Honorific title of a person, such as Mr. or Ms.
+    type: text
+    pack: bicycle-wholesale 0.1.0
+  first_name:
+    description: Given name of a person.
+    type: text
+    pack: bicycle-wholesale 0.1.0
+  middle_name:
+    description: Middle name or initial of a person.
+    type: text
+    pack: bicycle-wholesale 0.1.0
+  last_name:
+    description: Family name of a person.
+    type: text
+    pack: bicycle-wholesale 0.1.0
+  name_suffix:
+    description: Generational or professional suffix of a person's name.
+    type: text
+    pack: bicycle-wholesale 0.1.0
+  email_address:
+    description: Email address of a person or contact.
+    type: text
+    pack: bicycle-wholesale 0.1.0
+  email_promotion_code:
+    description: Code describing whether a person opts in to promotional email.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  phone_number:
+    description: Telephone number of a person or organization.
+    type: text
+    pack: bicycle-wholesale 0.1.0
+  phone_number_type_code:
+    description: Classification of a phone number, such as cell, home or work.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  password_hash:
+    description: Hashed password for a web account.
+    type: text
+    pack: bicycle-wholesale 0.1.0
+  password_salt:
+    description: Salt value used with a password hash.
+    type: text
+    pack: bicycle-wholesale 0.1.0
+  additional_contact_info:
+    description: Additional contact details of a person stored as XML.
+    type: document.xml
+    pack: bicycle-wholesale 0.1.0
+  address_id:
+    description: Identifier of a postal address.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  address_line_1:
+    description: First line of a postal address.
+    type: text
+    pack: bicycle-wholesale 0.1.0
+  address_line_2:
+    description: Second line of a postal address.
+    type: text
+    pack: bicycle-wholesale 0.1.0
+  city:
+    description: City of a postal address.
+    type: text
+    pack: bicycle-wholesale 0.1.0
+  postal_code:
+    description: Postal or ZIP code of an address.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  address_type_code:
+    description: Label of an address such as billing, shipping or home.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  state_province_code:
+    description: Code of a state or province.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  state_province_name:
+    description: Name of a state or province.
+    type: text
+    pack: bicycle-wholesale 0.1.0
+  country_region_code:
+    description: ISO code of a country or region.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  country_region_name:
+    description: Name of a country or region.
+    type: text
+    pack: bicycle-wholesale 0.1.0
+  spatial_location:
+    description: Geographic point location of an address or territory.
+    type: geo.point
+    pack: bicycle-wholesale 0.1.0
+  contact_type_code:
+    description: Role of a contact at a business, such as owner or purchasing agent.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  product_id:
+    description: Identifier of a product.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  product_number:
+    description: Business-facing item number of a product.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  product_model_id:
+    description: Identifier of a product model grouping product variants.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  product_category_id:
+    description: Identifier of a product category.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  product_subcategory_id:
+    description: Identifier of a product subcategory.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  product_line_code:
+    description: Code of the product line a product belongs to.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  product_class_code:
+    description: Code of the quality or class grade of a product.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  product_style_code:
+    description: Code of the style or design of a product.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  make_flag:
+    description: Indicator whether the product is manufactured in-house.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  finished_goods_flag:
+    description: Indicator whether the product is a finished good for sale.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  sell_start_date:
+    description: Date from which a product is available for sale.
+    type: date
+    pack: bicycle-wholesale 0.1.0
+  sell_end_date:
+    description: Date after which a product is no longer sold.
+    type: date
+    pack: bicycle-wholesale 0.1.0
+  discontinued_date:
+    description: Date on which a product was discontinued.
+    type: date
+    pack: bicycle-wholesale 0.1.0
+  color_name:
+    description: Color of a product.
+    type: text
+    pack: bicycle-wholesale 0.1.0
+  size_code:
+    description: Size designation of a product.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  weight:
+    description: Weight of a product or component.
+    type: quantity
+    additivity: non-additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  days_to_manufacture:
+    description: Number of days needed to manufacture a product.
+    type: integer
+    additivity: non-additive
+    pack: bicycle-wholesale 0.1.0
+  reorder_point:
+    description: Stock level at which a product should be reordered.
+    type: quantity
+    additivity: non-additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  safety_stock_level:
+    description: Minimum stock level kept as buffer for a product.
+    type: quantity
+    additivity: non-additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  minimum_order_quantity:
+    description: Smallest quantity that may be ordered from a vendor.
+    type: quantity
+    additivity: non-additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  maximum_order_quantity:
+    description: Largest quantity that may be ordered from a vendor in one order.
+    type: quantity
+    additivity: non-additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  standard_pricing_quantity:
+    description: Quantity basis on which a standard price applies.
+    type: quantity
+    additivity: non-additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  unit_measure_code:
+    description: Code of the unit of measure, such as each, box, kilogram or litre.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  unit_measure_name:
+    description: Name of a unit of measure.
+    type: text
+    pack: bicycle-wholesale 0.1.0
+  weight_unit_measure_code:
+    description: Code of the unit in which product weight is expressed.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  size_unit_measure_code:
+    description: Code of the unit in which product size is expressed.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  standard_cost:
+    description: Expected unit cost of making or buying a product.
+    type: money
+    additivity: non-additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  list_price:
+    description: Catalogue price of a product.
+    type: money
+    additivity: non-additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  product_cost_history_id:
+    description: Identifier of a dated product cost record.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  list_price_history_id:
+    description: Identifier of a dated list price record.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  product_inventory_quantity:
+    description: Quantity of a product on hand at a location or bin.
+    type: quantity
+    additivity: semi-additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  bin_number:
+    description: Shelf bin position within a storage location.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  location_id:
+    description: Identifier of a storage or work location in manufacturing.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  location_cost_rate:
+    description: Cost per hour of using a manufacturing location.
+    type: money
+    additivity: non-additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  location_availability:
+    description: Hours of availability of a manufacturing location.
+    type: quantity
+    additivity: semi-additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  bill_of_materials_id:
+    description: Identifier of a bill of materials header.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  component_product_id:
+    description: Identifier of a component product used in a bill of materials.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  bom_level:
+    description: Level of a component within a multi-level bill of materials.
+    type: integer
+    additivity: non-additive
+    pack: bicycle-wholesale 0.1.0
+  per_assembly_quantity:
+    description: Quantity of a component needed for one assembly of the parent product.
+    type: quantity
+    additivity: non-additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  work_order_id:
+    description: Identifier of an internal production work order.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  order_quantity:
+    description: Quantity of a product ordered in a work order or purchase or sales order.
+    type: quantity
+    additivity: additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  scrapped_quantity:
+    description: Quantity rejected as scrap during manufacturing.
+    type: quantity
+    additivity: additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  received_quantity:
+    description: Quantity received from a vendor or into stock.
+    type: quantity
+    additivity: additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  rejected_quantity:
+    description: Quantity rejected on receipt from a vendor.
+    type: quantity
+    additivity: additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  stocked_quantity:
+    description: Quantity accepted into stock.
+    type: quantity
+    additivity: additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  planned_start_date:
+    description: Planned start date of a work order or operation.
+    type: date
+    pack: bicycle-wholesale 0.1.0
+  planned_end_date:
+    description: Planned end date of a work order or operation.
+    type: date
+    pack: bicycle-wholesale 0.1.0
+  actual_start_date:
+    description: Actual start date of a work order or operation.
+    type: date
+    pack: bicycle-wholesale 0.1.0
+  actual_end_date:
+    description: Actual end date of a work order or operation.
+    type: date
+    pack: bicycle-wholesale 0.1.0
+  scrap_reason_id:
+    description: Identifier of a coded reason for scrap.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  operation_sequence:
+    description: Position of an operation in a work order routing.
+    type: integer
+    additivity: non-additive
+    pack: bicycle-wholesale 0.1.0
+  planned_cost:
+    description: Planned cost of a routing operation or work order.
+    type: money
+    additivity: additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  actual_cost:
+    description: Actual cost incurred for a routing operation or work order.
+    type: money
+    additivity: additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  actual_resource_hours:
+    description: Hours of resource time actually used in an operation.
+    type: quantity
+    additivity: additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  planned_resource_hours:
+    description: Hours of resource time planned for an operation.
+    type: quantity
+    additivity: additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  transaction_type_code:
+    description: Code of an inventory movement such as purchase, sale, work order issue or receipt.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  transaction_date:
+    description: Date and time of an inventory or transaction movement.
+    type: datetime
+    pack: bicycle-wholesale 0.1.0
+  transaction_quantity:
+    description: Quantity moved in an inventory transaction.
+    type: quantity
+    additivity: additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  transaction_actual_cost:
+    description: Cost recorded for an inventory transaction.
+    type: money
+    additivity: additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  product_photo_id:
+    description: Identifier of a product photo.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  thumbnail_photo:
+    description: Small image of a product.
+    type: media.image
+    pack: bicycle-wholesale 0.1.0
+  large_photo:
+    description: Large image of a product.
+    type: media.image
+    pack: bicycle-wholesale 0.1.0
+  illustration_document:
+    description: Illustration or diagram of a product model in XML form.
+    type: document.xml
+    pack: bicycle-wholesale 0.1.0
+  product_document_file:
+    description: Assembly instructions or other file attached to a product.
+    type: media.document
+    pack: bicycle-wholesale 0.1.0
+  product_review_id:
+    description: Identifier of a customer review of a product.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  review_text:
+    description: Feedback written by a customer about a product.
+    type: text
+    pack: bicycle-wholesale 0.1.0
+  culture_code:
+    description: Code of the language or culture of a translated text.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  vendor_id:
+    description: Identifier of a vendor, which is a supplier of purchased goods.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  vendor_account_number:
+    description: Account number assigned to a vendor by the business.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  vendor_credit_rating:
+    description: Credit rating score of a vendor.
+    type: integer
+    additivity: non-additive
+    pack: bicycle-wholesale 0.1.0
+  preferred_vendor_flag:
+    description: Indicator whether a vendor is a preferred supplier.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  active_vendor_flag:
+    description: Indicator whether a vendor is currently active.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  average_lead_time:
+    description: Average number of days from order to delivery from a vendor.
+    type: integer
+    additivity: non-additive
+    pack: bicycle-wholesale 0.1.0
+  last_receipt_cost:
+    description: Unit cost of the most recent receipt of a product from a vendor.
+    type: money
+    additivity: non-additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  last_receipt_date:
+    description: Date of the most recent receipt of a product from a vendor.
+    type: date
+    pack: bicycle-wholesale 0.1.0
+  purchase_order_id:
+    description: Identifier of a purchase order header.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  purchase_order_detail_id:
+    description: Identifier of a line in a purchase order.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  order_date:
+    description: Date on which an order was placed.
+    type: date
+    pack: bicycle-wholesale 0.1.0
+  ship_date:
+    description: Date on which an order was shipped.
+    type: date
+    pack: bicycle-wholesale 0.1.0
+  due_date:
+    description: Date by which an order is due to be delivered.
+    type: date
+    pack: bicycle-wholesale 0.1.0
+  unit_price:
+    description: Price per unit of a product on an order line.
+    type: money
+    additivity: non-additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  line_total:
+    description: Extended amount of an order line, unit price times quantity less discounts.
+    type: money
+    additivity: additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  subtotal_amount:
+    description: Sum of line totals before tax and freight on an order.
+    type: money
+    additivity: additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  tax_amount:
+    description: Tax charged on an order.
+    type: money
+    additivity: additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  freight_amount:
+    description: Shipping charge on an order.
+    type: money
+    additivity: additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  total_due_amount:
+    description: Total amount payable on an order including tax and freight.
+    type: money
+    additivity: additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  unit_price_discount_percent:
+    description: Discount percentage applied to a unit price.
+    type: ratio
+    additivity: non-additive
+    pack: bicycle-wholesale 0.1.0
+  ship_method_id:
+    description: Identifier of a shipping method.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  ship_base_rate:
+    description: Base shipping charge of a shipping method.
+    type: money
+    additivity: non-additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  ship_rate_per_weight:
+    description: Shipping charge per unit weight of a shipping method.
+    type: money
+    additivity: non-additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  carrier_tracking_number:
+    description: Tracking number assigned by the carrier for a shipment.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  sales_order_id:
+    description: Identifier of a customer sales order header.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  sales_order_detail_id:
+    description: Identifier of a line on a sales order.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  sales_order_number:
+    description: Business-facing number of a sales order.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  purchase_order_number:
+    description: Customer purchase order reference number on a sales order.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  account_number:
+    description: Account number assigned to a customer.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  customer_id:
+    description: Identifier of a customer.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  store_id:
+    description: Identifier of a store, a business customer that resells products.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  salesperson_id:
+    description: Identifier of a salesperson.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  sales_territory_id:
+    description: Identifier of a sales territory.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  sales_territory_group:
+    description: Broader group name for a set of sales territories.
+    type: text
+    pack: bicycle-wholesale 0.1.0
+  sales_ytd_amount:
+    description: Year-to-date sales amount of a salesperson or territory.
+    type: money
+    additivity: additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  sales_last_year_amount:
+    description: Sales amount of the previous year for a salesperson or territory.
+    type: money
+    additivity: additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  cost_ytd_amount:
+    description: Year-to-date cost associated with a territory.
+    type: money
+    additivity: additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  commission_percent:
+    description: Commission rate paid to a salesperson on sales.
+    type: ratio
+    additivity: non-additive
+    pack: bicycle-wholesale 0.1.0
+  sales_quota_amount:
+    description: Sales target amount assigned to a salesperson for a period.
+    type: money
+    additivity: additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  sales_reason_id:
+    description: Identifier of a coded reason a customer gave for buying.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  special_offer_id:
+    description: Identifier of a promotional special offer.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  discount_type:
+    description: Type of discount offered by a special offer, such as volume or reseller.
+    type: text
+    pack: bicycle-wholesale 0.1.0
+  discount_percent:
+    description: Percentage discount granted by a special offer.
+    type: ratio
+    additivity: non-additive
+    pack: bicycle-wholesale 0.1.0
+  minimum_quantity:
+    description: Smallest quantity needed to qualify for a special offer.
+    type: quantity
+    additivity: non-additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  maximum_quantity:
+    description: Largest quantity to which a special offer applies.
+    type: quantity
+    additivity: non-additive
+    requires_unit: true
+    pack: bicycle-wholesale 0.1.0
+  currency_code:
+    description: ISO code of a currency.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  currency_rate_id:
+    description: Identifier of a currency exchange rate record.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  average_rate:
+    description: Average exchange rate between two currencies on a date.
+    type: ratio
+    additivity: non-additive
+    pack: bicycle-wholesale 0.1.0
+  end_of_day_rate:
+    description: Exchange rate at the end of a day between two currencies.
+    type: ratio
+    additivity: non-additive
+    pack: bicycle-wholesale 0.1.0
+  tax_rate_percent:
+    description: Tax percentage applied to sales in a region for a tax category.
+    type: ratio
+    additivity: non-additive
+    pack: bicycle-wholesale 0.1.0
+  tax_category_code:
+    description: Code of the tax category to which a tax rate applies.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  credit_card_id:
+    description: Identifier of a customer's payment card on file.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  card_type:
+    description: Type of payment card, such as a brand name.
+    type: text
+    pack: bicycle-wholesale 0.1.0
+  card_number:
+    description: Number of a customer's payment card.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  card_expiry_date:
+    description: Expiry date of a payment card.
+    type: date
+    pack: bicycle-wholesale 0.1.0
+  shopping_cart_item_id:
+    description: Identifier of an item placed in an online shopping cart.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  shopping_cart_id:
+    description: Identifier of an online shopping cart.
+    type: identifier
+    pack: bicycle-wholesale 0.1.0
+  date_added:
+    description: Date and time an item was added to a cart.
+    type: datetime
+    pack: bicycle-wholesale 0.1.0
+  demographics_document:
+    description: Personal survey information such as education, occupation, income and home ownership, stored as XML.
+    type: document.xml
+    pack: bicycle-wholesale 0.1.0
+  payment_terms_code:
+    description: Code of the payment terms agreed for an order.
+    type: code
+    pack: bicycle-wholesale 0.1.0
+  credit_rating:
+    description: Credit rating score of a customer.
+    type: integer
+    additivity: non-additive
+    pack: bicycle-wholesale 0.1.0
+  purchasing_web_service_url:
+    description: Web address of a vendor's purchasing web service.
+    type: text
+    pack: bicycle-wholesale 0.1.0

@@ -31,6 +31,7 @@ from mandara.llm.claude.model import ClaudeModel
 from mandara.modeler.llm import InvalidAnswerError
 from mandara.modeler.writer import EmptyLedgerError
 from mandara.omstore.document_store import DocumentLoadError, PrimerExistsError
+from mandara.omstore.pack_store import PackExistsError, PackLoadError
 from mandara.llm.decision import BudgetedDecisionModel, Choice, DecisionRequest
 from mandara.llm.model import Budget, BudgetedModel, LlmError, StructuredRequest, summarize
 from mandara.llm.typesafe.model import JevModel
@@ -58,7 +59,8 @@ _KNOWN_ERRORS = (SourceError, OmLoadError, InvalidClaimsError, LedgerRefusedErro
                  InvalidOntologyError, OntologyWriteRefusedError, InvalidInputError, InvalidForScoringError,
                  ReviewError, LedgerMismatchError, BulkThresholdError, UsageError, LlmError, SettingsError,
                  UnknownPricingError, InvalidDeclarationError, DocumentLoadError, PrimerExistsError, InvalidAnswerError,
-                 pipeline.PrimerMissingError, pipeline.InvalidPrimerError, EmptyLedgerError)
+                 pipeline.PrimerMissingError, pipeline.InvalidPrimerError, EmptyLedgerError, PackLoadError,
+                 PackExistsError, pipeline.InvalidPackError)
 """データ・ファイル・操作に原因のある失敗。これ以外（モデラーの出力が検証を通らない InvalidProposalError、
 pydantic の ValidationError など）はバグなので、捕まえずにトレースバックごと落とす。"""
 
@@ -120,12 +122,14 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--gold", type=Path, help="正解 OM のディレクトリ（あれば評価する）")
     p.add_argument("--llm", action="store_true", help="LLM で推論する（.env の設定、1 回の予算の範囲で）")
     p.add_argument("--docs", type=Path, help="スキーマコンテキスト（世界）の文書の置き場所。そこの手引き（write-primer で書く）から、表ごとに背景を足す（--llm のとき）")
+    p.add_argument("--pack", type=Path, help="知識パックの置き場所（packs/<name>）。パックの意味型を語彙に入れて推論する（--llm のとき）")
     p.add_argument("--env", type=Path, default=Path(".env"), help="LLM の設定のファイル（既定 .env）。環境変数が優先")
     p.set_defaults(handler=_run)
 
     p = commands.add_parser("refine", help="提案した OM を LLM で詰める（.env の設定、1 回の予算の範囲で）")
     source_args(p)
     p.add_argument("--docs", type=Path, help="スキーマコンテキスト（世界）の文書の置き場所。そこの手引き（write-primer で書く）から、表ごとに背景を足す")
+    p.add_argument("--pack", type=Path, help="知識パックの置き場所（packs/<name>）。パックの意味型を語彙に入れて推論する")
     p.add_argument("--first", action="append", default=[], metavar="SCHEMA.TABLE", help="先に問う表（繰り返し指定）")
     p.add_argument("--env", type=Path, default=Path(".env"))
     p.set_defaults(handler=_refine)
@@ -135,6 +139,16 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--docs", type=Path, required=True, help="スキーマコンテキスト（世界）の文書の置き場所")
     p.add_argument("--env", type=Path, default=Path(".env"))
     p.set_defaults(handler=_write_primer)
+
+    p = commands.add_parser("write-pack", help="パック書き手：手引き（<docs>/primer.yaml）から業界の語彙を下書きし、知識パックを書く")
+    p.add_argument("--docs", type=Path, required=True, help="手引きのある文書の置き場所")
+    p.add_argument("--pack", type=Path, required=True, help="書くパックの置き場所（packs/<name>。無いこと）")
+    p.add_argument("--name", required=True, help="パックの名前（小文字・数字・-）")
+    p.add_argument("--version", default="0.1.0")
+    p.add_argument("--description", required=True, help="パックのひと言（どの業界の語彙か）")
+    p.add_argument("--work", type=Path, default=Path("work"), help="記録を書く作業領域（<work>/packs/。既定 work）")
+    p.add_argument("--env", type=Path, default=Path(".env"))
+    p.set_defaults(handler=_write_pack)
 
     p = commands.add_parser("extract", help="カタログを読み、主張台帳を作り直す")
     source_args(p)
@@ -155,6 +169,11 @@ def _parser() -> argparse.ArgumentParser:
     source_args(p)
     p.add_argument("--gold", type=Path, required=True)
     p.set_defaults(handler=_eval)
+
+    p = commands.add_parser("eval-calibration", help="提案の確信度が、正解と突き合わせてどれだけ当たっているか（帯ごと）")
+    source_args(p)
+    p.add_argument("--gold", type=Path, required=True)
+    p.set_defaults(handler=_eval_calibration)
 
     p = commands.add_parser("eval-joins", help="提案した OM の結合を、元の DB で宣言されていた外部キーと突き合わせる（T2.2）")
     source_args(p)
@@ -234,11 +253,13 @@ def _run(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
     started = time.monotonic()
     if args.docs is not None and not args.llm:
         raise UsageError("--docs は --llm のときだけ使う（背景は推論の材料）")
+    if args.pack is not None and (not args.llm or args.docs is None):
+        raise UsageError("--pack は --llm と --docs のときだけ使う（表ごとの選択肢を、手引きを読むコーディネーターが絞る）")
     llm = _llm(args.env) if args.llm else None
     result = pipeline.run(workspace, _reader(args), _values(args), PostgresCoverageReader(args.conninfo),
                           PostgresInclusionReader(args.conninfo), PostgresUniquenessReader(args.conninfo),
                           _sampler(args), scope, args.gold, _now,
-                          llm[0] if llm else None, args.docs)
+                          llm[0] if llm else None, args.docs, args.pack)
     _extract_line(out, style, result.extracted)
     _propose_line(out, style, result.proposed)
     if result.refined is not None and llm is not None:
@@ -276,6 +297,17 @@ def _propose(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
 
 def _eval(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
     _scoreboard(out, style, pipeline.evaluate(_workspace(args), args.gold), args.gold)
+    return 0
+
+
+def _eval_calibration(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
+    calibration = pipeline.evaluate_calibration(_workspace(args), args.gold)
+    for aspect, bins in calibration.aspects.items():
+        cells: list[str] = []
+        for b in bins:
+            rate = f"{b.correct / b.proposed * 100:.0f}%" if b.proposed else "—"
+            cells.append(f"{b.low:.2f}–{b.high:.2f} {b.correct}/{b.proposed} {rate}")
+        print(f"  {style.dim(f'{aspect:<12}')}{' · '.join(cells)}", file=out)
     return 0
 
 
@@ -467,7 +499,10 @@ def _serve(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
 def _refine(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
     inference, settings = _llm(args.env)
     primer = pipeline.read_primer(args.docs) if args.docs is not None else None
-    refined = pipeline.refine(_workspace(args), inference.model, inference.decider, args.first, primer)
+    if args.pack is not None and args.docs is None:
+        raise UsageError("--pack は --docs のときだけ使う（表ごとの選択肢を、手引きを読むコーディネーターが絞る）")
+    knowledge = pipeline.read_pack(args.pack) if args.pack is not None else None
+    refined = pipeline.refine(_workspace(args), inference.model, inference.decider, args.first, primer, knowledge)
     _refine_line(out, style, refined, inference, settings)
     return 0
 
@@ -486,6 +521,20 @@ def _write_primer(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
     return 0
 
 
+def _write_pack(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
+    inference, settings = _llm(args.env)
+    done = pipeline.write_pack_for(args.docs, args.pack, args.name, args.version, args.description, inference.model, _now,
+                                   args.work / "packs")
+    types = done.vocabulary.semantic_types or {}
+    by_type = Counter(str(t.type) for t in types.values())
+    print(f"  {style.dim('pack')}      意味型 {len(types)}（{' · '.join(f'{k} {n}' for k, n in by_type.most_common())}） · "
+          f"落とした {len(done.dropped)}  ¥{inference.budget.spent_usd * settings.jpy_per_usd:.2f}", file=out)
+    for d in done.dropped:
+        print(style.dim(f"            {d.item}: {d.reason}"), file=out)
+    print(f"  {style.dim('wrote')}     {done.path}  {style.dim(f'record {done.record}')}", file=out)
+    return 0
+
+
 def _refine_line(out: TextIO, style: _Style, refined: pipeline.Refined, inference: pipeline.Inference,
                  settings: LlmSettings) -> None:
     counts: dict[str, int] = {}
@@ -497,6 +546,10 @@ def _refine_line(out: TextIO, style: _Style, refined: pipeline.Refined, inferenc
           f"¥{spent * settings.jpy_per_usd:.2f} / ¥{settings.budget_jpy:g}", file=out)
     if refined.primer is not None:
         print(f"  {style.dim('primer')}    表ごとの背景の材料：{refined.primer}", file=out)
+    if refined.pack is not None:
+        print(f"  {style.dim('pack')}      {refined.pack}：列に使われた意味型 {len(refined.pack_used)} · "
+              f"使われず外した {len(refined.pack_unused)}"
+              + (f" · OM の名前を残した {len(refined.pack_kept)}" if refined.pack_kept else ""), file=out)
     if refined.keys:
         chosen = sum(1 for o in refined.keys if o.chosen is not None)
         failed = sum(1 for o in refined.keys if o.status == "failed")

@@ -222,6 +222,16 @@
             "additionalProperties": false,
             "description": "\u30bd\u30fc\u30b9\u306b\u3064\u3044\u3066\u306e\u4e3b\u5f35\u3002id \u306f\u5185\u5bb9\uff08subject\u3001predicate\u3001\u5024\u306e\u30d5\u30a3\u30fc\u30eb\u30c9\u3001source\uff09\u304b\u3089\u6c7a\u307e\u308a\u3001 \u62bd\u51fa\u5668\u306e\u7248\u30fb\u78ba\u4fe1\u5ea6\u30fb\u5b9f\u884c\u6642\u523b\u306b\u306f\u4f9d\u5b58\u3057\u306a\u3044\u3002\u518d\u751f\u6210\u3057\u3066\u3082\u540c\u3058 id \u306b\u306a\u308b",
             "properties": {
+                "allowed_values": {
+                    "description": "allows_values \u306e\u5024\u306e\u4e00\u89a7\uff08CHECK \u306e\u5b9a\u6570\u3092\u30bd\u30fc\u30b9\u306e\u66f8\u304d\u65b9\u306e\u6587\u5b57\u5217\u3067\u3002\u9806\u306f CHECK \u306e\u307e\u307e\uff09",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
                 "baseline": {
                     "description": "resembles\uff1a\u540c\u3058\u6bcd\u96c6\u56e3\u306a\u3089\u3053\u306e\u304f\u3089\u3044\u3001\u3068\u3044\u3046\u57fa\u6e96\u306e\u5024\uff08\u4fe1\u53f7\u3054\u3068\u306b\u610f\u5473\u304c\u6c7a\u307e\u308b\uff09",
                     "type": [
@@ -491,6 +501,13 @@
                         "integer",
                         "null"
                     ]
+                },
+                "values_normalized": {
+                    "description": "allows_values \u3067\u3001CHECK \u304c\u5217\u3092\u578b\u5909\u63db\u304b\u5927\u6587\u5b57\u5c0f\u6587\u5b57\u306e\u63c3\u3048\u3092\u3057\u3066\u304b\u3089\u6bd4\u3079\u3066\u3044\u308b\uff08\u5217\u306e\u5024\u305d\u306e\u3082\u306e\u306f\u4e00\u89a7\u306b\u9650\u3089\u308c\u305a\u3001 \u63c3\u3048\u305f\u5f8c\u306e\u5024\u304c\u4e00\u89a7\u306e\u3069\u308c\u304b\uff09",
+                    "type": [
+                        "boolean",
+                        "null"
+                    ]
                 }
             },
             "required": [
@@ -542,6 +559,7 @@
                 "included_in",
                 "unique_in_data",
                 "shaped_as",
+                "allows_values",
                 "resembles"
             ],
             "title": "ClaimPredicate",
@@ -2050,6 +2068,41 @@
             "title": "OntologySourceKind",
             "type": "string"
         },
+        "PackManifest": {
+            "additionalProperties": false,
+            "description": "\u77e5\u8b58\u30d1\u30c3\u30af\u306e\u76ee\u9332\uff08packs/<name>/pack.yaml\u3002\u4ed5\u69d8 16.3\uff09\u3002\u4eca\u306f\u8a9e\u5f59\uff08packs/<name>/vocabulary.yaml\uff09\u3060\u3051\u3092\u5bc4\u4e0e\u3059\u308b\u3002 \u30d1\u30c3\u30af\u66f8\u304d\u624b\u304c\u624b\u5f15\u304d\u304b\u3089\u4e0b\u66f8\u304d\u3057\u3001\u4eba\u304c\u8aad\u3093\u3067\u76f4\u3059\uff08\u3042\u308c\u3070\u4e0a\u66f8\u304d\u3057\u306a\u3044\uff09",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                    "type": "string"
+                },
+                "primer_sha256": {
+                    "description": "\u4e0b\u66f8\u304d\u306e\u6750\u6599\u306b\u3057\u305f\u624b\u5f15\u304d\u306e\u30d5\u30a1\u30a4\u30eb\u306e sha256\uff08\u4eba\u304c\u66f8\u3044\u305f\u306a\u3089\u7121\u3044\uff09",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "version": {
+                    "type": "string"
+                },
+                "written_by": {
+                    "description": "\u4e0b\u66f8\u304d\u3057\u305f\u66f8\u304d\u624b\u3068 LLM\uff08\u4eba\u304c\u66f8\u3044\u305f\u306a\u3089\u4eba\u306e\u540d\u524d\uff09",
+                    "type": "string"
+                }
+            },
+            "required": [
+                "name",
+                "version",
+                "description",
+                "written_by"
+            ],
+            "title": "PackManifest",
+            "type": "object"
+        },
         "PointFailure": {
             "additionalProperties": false,
             "description": "",
@@ -2847,6 +2900,13 @@
                 "name": {
                     "type": "string"
                 },
+                "pack": {
+                    "description": "\u77e5\u8b58\u30d1\u30c3\u30af\uff08\u4ed5\u69d8 16\uff09\u304b\u3089\u5165\u3063\u305f\u610f\u5473\u578b\u306a\u3089\u3001\u305d\u306e\u30d1\u30c3\u30af\u306e\u540d\u524d\u3068\u7248\uff08\u4f8b \"bicycle-wholesale 0.1.0\"\uff09\u3002 \u30d1\u30c3\u30af\u3092\u5916\u3057\u305f\u3068\u304d\u4f55\u304c\u6d88\u3048\u308b\u304b\u3092\u8ffd\u3046\uff0816.5\uff09\u3002\u7121\u3051\u308c\u3070\u63a8\u8ad6\u306e\u4e2d\u3067\u540d\u4ed8\u3051\u305f\u610f\u5473\u578b",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
                 "requires_unit": {
                     "description": "true \u306a\u3089\u3001\u3053\u306e\u610f\u5473\u578b\u3092\u4f7f\u3046\u5217\u306f unit\uff08\u91cf\u3068\u5358\u4f4d\u306e\u7d44\u3001C5\uff09\u3092\u5ba3\u8a00\u3057\u306a\u3051\u308c\u3070\u306a\u3089\u306a\u3044",
                     "type": [
@@ -2907,6 +2967,13 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "pack": {
+                    "description": "\u77e5\u8b58\u30d1\u30c3\u30af\uff08\u4ed5\u69d8 16\uff09\u304b\u3089\u5165\u3063\u305f\u610f\u5473\u578b\u306a\u3089\u3001\u305d\u306e\u30d1\u30c3\u30af\u306e\u540d\u524d\u3068\u7248\uff08\u4f8b \"bicycle-wholesale 0.1.0\"\uff09\u3002 \u30d1\u30c3\u30af\u3092\u5916\u3057\u305f\u3068\u304d\u4f55\u304c\u6d88\u3048\u308b\u304b\u3092\u8ffd\u3046\uff0816.5\uff09\u3002\u7121\u3051\u308c\u3070\u63a8\u8ad6\u306e\u4e2d\u3067\u540d\u4ed8\u3051\u305f\u610f\u5473\u578b",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 },
                 "requires_unit": {
                     "description": "true \u306a\u3089\u3001\u3053\u306e\u610f\u5473\u578b\u3092\u4f7f\u3046\u5217\u306f unit\uff08\u91cf\u3068\u5358\u4f4d\u306e\u7d44\u3001C5\uff09\u3092\u5ba3\u8a00\u3057\u306a\u3051\u308c\u3070\u306a\u3089\u306a\u3044",

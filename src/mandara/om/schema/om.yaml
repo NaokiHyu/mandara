@@ -229,6 +229,11 @@ enums:
           一般化した上位の patterns と、それぞれに当たる見本の割合 pattern_shares。shape_level は MDL で選んだ一般化の段
           （1 = 文字の種類と長さ、2 = 文字の種類、3 = 文字の種類の集合）。
           値の文字列は入れない（共通の接頭辞のような定数も）
+      allows_values:
+        description: >-
+          列の値が一覧のどれかに限られる（CHECK 制約が 1 列の値の一覧。allowed_values。values_normalized なら、型変換か
+          大文字小文字を揃えた後の値が一覧のどれか）。カタログの宣言で、データの観測ではない。
+          enum の値の根拠になる（値の意味はコメントや名付けが決める）
       resembles:
         description: >-
           表の columns と target の target_columns の値の似かた（実データ。T2.6）：信号 method（名前と版）で測った値 score と、
@@ -399,6 +404,10 @@ classes:
       requires_unit:
         description: true なら、この意味型を使う列は unit（量と単位の組、C5）を宣言しなければならない
         range: boolean
+      pack:
+        description: >-
+          知識パック（仕様 16）から入った意味型なら、そのパックの名前と版（例 "bicycle-wholesale 0.1.0"）。
+          パックを外したとき何が消えるかを追う（16.5）。無ければ推論の中で名付けた意味型
       values:
         description: type が enum のときの値の一覧（C6）。値の集合はデータからではなく、宣言・証拠から決める
         range: EnumValue
@@ -649,6 +658,14 @@ classes:
         range: Unit
       discriminator:
         description: 区分の列の名前（target の列）
+      allowed_values:
+        description: allows_values の値の一覧（CHECK の定数をソースの書き方の文字列で。順は CHECK のまま）
+        multivalued: true
+      values_normalized:
+        description: >-
+          allows_values で、CHECK が列を型変換か大文字小文字の揃えをしてから比べている（列の値そのものは一覧に限られず、
+          揃えた後の値が一覧のどれか）
+        range: boolean
       discriminator_values:
         description: 区分の列の値（ソースの値の文字列表現。NULL は含めない）
         multivalued: true
@@ -764,6 +781,25 @@ classes:
         required: true
         inlined: true
         inlined_as_list: true
+
+  PackManifest:
+    tree_root: true
+    description: >-
+      知識パックの目録（packs/<name>/pack.yaml。仕様 16.3）。今は語彙（packs/<name>/vocabulary.yaml）だけを寄与する。
+      パック書き手が手引きから下書きし、人が読んで直す（あれば上書きしない）
+    attributes:
+      name:
+        required: true
+        pattern: "^[a-z][a-z0-9-]{0,62}$"
+      version:
+        required: true
+      description:
+        required: true
+      written_by:
+        description: 下書きした書き手と LLM（人が書いたなら人の名前）
+        required: true
+      primer_sha256:
+        description: 下書きの材料にした手引きのファイルの sha256（人が書いたなら無い）
 
   PrimerDocument:
     attributes:

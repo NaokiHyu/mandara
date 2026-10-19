@@ -214,6 +214,8 @@ export enum ClaimPredicate {
     unique_in_data = "unique_in_data",
     /** 列の値の形（実データ。T2.6）：NULL を除いた異なる値 distinct_values 個のうち sampled_values 個の見本を、構文パターンに 一般化した上位の patterns と、それぞれに当たる見本の割合 pattern_shares。shape_level は MDL で選んだ一般化の段 （1 = 文字の種類と長さ、2 = 文字の種類、3 = 文字の種類の集合）。 値の文字列は入れない（共通の接頭辞のような定数も） */
     shaped_as = "shaped_as",
+    /** 列の値が一覧のどれかに限られる（CHECK 制約が 1 列の値の一覧。allowed_values。values_normalized なら、型変換か 大文字小文字を揃えた後の値が一覧のどれか）。カタログの宣言で、データの観測ではない。 enum の値の根拠になる（値の意味はコメントや名付けが決める） */
+    allows_values = "allows_values",
     /** 表の columns と target の target_columns の値の似かた（実データ。T2.6）：信号 method（名前と版）で測った値 score と、 同じ母集団ならこのくらいという基準 baseline。見本の数は sampled_values と target_sampled_values。 読み方（近いと言えるか）は信号ごとに決まる（mandara.resemblance.signals）。組の向きは名前の順で 1 つ */
     resembles = "resembles",
 };
@@ -377,6 +379,8 @@ export interface SemanticType {
     additivity?: string,
     /** true なら、この意味型を使う列は unit（量と単位の組、C5）を宣言しなければならない */
     requires_unit?: boolean,
+    /** 知識パック（仕様 16）から入った意味型なら、そのパックの名前と版（例 "bicycle-wholesale 0.1.0"）。 パックを外したとき何が消えるかを追う（16.5）。無ければ推論の中で名付けた意味型 */
+    pack?: string,
     /** type が enum のときの値の一覧（C6）。値の集合はデータからではなく、宣言・証拠から決める */
     values?: EnumValue[],
 }
@@ -538,6 +542,10 @@ export interface Claim {
     fixed_unit?: string,
     /** 区分の列の名前（target の列） */
     discriminator?: string,
+    /** allows_values の値の一覧（CHECK の定数をソースの書き方の文字列で。順は CHECK のまま） */
+    allowed_values?: string[],
+    /** allows_values で、CHECK が列を型変換か大文字小文字の揃えをしてから比べている（列の値そのものは一覧に限られず、 揃えた後の値が一覧のどれか） */
+    values_normalized?: boolean,
     /** 区分の列の値（ソースの値の文字列表現。NULL は含めない） */
     discriminator_values?: string[],
     /** included_in：表の columns の、NULL を除いた異なる値の数 */
@@ -598,6 +606,20 @@ export interface Primer {
     summary: string,
     entity_groups: PrimerGroup[],
     entries: PrimerEntry[],
+}
+
+
+/**
+ * 知識パックの目録（packs/<name>/pack.yaml。仕様 16.3）。今は語彙（packs/<name>/vocabulary.yaml）だけを寄与する。 パック書き手が手引きから下書きし、人が読んで直す（あれば上書きしない）
+ */
+export interface PackManifest {
+    name: string,
+    version: string,
+    description: string,
+    /** 下書きした書き手と LLM（人が書いたなら人の名前） */
+    written_by: string,
+    /** 下書きの材料にした手引きのファイルの sha256（人が書いたなら無い） */
+    primer_sha256?: string,
 }
 
 

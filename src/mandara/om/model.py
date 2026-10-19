@@ -365,6 +365,10 @@ class ClaimPredicate(str, Enum):
     """
     列の値の形（実データ。T2.6）：NULL を除いた異なる値 distinct_values 個のうち sampled_values 個の見本を、構文パターンに 一般化した上位の patterns と、それぞれに当たる見本の割合 pattern_shares。shape_level は MDL で選んだ一般化の段 （1 = 文字の種類と長さ、2 = 文字の種類、3 = 文字の種類の集合）。 値の文字列は入れない（共通の接頭辞のような定数も）
     """
+    allows_values = "allows_values"
+    """
+    列の値が一覧のどれかに限られる（CHECK 制約が 1 列の値の一覧。allowed_values。values_normalized なら、型変換か 大文字小文字を揃えた後の値が一覧のどれか）。カタログの宣言で、データの観測ではない。 enum の値の根拠になる（値の意味はコメントや名付けが決める）
+    """
     resembles = "resembles"
     """
     表の columns と target の target_columns の値の似かた（実データ。T2.6）：信号 method（名前と版）で測った値 score と、 同じ母集団ならこのくらいという基準 baseline。見本の数は sampled_values と target_sampled_values。 読み方（近いと言えるか）は信号ごとに決まる（mandara.resemblance.signals）。組の向きは名前の順で 1 つ
@@ -565,6 +569,7 @@ class SemanticType(ConfiguredBaseModel):
                        'AliasEntry',
                        'Table',
                        'Column',
+                       'PackManifest',
                        'PrimerDocument',
                        'PrimerGroup',
                        'DomainSummary',
@@ -574,11 +579,12 @@ class SemanticType(ConfiguredBaseModel):
                        'Instance',
                        'RelatedGroup',
                        'LinkGroup']} })
-    description: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'PrimerGroup']} })
+    description: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'PackManifest', 'PrimerGroup']} })
     type: ValueType = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'Edge', 'Relation']} })
     role: Optional[SemanticRole] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'Relation', 'InstanceLink']} })
     additivity: Optional[Additivity] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType']} })
     requires_unit: Optional[bool] = Field(default=None, description="""true なら、この意味型を使う列は unit（量と単位の組、C5）を宣言しなければならない""", json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType']} })
+    pack: Optional[str] = Field(default=None, description="""知識パック（仕様 16）から入った意味型なら、そのパックの名前と版（例 \"bicycle-wholesale 0.1.0\"）。 パックを外したとき何が消えるかを追う（16.5）。無ければ推論の中で名付けた意味型""", json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType']} })
     values: Optional[list[EnumValue]] = Field(default=None, description="""type が enum のときの値の一覧（C6）。値の集合はデータからではなく、宣言・証拠から決める""", json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType']} })
 
 
@@ -609,6 +615,7 @@ class AliasEntry(ConfiguredBaseModel):
                        'AliasEntry',
                        'Table',
                        'Column',
+                       'PackManifest',
                        'PrimerDocument',
                        'PrimerGroup',
                        'DomainSummary',
@@ -634,6 +641,7 @@ class Table(Annotation):
                        'AliasEntry',
                        'Table',
                        'Column',
+                       'PackManifest',
                        'PrimerDocument',
                        'PrimerGroup',
                        'DomainSummary',
@@ -732,6 +740,7 @@ class Column(Annotation):
                        'AliasEntry',
                        'Table',
                        'Column',
+                       'PackManifest',
                        'PrimerDocument',
                        'PrimerGroup',
                        'DomainSummary',
@@ -852,6 +861,8 @@ class Claim(ConfiguredBaseModel):
     encoding: Optional[SourceEncoding] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Column', 'Claim']} })
     fixed_unit: Optional[Unit] = Field(default=None, description="""固定の単位（amounts_in）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     discriminator: Optional[str] = Field(default=None, description="""区分の列の名前（target の列）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
+    allowed_values: Optional[list[str]] = Field(default=None, description="""allows_values の値の一覧（CHECK の定数をソースの書き方の文字列で。順は CHECK のまま）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
+    values_normalized: Optional[bool] = Field(default=None, description="""allows_values で、CHECK が列を型変換か大文字小文字の揃えをしてから比べている（列の値そのものは一覧に限られず、 揃えた後の値が一覧のどれか）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     discriminator_values: Optional[list[str]] = Field(default=None, description="""区分の列の値（ソースの値の文字列表現。NULL は含めない）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     distinct_values: Optional[int] = Field(default=None, description="""included_in：表の columns の、NULL を除いた異なる値の数""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
     matched_values: Optional[int] = Field(default=None, description="""included_in：そのうち target の target_columns にある値の数""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['Claim']} })
@@ -901,11 +912,50 @@ class Primer(ConfiguredBaseModel):
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'tree_root': True})
 
-    written_by: str = Field(default=..., description="""書いたライターと LLM（例 \"writer 0.1 (claude-haiku-5-5)\"）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Primer']} })
+    written_by: str = Field(default=..., description="""書いたライターと LLM（例 \"writer 0.1 (claude-haiku-5-5)\"）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Primer', 'PackManifest']} })
     documents: list[PrimerDocument] = Field(default=..., description="""書いたときに読んだ文書（名前の順）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Primer']} })
     summary: str = Field(default=..., description="""世界の要約（業種、業務の流れ、規模）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Primer']} })
     entity_groups: list[PrimerGroup] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Primer', 'DomainIndex']} })
     entries: list[PrimerEntry] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Primer']} })
+
+
+class PackManifest(ConfiguredBaseModel):
+    """
+    知識パックの目録（packs/<name>/pack.yaml。仕様 16.3）。今は語彙（packs/<name>/vocabulary.yaml）だけを寄与する。 パック書き手が手引きから下書きし、人が読んで直す（あれば上書きしない）
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'tree_root': True})
+
+    name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType',
+                       'AliasEntry',
+                       'Table',
+                       'Column',
+                       'PackManifest',
+                       'PrimerDocument',
+                       'PrimerGroup',
+                       'DomainSummary',
+                       'HiddenTable',
+                       'DomainRows',
+                       'Within',
+                       'Instance',
+                       'RelatedGroup',
+                       'LinkGroup']} })
+    version: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['PackManifest']} })
+    description: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'PackManifest', 'PrimerGroup']} })
+    written_by: str = Field(default=..., description="""下書きした書き手と LLM（人が書いたなら人の名前）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Primer', 'PackManifest']} })
+    primer_sha256: Optional[str] = Field(default=None, description="""下書きの材料にした手引きのファイルの sha256（人が書いたなら無い）""", json_schema_extra = { "linkml_meta": {'domain_of': ['PackManifest']} })
+
+    @field_validator('name')
+    def pattern_name(cls, v):
+        pattern=re.compile(r"^[a-z][a-z0-9-]{0,62}$")
+        if isinstance(v, list):
+            for element in v:
+                if isinstance(element, str) and not pattern.search(element):
+                    err_msg = f"Invalid name format: {element}"
+                    raise ValueError(err_msg)
+        elif isinstance(v, str) and not pattern.search(v):
+            err_msg = f"Invalid name format: {v}"
+            raise ValueError(err_msg)
+        return v
 
 
 class PrimerDocument(ConfiguredBaseModel):
@@ -915,6 +965,7 @@ class PrimerDocument(ConfiguredBaseModel):
                        'AliasEntry',
                        'Table',
                        'Column',
+                       'PackManifest',
                        'PrimerDocument',
                        'PrimerGroup',
                        'DomainSummary',
@@ -937,6 +988,7 @@ class PrimerGroup(ConfiguredBaseModel):
                        'AliasEntry',
                        'Table',
                        'Column',
+                       'PackManifest',
                        'PrimerDocument',
                        'PrimerGroup',
                        'DomainSummary',
@@ -946,7 +998,7 @@ class PrimerGroup(ConfiguredBaseModel):
                        'Instance',
                        'RelatedGroup',
                        'LinkGroup']} })
-    description: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'PrimerGroup']} })
+    description: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SemanticType', 'PackManifest', 'PrimerGroup']} })
 
 
 class PrimerEntry(ConfiguredBaseModel):
@@ -1179,6 +1231,7 @@ class DomainSummary(ConfiguredBaseModel):
                        'AliasEntry',
                        'Table',
                        'Column',
+                       'PackManifest',
                        'PrimerDocument',
                        'PrimerGroup',
                        'DomainSummary',
@@ -1223,6 +1276,7 @@ class HiddenTable(ConfiguredBaseModel):
                        'AliasEntry',
                        'Table',
                        'Column',
+                       'PackManifest',
                        'PrimerDocument',
                        'PrimerGroup',
                        'DomainSummary',
@@ -1273,6 +1327,7 @@ class Within(ConfiguredBaseModel):
                        'AliasEntry',
                        'Table',
                        'Column',
+                       'PackManifest',
                        'PrimerDocument',
                        'PrimerGroup',
                        'DomainSummary',
@@ -1354,6 +1409,7 @@ class Instance(ConfiguredBaseModel):
                        'AliasEntry',
                        'Table',
                        'Column',
+                       'PackManifest',
                        'PrimerDocument',
                        'PrimerGroup',
                        'DomainSummary',
@@ -1471,6 +1527,7 @@ class DomainRows(GroupProfile):
                        'AliasEntry',
                        'Table',
                        'Column',
+                       'PackManifest',
                        'PrimerDocument',
                        'PrimerGroup',
                        'DomainSummary',
@@ -1540,6 +1597,7 @@ class RelatedGroup(GroupProfile):
                        'AliasEntry',
                        'Table',
                        'Column',
+                       'PackManifest',
                        'PrimerDocument',
                        'PrimerGroup',
                        'DomainSummary',
@@ -1602,6 +1660,7 @@ class LinkGroup(GroupProfile):
                        'AliasEntry',
                        'Table',
                        'Column',
+                       'PackManifest',
                        'PrimerDocument',
                        'PrimerGroup',
                        'DomainSummary',
@@ -1770,6 +1829,7 @@ ClaimFile.model_rebuild()
 Claim.model_rebuild()
 SourceDeclarations.model_rebuild()
 Primer.model_rebuild()
+PackManifest.model_rebuild()
 PrimerDocument.model_rebuild()
 PrimerGroup.model_rebuild()
 PrimerEntry.model_rebuild()

@@ -25,7 +25,7 @@ from mandara.evaluation import joins as joins_evaluation
 from mandara.evaluation.joins import JoinScore
 from mandara.evaluation import keys as keys_evaluation
 from mandara.evaluation import resemblance as resemblance_evaluation
-from mandara.evaluation.score import Report, score
+from mandara.evaluation.score import Calibration, Report, calibrate, score
 from mandara.extractors import catalog as catalog_extractor
 from mandara.extractors import declarations as declaration_extractor
 from mandara.extractors import joins as joins_extractor
@@ -52,13 +52,15 @@ from mandara.modeler import nameless_joins
 from mandara.modeler import same_meaning
 from mandara.modeler import rules as modeler
 from mandara.modeler import coordinator, writer
+from mandara.modeler import pack as pack_modeler
 from mandara.om.invariants import Violation, check
 from mandara.om.encoding_traits import ENCODING_TARGETS
-from mandara.om.model import (Claim, Primer, ClaimPredicate, ReviewStatus, SemanticType, SourceRef, Table, TypeFamily, Unit,
+from mandara.om.model import (Claim, PackManifest, Primer, Vocabulary, ClaimPredicate, ReviewStatus, SemanticType, SourceRef, Table, TypeFamily, Unit,
                               ValueType)
 from mandara.om.names import qualify, split_qualified
 from mandara.om.ontology import Ontology
 from mandara.omstore.declaration_store import load_declarations
+from mandara.omstore.pack_store import LoadedPack, PackExistsError, load_pack, write_pack
 from mandara.omstore.document_store import (LoadedPrimer, PrimerExistsError, load_primer, primer_path, read_documents,
                                             write_primer)
 from mandara.omstore.claim_store import load_claim_ledger, load_ledger_scope, write_claim_ledger
@@ -350,6 +352,11 @@ def evaluate(workspace: Workspace, gold: Path) -> Report:
     return report
 
 
+def evaluate_calibration(workspace: Workspace, gold: Path) -> Calibration:
+    """提案した OM の確信度が、正解と突き合わせてどれだけ当たっているか（帯ごと）。書かない（見るだけ）。"""
+    return calibrate(load_ontology(workspace.ontology), load_ontology(gold))
+
+
 def evaluate_joins(workspace: Workspace, truth: CatalogReader, scope: Scope) -> JoinScore:
     """提案した OM の結合を、元の DB で宣言されていた外部キーと突き合わせる（T2.2。範囲は scope の表だけ）。"""
     ontology = load_ontology(workspace.ontology)
@@ -497,6 +504,14 @@ class Refined:
     """値の似た列の組が同じ意味かを問うた結果（表の分類の後。T2.6）。None は、その段まで来なかった（止めた）。"""
     primer: str | None = None
     """使った手引き（書き手と、ファイルの sha256）。None は手引きなし（背景を足していない）。"""
+    pack: str | None = None
+    """使った知識パック（名前と版と sha256）。None はパックなし。"""
+    pack_used: tuple[str, ...] = ()
+    """列に使われたパックの意味型。"""
+    pack_unused: tuple[str, ...] = ()
+    """どの列にも使われず、語彙から外したパックの意味型。"""
+    pack_kept: tuple["llm_modeler.Dropped", ...] = ()
+    """OM にもう同じ名前があり、入れなかったパックの意味型（OM のものを残した）。"""
 
 
 @dataclass(frozen=True)
@@ -588,18 +603,37 @@ class _TableFailed(Exception):
 
 
 def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, first: Sequence[str] = (),
-           primer: LoadedPrimer | None = None) -> Refined:
+           primer: LoadedPrimer | None = None, knowledge: LoadedPack | None = None) -> Refined:
     """v0 の提案を、表ごとに詰める。分類は判断モデル、名前と文は LLM（T3.7）。first に挙げた表（名前）を先に問う。
 
     答えを得られなかった表は記録して次へ。予算の上限や見積もりの崩れでは、そこで止めて残りは v0 のまま。
     結果の OM は検証を通したうえで書く（人の判断を含む OM は上書きしない）。
     """
-    refined = _refine(workspace, model, decider, first, primer)
-    return refined if primer is None else replace(refined, primer=f"{primer.primer.written_by} sha256 {primer.sha256}")
+    if knowledge is not None and primer is None:
+        raise ValueError("知識パックは手引きと一緒に使う（表ごとの選択肢をコーディネーターが絞る）")
+    if knowledge is not None and (problems := pack_modeler.check(knowledge.vocabulary, knowledge.manifest)):
+        raise InvalidPackError(f"パックが決まりに合わない（{pack_modeler.label(knowledge.manifest)}）: " + "; ".join(problems[:5]))
+    kept = pack_modeler.merge(load_ontology(workspace.ontology), knowledge.vocabulary).kept if knowledge else ()
+    refined = _refine(workspace, model, decider, first, primer, knowledge)
+    if primer is not None:
+        refined = replace(refined, primer=f"{primer.primer.written_by} sha256 {primer.sha256}")
+    if knowledge is not None:  # どの列にも使われなかったパックの意味型を外す（語彙を膨らませない）
+        name = pack_modeler.label(knowledge.manifest)
+        pruned, unused = pack_modeler.prune(load_ontology(workspace.ontology), name)
+        if unused:
+            write_ontology(workspace.ontology, pruned)
+        refined = replace(refined, pack=f"{name} sha256 {knowledge.sha256}", pack_unused=unused, pack_kept=kept,
+                          pack_used=tuple(sorted(pack_modeler.used_types(pruned) & {
+                              n for n, t in (pruned.vocabulary.semantic_types or {}).items() if t.pack == name})))
+    return refined
+
+
+class InvalidPackError(Exception):
+    """知識パックが意味型の決まりに合わない（人が直したパック）。"""
 
 
 def _refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, first: Sequence[str],
-            primer: LoadedPrimer | None) -> Refined:
+            primer: LoadedPrimer | None, knowledge: LoadedPack | None) -> Refined:
     claims = load_claim_ledger(workspace.claims, workspace.source)
     ontology = load_ontology(workspace.ontology)
     # 問う前に止まる条件を確かめる（予算を使ってから書けない、とならないように）
@@ -617,6 +651,10 @@ def _refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, 
         raise LedgerMismatchError(f"主張台帳に無い表が OM にある（台帳を作り直したら、OM も作り直す）: {missing[:3]}")
     if primer is not None and (problems := writer.check_catalog(primer.primer, writer.overview(claims))):
         raise InvalidPrimerError("手引きの名前が台帳のカタログに無い（別の世界の手引き？）: " + "; ".join(problems[:5]))
+    if knowledge is not None:  # パックの意味型を語彙に入れる（分類器が既存の語彙として選べる。残した名前は refine が記録する）
+        ontology = pack_modeler.merge(ontology, knowledge.vocabulary).ontology
+        if violations := check(ontology):  # 問う前に止める（予算を使ってから書けない、とならないように）
+            raise InvalidPackError(f"パックを入れた OM が検証を通らない: {violations[:3]}")
     priority = {name: i for i, name in enumerate(first)}
     order = sorted(ontology.tables, key=lambda t: (priority.get(t.name, len(priority)), t.name))
     # 作者の区切り " + "（llm_modeler.AUTHOR_SEPARATOR）は使わない
@@ -802,18 +840,23 @@ def _ask_table(table: Table, table_claims: joins_modeler.InferenceClaims, ontolo
     background: coordinator.Background | None = None
     if primer is not None and (asked.request is not None or asked.new_only):
         coordinated: object = None
+        # パックの意味型（まだどの列にも使われていないものも含む）は、コーディネーターがこの表に関わるものを選ぶ
+        pack_types = {n: t for n, t in vocabulary.items() if t.pack is not None} or None
         try:
-            coordinated = model.ask(coordinator.request(primer, table.name, classify.state(table_claims))).data
-            background, dropped_terms = coordinator.read(coordinator.parse(coordinated), primer)
+            coordinated = model.ask(coordinator.request(primer, table.name, classify.state(table_claims),
+                                                        pack_types)).data
+            background, dropped_terms = coordinator.read(coordinator.parse(coordinated), primer, pack_types)
             notes += dropped_terms
             record["coordinate"] = {"coordinator": coordinator.COORDINATOR, "data": coordinated}
         except (BudgetExceededError, EstimateViolatedError):
             raise
         except (LlmError, llm_modeler.InvalidAnswerError) as e:
             record["coordinate"] = {"coordinator": coordinator.COORDINATOR, "data": coordinated, "error": failed("背景", e)}
-        if background is not None:
-            asked = classify.classify(table, table_claims, vocabulary, hints, shared, decider.max_options,
-                                      f"classify {table.name}", elsewhere_only=used - mine, background=background)
+        if background is not None:  # 選択肢のパックの意味型は、選んだものだけにする（選ばなかった表では全部のまま）
+            asked = classify.classify(table, table_claims,
+                                      pack_modeler.candidates(vocabulary, background.semantic_types), hints, shared,
+                                      decider.max_options, f"classify {table.name}", elsewhere_only=used - mine,
+                                      background=background)
     response = None
     if asked.request is not None:
         try:
@@ -834,6 +877,9 @@ def _ask_table(table: Table, table_claims: joins_modeler.InferenceClaims, ontolo
     new_types: list[llm_modeler.SemanticTypeAnswer] = []
     if new_columns:
         decided = classify.decided_lines(classified, table_claims, vocabulary)
+        # 名付け器が既存の名前を答えたとき、当ててよい意味型（判断モデルに出していない、列に当てられるもの）
+        reusable = classify.reusable_types(table, table_claims, vocabulary, asked, new_columns,
+                                           classify.routed_columns(classified), used - mine)
 
         def ask_naming(columns: Sequence[str], taken: Collection[str], purpose: str, key: str) -> classify.Named | None:
             """命名を 1 回問う。答えの形の崩れた意味型だけを理由つきで落とす。答えを得られなければ None（理由は記録）。"""
@@ -848,8 +894,8 @@ def _ask_table(table: Table, table_claims: joins_modeler.InferenceClaims, ontolo
                 record[key] = {"columns": list(columns), "data": data,
                                **({"broken": [{"item": d.item, "reason": d.reason} for d in parsed.broken]}
                                   if parsed.broken else {})}
-                read = classify.read_naming(parsed.answer, columns, taken)
-                return classify.Named(read.types, (*parsed.broken, *read.dropped))
+                read = classify.read_naming(parsed.answer, columns, taken, reusable)
+                return classify.Named(read.types, (*parsed.broken, *read.dropped), read.reused)
             except (BudgetExceededError, EstimateViolatedError):
                 raise
             except (LlmError, llm_modeler.InvalidAnswerError) as e:
@@ -875,6 +921,8 @@ def _ask_table(table: Table, table_claims: joins_modeler.InferenceClaims, ontolo
                 named = classify.merge_named(named, retry, missing)
         if named is not None:
             notes += named.dropped
+            for column, existing in named.reused:  # 既存の意味型を当てる（確信度は名付けた意味型と同じ上限）
+                classified.columns[column] = classify.Picked(existing, classify.NAMED_CONFIDENCE)
             props = classify.properties(table, table_claims, named, f"properties {table.name}", background)
             props_response = None
             if props.request is not None:
@@ -1253,6 +1301,44 @@ def write_primer_for(workspace: Workspace, docs: Path, model: LanguageModel, clo
 
 
 @dataclass(frozen=True)
+class WrittenPack:
+    path: Path
+    record: Path
+    """パック書き手の答え（そのまま）と落とした意味型の記録（<records>/<name>.<時刻>.json。git に乗せない）。"""
+    vocabulary: Vocabulary
+    dropped: tuple[llm_modeler.Dropped, ...]
+
+
+def write_pack_for(docs: Path, pack: Path, name: str, version: str, description: str, model: LanguageModel,
+                   clock: Clock, records: Path) -> WrittenPack:
+    """パック書き手：手引きから業界の語彙を下書きし、packs/<name>/ に書く（人が読んで直す）。手引きは読むときに確かめる
+    （read_primer）。パックがもうあれば、問う前に止める。答え（課金済み）は、崩れていても記録に残してから伝える。"""
+    if pack.exists():
+        raise PackExistsError(f"パックがもうある（作り直すなら消す）: {pack}")
+    loaded = read_primer(docs)
+    manifest = PackManifest(name=name, version=version, description=description,
+                            written_by=f"{pack_modeler.PACK_WRITER} ({model.model})", primer_sha256=loaded.sha256)
+    record = records / f"{pack.name}.{_utc(clock()).strftime('%Y%m%dT%H%M%S%fZ')}.json"
+    data: object = None
+    try:
+        data = model.ask(pack_modeler.request(loaded.primer)).data
+        vocabulary, dropped = pack_modeler.read(pack_modeler.parse(data), manifest)
+    except (LlmError, llm_modeler.InvalidAnswerError) as e:
+        write_json(record, {"data": data, "error": f"{type(e).__name__}: {e}"})
+        raise
+    write_json(record, {"data": data, "dropped": [{"item": d.item, "reason": d.reason} for d in dropped]})
+    return WrittenPack(write_pack(pack, manifest, vocabulary), record, vocabulary, dropped)
+
+
+def read_pack(pack: Path) -> LoadedPack:
+    """パックを読み、意味型の決まりを確かめる（人が直してよいファイル）。合わなければ誤り。"""
+    loaded = load_pack(pack)
+    if problems := pack_modeler.check(loaded.vocabulary, loaded.manifest):
+        raise InvalidPackError(f"パックが決まりに合わない（{pack}）: " + "; ".join(problems[:5]))
+    return loaded
+
+
+@dataclass(frozen=True)
 class RunResult:
     extracted: Extracted
     proposed: Proposed
@@ -1280,11 +1366,15 @@ class Inference:
 def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, coverage: CoverageReader,
         inclusion: InclusionReader, uniqueness: UniquenessReader, sampler: ValueSampler | None, scope: Scope,
         gold: Path | None, clock: Clock,
-        inference: Inference | None = None, docs: Path | None = None) -> RunResult:
+        inference: Inference | None = None, docs: Path | None = None, pack: Path | None = None) -> RunResult:
     """抽出 → 提案 → （LLM があれば）推論 → （正解があれば）評価を通しで行い、実行の記録を書く。失敗も記録してから伝える。"""
     if docs is not None and inference is None:
         raise ValueError("手引き（docs）は推論（inference）のときだけ使う")
+    if pack is not None and (inference is None or docs is None):
+        raise ValueError("知識パック（pack）は、推論（inference）と手引き（docs）があるときだけ使う（表ごとの選択肢を"
+                         "コーディネーターが絞る）")
     primer = read_primer(docs) if docs is not None else None  # 抽出の前に確かめる（無ければ、時間を使う前に止める）
+    knowledge = read_pack(pack) if pack is not None else None
     started = _utc(clock())
     log = _RunLog(workspace.runs / f"{started.strftime('%Y%m%dT%H%M%S%fZ')}.json", clock, {
         "status": "running",
@@ -1299,7 +1389,7 @@ def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, cover
                      "twins_modeler": twins_modeler.MODELER,
                      "resemblance_extractor": resemblance_extractor.EXTRACTOR,
                      "same_meaning_modeler": same_meaning.MODELER, "writer": writer.WRITER,
-                     "coordinator": coordinator.COORDINATOR},
+                     "coordinator": coordinator.COORDINATOR, "pack_writer": pack_modeler.PACK_WRITER},
         "completed": [],
     })
     with log.stage("extract"):
@@ -1323,7 +1413,7 @@ def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, cover
         with log.stage("refine"):
             first = [t.name for t in load_ontology(gold).tables] if gold is not None else []
             try:
-                refined = refine(workspace, inference.model, inference.decider, first, primer)
+                refined = refine(workspace, inference.model, inference.decider, first, primer, knowledge)
             finally:
                 spends = inference.budget.spends
                 log.update(llm={"model": inference.model.model, "decision_model": inference.decider.model,
@@ -1331,7 +1421,9 @@ def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, cover
                                 "by_model": {m: summarize([s for s in spends if s.model == m])
                                              for m in sorted({s.model for s in spends})}})
             log.update(refine={
-                "primer": refined.primer,
+                "primer": refined.primer, "pack": refined.pack, "pack_used": list(refined.pack_used),
+                "pack_unused": list(refined.pack_unused),
+                "pack_kept": [{"item": d.item, "reason": d.reason} for d in refined.pack_kept],
                 "stopped": refined.stopped, "not_reached": list(refined.not_reached),
                 "outcomes": dict(sorted(Counter(o.status for o in refined.outcomes).items())),
                 "stage_failures": sum(len(o.stage_failures) for o in refined.outcomes),

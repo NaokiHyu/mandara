@@ -19,10 +19,10 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from mandara.llm.model import StructuredRequest
 from mandara.modeler.llm import Dropped, InvalidAnswerError
 from mandara.modeler.llm import data_text as _q
-from mandara.om.model import Primer
+from mandara.om.model import Primer, SemanticType
 from mandara.om.names import split_qualified
 
-COORDINATOR = "coordinator 0.1"
+COORDINATOR = "coordinator 0.2"
 """表の背景の組み立て手。問い方や確かめ方を変えたら版を上げる。"""
 BACKGROUND_SENTENCES = 6
 """背景の文の数の目安（問いに書く。字数の指定は守られないが、文の数はおおむね守られる）。"""
@@ -40,7 +40,9 @@ answer tool.
   business described by the primer, what a table of that kind usually holds (the things, events, amounts and dates),
   and how it usually relates to the other tables it references. Use only the primer and general industry knowledge.
   Write it as background, not as facts: never state what a particular column of this table holds.
-- terms: the terms of the primer's glossary that you used (exactly as written there)."""
+- terms: the terms of the primer's glossary that you used (exactly as written there).
+- semantic_types: when the data lists pack semantic types, the names of those that columns of this table may hold
+  (exactly as written there; include every plausible one, usually 10 to 40). Otherwise an empty list."""
 
 
 class _Strict(BaseModel):
@@ -50,15 +52,21 @@ class _Strict(BaseModel):
 class BackgroundAnswer(_Strict):
     background: str = Field(min_length=1, max_length=BACKGROUND_MAX_CHARS)
     terms: list[str]
+    semantic_types: list[str]
 
 
-def request(primer: Primer, table: str, state: Mapping[str, object]) -> StructuredRequest:
+def request(primer: Primer, table: str, state: Mapping[str, object],
+            pack_types: Mapping[str, SemanticType] | None = None) -> StructuredRequest:
+    """pack_types があれば、その表の列が持ちうるものを選ばせる（分類の選択肢を絞る。mandara.modeler.pack.candidates）。"""
     schema = split_qualified(table)[0]
     lines = ["<data>", "primer:", f"- summary {_q(primer.summary)}"]
     lines += [f"- entity group {_q(g.name)}: {_q(g.description)}" for g in primer.entity_groups if g.name == schema]
     lines.append("- glossary:")
     lines += [f"  - term {_q(e.term)}: {_q(e.meaning)}; tables {', '.join(map(_q, e.tables)) or '(none)'}"
               for e in primer.entries]
+    if pack_types:
+        lines.append("pack semantic types:")
+        lines += [f"- {_q(n)} ({t.type}): {_q(t.description or '')}" for n, t in sorted(pack_types.items())]
     lines.append(f"table state: {_q(json.dumps(state, ensure_ascii=False, sort_keys=True))}")
     lines.append("</data>")
     return StructuredRequest(purpose=f"coordinate {table}", system=SYSTEM, prompt="\n".join(lines),
@@ -77,13 +85,23 @@ class Background:
     text: str
     terms: tuple[str, ...]
     """使った手引きの用語（手引きにあるものだけ）。"""
+    semantic_types: tuple[str, ...] | None = None
+    """選んだパックの意味型（渡したものだけ）。None はパックの意味型を渡していない（絞らない）。"""
 
 
-def read(answer: BackgroundAnswer, primer: Primer) -> tuple[Background, tuple[Dropped, ...]]:
+def read(answer: BackgroundAnswer, primer: Primer,
+         pack_types: Mapping[str, SemanticType] | None = None) -> tuple[Background, tuple[Dropped, ...]]:
     known = {e.term for e in primer.entries}
-    dropped = tuple(Dropped(f"term {t}", "手引きに無い用語") for t in answer.terms if t not in known)
+    dropped = [Dropped(f"term {t}", "手引きに無い用語") for t in answer.terms if t not in known]
     terms = tuple(dict.fromkeys(t for t in answer.terms if t in known))
-    return Background(answer.background.strip(), terms), dropped
+    selected: tuple[str, ...] | None = None
+    if pack_types:
+        dropped += [Dropped(f"pack type {t}", "渡したパックの意味型に無い") for t in answer.semantic_types
+                    if t not in pack_types]
+        selected = tuple(dict.fromkeys(t for t in answer.semantic_types if t in pack_types))
+    elif answer.semantic_types:
+        dropped.append(Dropped("pack types", "パックの意味型を渡していないのに選んだ（使わない）"))
+    return Background(answer.background.strip(), terms, selected), tuple(dropped)
 
 
 def with_background(material: Mapping[str, object], background: Background | None) -> dict[str, object]:

@@ -311,6 +311,9 @@ def claims(
     if "discriminator" in shape.fields:
         payload["discriminator"] = draw(column_names)
         payload["discriminator_values"] = draw(st.lists(texts, min_size=1, max_size=3))
+    if "allowed_values" in shape.fields:  # CHECK の値の一覧
+        payload["allowed_values"] = draw(st.lists(texts, min_size=1, max_size=4))
+        payload["values_normalized"] = draw(st.booleans())
     if "fixed_unit" in shape.fields:
         payload["fixed_unit"] = draw(st.sampled_from(tuple(Unit)))
     if "encoding" in shape.fields:

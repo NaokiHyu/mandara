@@ -472,3 +472,65 @@ def test_a_retry_names_only_the_missing_columns_and_clears_their_reasons() -> No
     reasons = [(d.item, d.reason) for d in merged.dropped]
     assert ("column b", "命名の答えに無い") not in reasons  # 問い直しで名前が付いた
     assert ("column c", "命名の答えに無い") in reasons and any("既存の語彙の名前" in r for i, r in reasons if i == "column c")
+
+
+@given(st.lists(st.tuples(st.sampled_from(["a_id", "b_id", "product_id", "order_date"]),
+                          st.lists(st.sampled_from(["x", "y", "z", "w"]), max_size=3)), max_size=4),
+       st.dictionaries(st.sampled_from(["x", "y", "z"]), st.sets(st.sampled_from(["product_id", "order_date"]))))
+def test_an_existing_name_is_reused_only_where_it_is_allowed(types: list[tuple[str, list[str]]],
+                                                               reusable: dict[str, set[str]]) -> None:
+    """法則：問うた列は、新しい名前か、使ってよい既存の名前のどちらか 1 つを得るか、理由つきで落ちる。既存の名前を得るのは、
+    その列に使ってよい（reusable）名前だけ。"""
+    asked = ["x", "y", "z"]
+    answer = c.NamingAnswer(semantic_types=[c.NamedType(name=n, description="説明", columns=cols, values_evidence=[])
+                                            for n, cols in types])
+    named = c.read_naming(answer, asked, VOCABULARY, reusable)
+    assigned = [col for t in named.types for col in t.columns] + [col for col, _ in named.reused]
+    assert len(assigned) == len(set(assigned)) and set(assigned) <= set(asked)
+    assert all(name in reusable.get(col, set()) for col, name in named.reused)
+    assert all(t.name not in VOCABULARY for t in named.types)
+    dropped = {d.item for d in named.dropped}
+    for col in asked:
+        assert (col in assigned) != (f"column {col}" in dropped)
+    assert c.uncovered(named, asked) == [col for col in asked if col not in assigned]
+
+
+def test_pack_time_types_fit_only_the_precision_of_the_column() -> None:
+    day = SemanticType(name="sell_start_date", type=ValueType.date, pack="p 1")
+    moment = SemanticType(name="modified_date", type=ValueType.datetime, pack="p 1")
+    mine = SemanticType(name="order_date", type=ValueType.date)
+    assert not c.pack_fits(day, "timestamp") and c.pack_fits(moment, "timestamp")
+    assert c.pack_fits(day, "date") and not c.pack_fits(moment, "date")
+    assert c.pack_fits(mine, "timestamp")  # 推論の中で名付けた意味型は今のまま
+    assert c.pack_fits(SemanticType(name="unit_price", type=ValueType.money, pack="p 1"), "decimal")
+
+
+def test_offered_types_are_reusable_only_for_columns_the_decider_could_not_decide() -> None:
+    name = "sales.salesorderdetail"
+    asked = _asked(name)
+    assert asked.request is not None
+    column = next(k.removeprefix("column ") for k, q in asked.request.questions.items()
+                  if k.startswith("column ") and len(q.options) > 2)
+    offered = set(asked.request.questions[f"column {column}"].options) - {c.NEW, c.UNCLEAR}
+    firm = c.reusable_types(_table(name), _for(_claims(name)), VOCABULARY, asked, [column])
+    unsure = c.reusable_types(_table(name), _for(_claims(name)), VOCABULARY, asked, [column], routed=[column])
+    assert not firm[column] & offered and offered <= unsure[column]
+    classified = c.Classified(routed=[v1.Dropped(f"classify column {column}", "迷った"), v1.Dropped("classify kind", "x")])
+    assert c.routed_columns(classified) == {column}
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_reuse_never_brings_back_what_the_decider_was_offered_or_excluded(name: str) -> None:
+    """法則：迷っていない列で命名が使ってよい既存の意味型は、分類の選択肢と交わらず、選択肢から外した意味型（時刻の役割を
+    持ち込むもの）も含まない。"""
+    asked = _asked(name)
+    if asked.request is None:
+        return
+    columns = [k.removeprefix("column ") for k in asked.request.questions if k.startswith("column ")]
+    stamped = SemanticType(name="hire_date", type=ValueType.datetime, role="event_time")  # pyright: ignore[reportArgumentType]
+    vocabulary = {**VOCABULARY, "hire_date": stamped}
+    reusable = c.reusable_types(_table(name), _for(_claims(name)), vocabulary, asked, columns,
+                                elsewhere_only=["hire_date"])
+    for column in columns:
+        offered = set(asked.request.questions[f"column {column}"].options)
+        assert not reusable[column] & offered and "hire_date" not in reusable[column]

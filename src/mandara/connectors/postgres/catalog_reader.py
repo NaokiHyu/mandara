@@ -18,8 +18,10 @@ from typing import Any, LiteralString
 import psycopg
 from psycopg import IsolationLevel
 
+from mandara.connectors.postgres.check_values import allowed_values
 from mandara.om.model import ObjectKind, ReferentialAction, TypeFamily
 from mandara.source.catalog import (
+    AllowedValues,
     Catalog,
     Check,
     Column,
@@ -168,7 +170,9 @@ def _read(conn: psycopg.Connection[Any], scope: Scope) -> Catalog:
                     on_delete=_ACTIONS[on_delete], on_update=_ACTIONS[on_update],
                 ))
             case "c":
-                checks[oid].append(Check(name, expression))
+                listed = allowed_values(expression)
+                checks[oid].append(Check(name, expression, None if listed is None else AllowedValues(
+                    listed.column, listed.values, listed.normalized)))
             case _:
                 unsupported.append(Unsupported(f"constraint type {contype!r} ({name})", loc))
 

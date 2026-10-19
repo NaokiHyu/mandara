@@ -49,6 +49,7 @@ from mandara.om.model import (
     SemanticType,
     Table,
     TableKind,
+    TypeFamily,
     Unit,
     ValueType,
 )
@@ -56,7 +57,7 @@ from mandara.modeler.coordinator import Background, background_line, with_backgr
 from mandara.modeler.joins import InferenceClaims
 from mandara.modeler.resemblance import SHAPE_NOTATION, value_shape
 from mandara.om.names import qualify
-from mandara.om.value_types import UNIT_BEARING, assignable
+from mandara.om.value_types import UNIT_BEARING, assignable, misfit
 
 THRESHOLD = 0.6
 """これ未満の確信度の提案は出さない（仕様 6.3 の既定）。"""
@@ -190,6 +191,10 @@ def state(table_claims: InferenceClaims) -> dict[str, object]:
                 column["alias_type"] = c.type_name
             elif c.predicate == ClaimPredicate.shaped_as.value:
                 column["value_shape"] = value_shape(c)
+            elif c.predicate == ClaimPredicate.allows_values.value:
+                column["allowed_values"] = list(c.allowed_values or [])
+                if c.values_normalized:
+                    column["allowed_values_compared"] = "after case or type normalization"
         columns.append(column)
     out: dict[str, object] = {"table": _table_name(table_claims), "object": declared.object_kind}
     comments = [c.text for c in _by(table_claims, ClaimPredicate.described_as) if c.subject.column is None]
@@ -315,6 +320,37 @@ def _type_option(d: SemanticType) -> str:
     return f"{d.description} ({detail})" if d.description else detail
 
 
+_PACK_TIME_PRECISION: dict[str, str] = {TypeFamily.date.value: ValueType.date.value, TypeFamily.timestamp.value: ValueType.datetime.value}
+
+
+def offerable(d: SemanticType, family: str, encoding: str | None, listed: bool, elsewhere_only: Collection[str]) -> bool:
+    """列に当てうる既存の意味型か（分類の選択肢と、命名での再利用の両方がこれで決める）：値の型が列の型族と encoding に
+    両立し、別の表の行の時刻の役割を持ち込まず（brings_another_rows_role）、パックの意味型なら pack_fits。"""
+    return (d.type in assignable(family, encoding) and not brings_another_rows_role(d, elsewhere_only)
+            and pack_fits(d, family, listed))
+
+
+def listed_columns(table_claims: Sequence[Claim]) -> frozenset[str]:
+    """値の一覧が CHECK で決まっている列（allows_values）。"""
+    return frozenset(c.subject.column for c in _by(table_claims, ClaimPredicate.allows_values)
+                     if c.subject.column is not None)
+
+
+def pack_fits(d: SemanticType, family: str, listed: bool = False) -> bool:
+    """知識パックの意味型を列の選択肢に出してよいか。推論の中で名付けた意味型（pack が無い）は、列を見て決めているので今のまま。
+    - 値の一覧が CHECK で決まっている列（listed）には出さない。値の一覧は enum の意味型が持つもので、パックは enum を持たない
+      （業界の知識からは値の一覧を決めない。mandara.modeler.pack）。命名が値の一覧つきの意味型を名付ける
+    - 時刻の意味型は、列の型族の精度のものだけ（date の列に date、timestamp の列に datetime）。パックは業界の知識から値の型を
+      決めるので、日付か日時かはソースごとに違う（timestamp の列に date の意味型を当てると値の型を誤る）"""
+    if d.pack is None:
+        return True
+    if listed:
+        return False
+    if d.type not in _TIME_TYPES:
+        return True
+    return _PACK_TIME_PRECISION.get(family) == d.type
+
+
 def brings_another_rows_role(d: SemanticType, elsewhere_only: Collection[str]) -> bool:
     """意味型が時刻の役割（event_time / valid_from / valid_to）を持ち、別の表でしか使われていない（elsewhere_only）。
     役割はその表の行にとっての意味なので、別の表の列に当てると役割を持ち込む（所属の開始日に入社日の event_time）。
@@ -408,6 +444,7 @@ def classify(table: Table, table_claims: InferenceClaims, vocabulary: Mapping[st
                 " the thing B.", options)
             evidence["edge"] = sorted({*table_evidence})
     families = _families(table_claims)
+    listed = listed_columns(table_claims)
     new_only: list[str] = []
     described: dict[str, str] = {}
     """選択肢に出した意味型の説明（材料に1回だけ置き、選択肢には名前だけを並べる。列ごとに繰り返すと材料が何十倍にもなる）。"""
@@ -419,9 +456,8 @@ def classify(table: Table, table_claims: InferenceClaims, vocabulary: Mapping[st
         if family is None:
             not_asked.append(Dropped(f"column {name}", "型の主張が無い"))
             continue
-        allowed = assignable(family, column.encoding)
-        compatible = [d for d in vocabulary.values() if d.type in allowed
-                      and not brings_another_rows_role(d, elsewhere_only)]
+        compatible = [d for d in vocabulary.values()
+                      if offerable(d, family, column.encoding, name in listed, elsewhere_only)]
         options: dict[str, str | None] = {d.name: _type_brief(d) for d in compatible}
         if not options:
             new_only.append(name)  # 当てうる既存の意味型が無い：問うまでもなく新しい意味型
@@ -524,7 +560,8 @@ Each fact has a claim id like clm_0123abcd. Answer ONLY through the answer tool.
 - Name a semantic type for each listed column: what its values mean (product_id, order_date, unit_price).
   Columns of the list with the same meaning share one semantic type; list them together in its columns.
   The same value type with a different meaning gets a different name (order_date vs ship_date).
-- Do not reuse a name from the existing vocabulary: those meanings were already judged not to fit.
+- Existing vocabulary names: reuse one only when it is exactly the meaning of the column (the column then gets that
+  existing type). A name that was firmly judged not to fit the column is rejected.
 - Name the meaning, not the table: the name must fit every table that has a column with this meaning. Generic
   meanings shared by many tables (row guid, last modified time) get generic names (row_guid, modified_date), never
   a table prefix like employee_row_guid.
@@ -632,17 +669,17 @@ def _preview(data: object) -> str:
 
 def uncovered(named: "Named", asked: Sequence[str]) -> list[str]:
     """問うた列のうち、当てる意味型の無い列（答えに無い、形の崩れた意味型に入っていた、など）。問い直しの対象。"""
-    covered = {c for t in named.types for c in t.columns}
+    covered = {c for t in named.types for c in t.columns} | {c for c, _ in named.reused}
     return [c for c in asked if c not in covered]
 
 
 def merge_named(first: "Named", retry: "Named", retried: Sequence[str]) -> "Named":
     """最初の命名と、答えの無かった列だけの問い直し（1 回だけ）を合わせる。問い直しで名前の付いた列は、最初の答えで落とした
     理由を消す（当たったので）。名前の付かなかった列は、両方の理由を残す。"""
-    recovered = {c for t in retry.types for c in t.columns}
+    recovered = {c for t in retry.types for c in t.columns} | {c for c, _ in retry.reused}
     assert recovered <= set(retried), "問い直しは、問い直した列だけを名付ける（read_naming が問うていない列を落とす）"
     kept = [d for d in first.dropped if not (d.item.startswith("column ") and d.item.removeprefix("column ") in recovered)]
-    return Named((*first.types, *retry.types), (*kept, *retry.dropped))
+    return Named((*first.types, *retry.types), (*kept, *retry.dropped), (*first.reused, *retry.reused))
 
 
 @dataclass(frozen=True)
@@ -650,12 +687,18 @@ class Named:
     types: tuple[NamedType, ...]
     """当てる列を、問うた列だけに絞ったもの。"""
     dropped: tuple[Dropped, ...]
+    reused: tuple[tuple[str, str], ...] = ()
+    """（列, 既存の意味型の名前）：名付け器が既存の名前を答え、その列に使ってよかったもの（reusable_types）。"""
 
 
-def read_naming(answer: NamingAnswer, asked: Sequence[str], vocabulary: Collection[str]) -> Named:
+def read_naming(answer: NamingAnswer, asked: Sequence[str], vocabulary: Collection[str],
+                reusable: Mapping[str, Collection[str]] | None = None) -> Named:
     """問うた列ごとにちょうど1つの名前。問うていない列、2度出た列、名前の返らなかった列は理由つきで落とす。
-    既存の語彙の名前（vocabulary。問い直しなら最初の答えの名前も）も落とす（判断モデルが「既存のどれも合わない」と答えた列
-    なので、既存の型を当てると食い違う）。"""
+    既存の語彙の名前（vocabulary。問い直しなら最初の答えの名前も）は、その列に使ってよい既存の意味型（reusable。列 →
+    名前。判断モデルに選択肢として出していない、列に当てられる意味型）なら、その意味型を当てる（reused）。それ以外は落とす
+    （判断モデルが「合わない」と答えた意味型を当てると食い違う）。"""
+    reusable = reusable or {}
+    reused: list[tuple[str, str]] = []
     dropped: list[Dropped] = []
     seen: dict[str, int] = {}
     for t in answer.semantic_types:
@@ -669,18 +712,52 @@ def read_naming(answer: NamingAnswer, asked: Sequence[str], vocabulary: Collecti
                 dropped.append(Dropped(f"column {c}", f"命名を問うていない列（{t.name}）"))
             elif seen[c] > 1:
                 dropped.append(Dropped(f"column {c}", f"命名の答えに 2 度ある（{t.name}）"))
+            elif t.name in vocabulary and t.name in reusable.get(c, ()):
+                reused.append((c, t.name))
             elif t.name in vocabulary:
-                dropped.append(Dropped(f"column {c}", f"命名が既存の語彙の名前 {t.name}（既存のどれも合わないと判断した列）"))
+                dropped.append(Dropped(f"column {c}", f"命名が既存の語彙の名前 {t.name}（判断モデルが合わないと答えたか、"
+                                                      "列に当てられない意味型）"))
             else:
                 keep.append(c)
         if t.name in vocabulary:
-            dropped.append(Dropped(f"semantic_type {t.name}", "既存の語彙の名前"))
+            if not any(n == t.name for _, n in reused):
+                dropped.append(Dropped(f"semantic_type {t.name}", "既存の語彙の名前"))
         elif keep:
             types.append(t.model_copy(update={"columns": keep}))
         else:
             dropped.append(Dropped(f"semantic_type {t.name}", "当てる列が無い"))
     dropped += [Dropped(f"column {c}", "命名の答えに無い") for c in asked if c not in seen]
-    return Named(tuple(types), tuple(dropped))
+    return Named(tuple(types), tuple(dropped), tuple(reused))
+
+
+def routed_columns(classified: Classified) -> frozenset[str]:
+    """判断モデルが既存の意味型に決めきれず（閾値未満、決められない）、命名に回した列。"""
+    return frozenset(d.item.removeprefix("classify column ") for d in classified.routed
+                     if d.item.startswith("classify column "))
+
+
+def reusable_types(table: Table, table_claims: InferenceClaims, vocabulary: Mapping[str, SemanticType],
+                   asked: "Classify", columns: Sequence[str], routed: Collection[str] = (),
+                   elsewhere_only: Collection[str] = ()) -> dict[str, frozenset[str]]:
+    """命名で使ってよい既存の意味型（列 → 名前）：列に当てられる（misfit が無い）もののうち、
+    - 判断モデルにその列の選択肢として出していないもの
+    - 出したが、判断モデルが決めきれずに命名に回した列（routed）なら、出したものも（迷った判断モデルと名付け器が同じ既存の
+      意味型を挙げたら採る。2026-10-20、ユーザーと合意）
+    判断モデルが閾値以上で「新しい意味型」と答えた列では、出した意味型は「合わない」と判断されているので使わない。"""
+    families = _families(table_claims)
+    listed = listed_columns(table_claims)
+    out: dict[str, frozenset[str]] = {}
+    for c in columns:
+        family = families.get(c)
+        if family is None:
+            continue
+        question = asked.request.questions.get(f"column {c}") if asked.request is not None else None
+        offered = set(question.options) if question is not None and c not in routed else set[str]()
+        encoding = (table.columns or {})[c].encoding if c in (table.columns or {}) else None
+        out[c] = frozenset(n for n, d in vocabulary.items()
+                           if n not in offered and misfit(family, encoding, d) is None
+                           and offerable(d, family, encoding, c in listed, elsewhere_only))
+    return out
 
 
 # ---------------------------------------------------------------- 3. 意味型の性質

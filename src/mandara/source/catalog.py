@@ -46,10 +46,24 @@ class ForeignKey:
 
 
 @dataclass(frozen=True)
+class AllowedValues:
+    """CHECK が 1 つの列を値の一覧に限る（方言の式を読むのはコネクタ）。"""
+
+    column: str
+    values: tuple[str, ...]
+    """ソースの書き方の定数（順は CHECK のまま）。"""
+    normalized: bool
+    """列を型変換か大文字小文字の揃えをしてから比べている（列の値そのものは一覧に限られない。'm' も 'M' として通る）。"""
+
+
+@dataclass(frozen=True)
 class Check:
     name: str
     expression: str
     """真偽を返す式。ソースの方言の文字列（CHECK の包みや制約の属性は含めない）。"""
+    allowed: AllowedValues | None = None
+    """式がちょうど「1 つの列が値の一覧のどれか」なら、その列と値の一覧（読めなければ、または値の一覧でなければ None。
+    式の文字列は expression に残る）。"""
 
 
 @dataclass(frozen=True)

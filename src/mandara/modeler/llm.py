@@ -202,6 +202,9 @@ def brief(table_claims: InferenceClaims, vocabulary: Mapping[str, SemanticType],
                   if c.subject.column == name]
         facts += [f"value shape {_q(value_shape(c))} ({c.id})" for c in by[ClaimPredicate.shaped_as.value]
                   if c.subject.column == name]
+        facts += [f"allowed values (CHECK{', compared case- or type-normalized' if c.values_normalized else ''}) "
+                  f"[{', '.join(map(_q, c.allowed_values or []))}] ({c.id})"
+                  for c in by[ClaimPredicate.allows_values.value] if c.subject.column == name]
         if (hint := meaning.get(name or "")) is not None:
             facts.append(f"same meaning as {hint.others} other columns (foreign keys); "
                          + (f"semantic type fixed: {_q(hint.semantic_type)}" if hint.semantic_type else "semantic type not named yet"))
@@ -338,10 +341,22 @@ def apply_answer(ontology: Ontology, table_id: str, answer: TableAnswer, table_c
     return Applied(ontology, (), tuple(work.dropped) + kept, table_kept_as_is=True)
 
 
+def _codes_listed(values: Sequence[EnumValueAnswer], listed: Claim) -> bool:
+    """答えのコードが、CHECK の値の一覧にある（values_normalized なら大文字小文字を区別しない）。"""
+    allowed = listed.allowed_values or []
+    if listed.values_normalized:
+        folded = {a.casefold() for a in allowed}
+        return all(v.code.casefold() in folded for v in values)
+    return all(v.code in allowed for v in values)
+
+
 def _values_grounded(values: Sequence[EnumValueAnswer], evidence: Sequence[Claim]) -> bool:
-    """enum の値の一覧の根拠。値を述べた文書（コメント、CHECK）か、値の集合が型から決まる真偽値の列の型の主張。
+    """enum の値の一覧の根拠。値を述べた文書（コメント、CHECK、CHECK の値の一覧 allows_values）か、値の集合が型から決まる真偽値の列の型の主張。
     観測した値は根拠にしない（C6：値の集合はデータから取らない）。真偽値の意味型を boolean の列にだけ当てるのは misfit。"""
-    if any(c.predicate in (ClaimPredicate.described_as.value, ClaimPredicate.checks.value) for c in evidence):
+    listed = [c for c in evidence if c.predicate == ClaimPredicate.allows_values.value]
+    if any(not _codes_listed(values, c) for c in listed):
+        return False  # 構造化された値の一覧を根拠に挙げたなら、コードはその一覧の中にある
+    if listed or any(c.predicate in (ClaimPredicate.described_as.value, ClaimPredicate.checks.value) for c in evidence):
         return True
     return (is_boolean_value_set([v.code for v in values])
             and any(c.predicate == ClaimPredicate.typed_as.value and c.family == TypeFamily.boolean for c in evidence))

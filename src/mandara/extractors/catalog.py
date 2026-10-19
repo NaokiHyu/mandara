@@ -13,7 +13,7 @@ from mandara.om.claims import new_claim
 from mandara.om.model import Claim, ClaimPredicate, ClaimSource, ClaimSourceKind, SourceRef
 from mandara.source.catalog import Catalog, Table
 
-EXTRACTOR = "catalog 0.1"
+EXTRACTOR = "catalog 0.2"
 CONSTRAINT_CONFIDENCE = 1.0
 COMMENT_CONFIDENCE = 0.85
 
@@ -65,8 +65,15 @@ def _table_claims(source: str, table: Table) -> Iterator[Claim]:
             on_delete=fk.on_delete,
             on_update=fk.on_update,
         )
+    names = {c.name for c in table.columns}
     for check in table.checks:
         yield claim(ClaimPredicate.checks, f"constraint {quote(check.name)} on {where}", text=check.expression)
+        if (listed := check.allowed) is not None:  # 1 列の値の一覧（コネクタが式を読めたもの）
+            if listed.column not in names:
+                raise ValueError(f"CHECK {check.name} の値の一覧の列 {listed.column} が表 {where} に無い（コネクタの誤り）")
+            yield claim(ClaimPredicate.allows_values, f"constraint {quote(check.name)} on {where}",
+                        subject.model_copy(update={"column": listed.column}), allowed_values=list(listed.values),
+                        values_normalized=listed.normalized)
 
     for column in table.columns:
         ref = subject.model_copy(update={"column": column.name})
