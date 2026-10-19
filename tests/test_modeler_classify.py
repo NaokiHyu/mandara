@@ -534,3 +534,34 @@ def test_reuse_never_brings_back_what_the_decider_was_offered_or_excluded(name: 
     for column in columns:
         offered = set(asked.request.questions[f"column {column}"].options)
         assert not reusable[column] & offered and "hire_date" not in reusable[column]
+
+
+def _named_answer(name: str, column: str) -> tuple[c.Named, list[v1.SemanticTypeAnswer]]:
+    named = c.Named((c.NamedType(name=name, description="説明", columns=[column], values_evidence=[]),), ())
+    answer = v1.SemanticTypeAnswer(name=name, type=ValueType.identifier, description="説明", confidence=0.7, evidence=[])
+    return named, [answer]
+
+
+@given(st.sampled_from(["named", "rival", "unclear"]), st.floats(min_value=0.0, max_value=1.0))
+def test_confirmation_measures_the_named_type_against_the_offered_ones(choice: str, probability: float) -> None:
+    """法則：確かめの選択肢は、名付けた意味型と、分類でその列に出した既存の意味型と「決められない」。名付けた意味型を閾値以上で
+    選べばその確率（上限 MAX_CONFIDENCE）、既存の意味型を閾値以上で選べば列を落とし、それ以外は何もしない。"""
+    name = "sales.salesorderdetail"
+    asked = _asked(name)
+    assert asked.request is not None
+    column = next(k.removeprefix("column ") for k, q in asked.request.questions.items()
+                  if k.startswith("column ") and len(q.options) > 2)
+    named, types = _named_answer("brand_new_id", column)
+    checked = c.confirm(_for(_claims(name)), asked, types, named, VOCABULARY, f"confirm {name}")
+    assert checked.request is not None
+    question = checked.request.questions[f"confirm {column}"]
+    offered = set(asked.request.questions[f"column {column}"].options) - {c.NEW, c.UNCLEAR}
+    assert set(question.options) == {"brand_new_id", c.UNCLEAR} | offered
+    rival = sorted(offered)[0]
+    picked = {"named": "brand_new_id", "rival": rival, "unclear": c.UNCLEAR}[choice]
+    rest = (1 - probability) / (len(question.options) - 1)
+    answer = ChoiceAnswer(picked, {o: probability if o == picked else rest for o in question.options})
+    confirmed, dropped = c.read_confirm(checked, DecisionResponse({f"confirm {column}": answer}, Usage(1, 0), "m", None))
+    sure = probability >= c.THRESHOLD and choice != "unclear"
+    assert confirmed == ({column: min(probability, v1.MAX_CONFIDENCE)} if sure and choice == "named" else {})
+    assert [d.item for d in dropped] == ([f"column {column}"] if sure and choice == "rival" else [])
