@@ -58,6 +58,7 @@ from mandara.modeler.coordinator import Background, background_line, with_backgr
 from mandara.modeler.joins import InferenceClaims
 from mandara.modeler.resemblance import SHAPE_NOTATION, value_shape
 from mandara.om.names import qualify
+from mandara.om.ontology import Ontology
 from mandara.om.value_types import UNIT_BEARING, assignable, misfit
 
 THRESHOLD = 0.6
@@ -215,6 +216,26 @@ def state(table_claims: InferenceClaims) -> dict[str, object]:
         out["foreign_keys"] = fks
     if checks := [c.text for c in _by(table_claims, ClaimPredicate.checks)]:
         out["checks"] = checks
+    return out
+
+
+NEIGHBORS_SHOWN = 15
+"""材料に並べる、この表を参照している表の数の上限（超えた分は数だけ）。"""
+
+
+def neighbors(ontology: Ontology, table: Table, table_claims: InferenceClaims) -> dict[str, object]:
+    """表の周り（試し②）：この表を参照している表と列（OM の関係。宣言されたものと推定したもの）と、行の数（主キーに選んだ
+    データで一意な組の、異なる組の数。宣言の主キーの表では測っていないので出さない）。表の種類や関係型の手がかり
+    （よく参照される表はもの、どこからも参照されない表は出来事か末端）。"""
+    referencing = sorted(f"{t.name} ({', '.join(p.from_ for p in r.via or [])})"
+                         for t in ontology.tables for r in t.relations or []
+                         if r.target == table.id and t.id != table.id and r.via)
+    out: dict[str, object] = {"referenced_by_count": len(referencing)}
+    if referencing:
+        out["referenced_by"] = referencing[:NEIGHBORS_SHOWN]
+    measured = [c for c in _by(table_claims, ClaimPredicate.unique_in_data) if c.distinct_values is not None]
+    if measured:
+        out["rows"] = measured[0].distinct_values
     return out
 
 
@@ -384,7 +405,8 @@ class Classify:
 
 def classify(table: Table, table_claims: InferenceClaims, vocabulary: Mapping[str, SemanticType],
              hints: Mapping[str, MeaningHint], shared_keys: Collection[str], max_options: int, purpose: str,
-             *, elsewhere_only: Collection[str], background: Background | None = None) -> Classify:
+             *, elsewhere_only: Collection[str], background: Background | None = None,
+             around: Mapping[str, object] | None = None) -> Classify:
     """分類の問い。表種別（v0 が決めていなければ）、外部キーごとの関係型、辺、列の意味型（組の意味型が決まっていなければ）。
 
     関係型の問いには、外部キーの構造とデータの事実（_fk_facts）を添える。is-a は主キーを共有する外部キー（shared_keys、
@@ -480,7 +502,7 @@ def classify(table: Table, table_claims: InferenceClaims, vocabulary: Mapping[st
         evidence[key] = _column_evidence(table_claims, name)
     for name in new_only:
         evidence[f"column {name}"] = _column_evidence(table_claims, name)
-    material = with_background(state(table_claims), background) | (
+    material = with_background(state(table_claims), background) | ({"neighbors": dict(around)} if around else {}) | (
         {"semantic_types": dict(sorted(described.items()))} if described else {})
     request = DecisionRequest(purpose, material, questions) if questions else None
     return Classify(request, {k: e for k, e in edges.items() if e is not None}, evidence, tuple(not_asked),

@@ -565,3 +565,16 @@ def test_confirmation_measures_the_named_type_against_the_offered_ones(choice: s
     sure = probability >= c.THRESHOLD and choice != "unclear"
     assert confirmed == ({column: min(probability, v1.MAX_CONFIDENCE)} if sure and choice == "named" else {})
     assert [d.item for d in dropped] == ([f"column {column}"] if sure and choice == "rival" else [])
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_neighbors_list_the_tables_that_reference_the_table(name: str) -> None:
+    """表の周り：この表を参照している表は、OM の関係の参照先がこの表のもの（自分自身を除く）で、数は全部、並びは上限まで。"""
+    table = _table(name)
+    around = c.neighbors(SEEDED, table, _for(_claims(name)))
+    expected = sorted({t.name for t in SEEDED.tables for r in t.relations or []
+                       if r.target == table.id and t.id != table.id and r.via})
+    shown = cast(list[str], around.get("referenced_by", []))
+    assert cast(int, around["referenced_by_count"]) >= len(expected)
+    assert {s.split(" (")[0] for s in shown} <= set(expected) and len(shown) <= c.NEIGHBORS_SHOWN
+    assert "rows" not in around  # 宣言の主キーの表では行の数を測っていない
