@@ -23,11 +23,13 @@ from mandara.codecs.detect import Detection, detect
 from mandara.codecs.registry import BY_ENCODING, CodecError
 from mandara.evaluation import joins as joins_evaluation
 from mandara.evaluation.joins import JoinScore
+from mandara.evaluation import keys as keys_evaluation
 from mandara.evaluation import resemblance as resemblance_evaluation
 from mandara.evaluation.score import Report, score
 from mandara.extractors import catalog as catalog_extractor
 from mandara.extractors import declarations as declaration_extractor
 from mandara.extractors import joins as joins_extractor
+from mandara.extractors import keys as keys_extractor
 from mandara.extractors import values as values_extractor
 from mandara.llm.decision import BudgetedDecisionModel, DecisionModel, DecisionResponse
 from mandara.llm.model import (
@@ -41,6 +43,7 @@ from mandara.llm.model import (
     summarize,
 )
 from mandara.modeler import joins as joins_modeler
+from mandara.modeler import keys as keys_modeler
 from mandara.modeler import classify
 from mandara.modeler import llm as llm_modeler
 from mandara.modeler import meaning
@@ -76,13 +79,14 @@ from mandara.review.decisions import (
     is_table_batch_member,
     questions,
 )
-from mandara.source.catalog import Catalog, CatalogReader, Scope
+from mandara.source.catalog import Catalog, CatalogReader, Scope, SourceError
 from mandara.source.catalog import Column as CatalogColumn
 from mandara.source.catalog import Table as CatalogTable
 from mandara.source.coverage import CoverageReader
 from mandara.source.inclusion import ColumnProfile, InclusionReader, KeyRef
 from mandara.source.rows import ColumnReader
 from mandara.source.samples import ValueSampler
+from mandara.source.uniqueness import UniquenessReader
 from mandara.app.resemblance import ResemblanceMeasured, measure_resemblance
 from mandara.extractors import resemblance as resemblance_extractor
 from mandara.modeler import resemblance as resemblance_modeler
@@ -144,9 +148,28 @@ class Extracted:
     examined: tuple[Examined, ...]
     not_examined: tuple[values_extractor.NotExamined, ...]
     covered: tuple[Covered, ...]
+    keys: "KeysMeasured"
     joins: "JoinsMeasured"
     resemblance: ResemblanceMeasured | None
     """値の似かたの測定（T2.6）。None は測らなかった（呼ぶ側が見本の読み手を渡さなかった。実行の記録にもそう書く）。"""
+
+
+@dataclass(frozen=True)
+class KeysMeasured:
+    """キーの測定（T2.7）：主キーの宣言の無い表で、データで一意な極小の列の組を探した数。"""
+
+    tables: int
+    """探した表の数（主キーの宣言の無い表。行の無い表と、キーになりうる列の無い表を含む）。"""
+    empty: int
+    """行が無く、組を探さなかった表の数。"""
+    no_columns: int
+    """キーになりうる型族の列が無く、組を探さなかった表の数。"""
+    uniques: int
+    """見つけた組の数（= unique_in_data の主張の数）。"""
+    verified: int
+    """見本で一意で、DB で数えて確かめた組の数（一意でなかったものを含む）。"""
+    ambiguous: tuple[str, ...]
+    """一意な組が 2 つ以上あり、規則では主キーを選ばない表（判断モデルに問う。LLM なしの実行では主キーが無いまま）。"""
 
 
 @dataclass(frozen=True)
@@ -176,23 +199,27 @@ class Proposed:
 
 
 def extract(workspace: Workspace, reader: CatalogReader, scope: Scope, values: ColumnReader,
-            coverage: CoverageReader, inclusion: InclusionReader, sampler: ValueSampler | None) -> Extracted:
-    """カタログを読み、実データの主張（バイト列の物理的な表現、値の包含、主キーを共有する参照の被覆、値の似かた）を足して、
+            coverage: CoverageReader, inclusion: InclusionReader, uniqueness: UniquenessReader,
+            sampler: ValueSampler | None) -> Extracted:
+    """カタログを読み、実データの主張（主キーの宣言の無い表のデータで一意な組、バイト列の物理的な表現、値の包含、
+    主キーを共有する参照の被覆、値の似かた）を足して、
     主張台帳を作り直す。主キーを共有する参照は、宣言された外部キーと、値の包含から参照とみなしたもの（mandara.modeler.joins）
     の両方。値の似かた（T2.6）は sampler があるときだけ測る（None は「測らない」と明示する。測った結果の代わりにはしない）。"""
     catalog = reader.read(scope)
     claims = catalog_extractor.extract(workspace.source, catalog)
     claims += declaration_extractor.extract(workspace.source, catalog, load_declarations(workspace.root))
-    targets, not_examined = values_extractor.targets(catalog)
+    keys = measure_keys(workspace.source, catalog, uniqueness)
+    claims += keys.claims
+    targets, not_examined = values_extractor.targets(catalog, keys.claims)
     examined: list[Examined] = []
     for target in targets:
-        sample = values.read_column(target.table.schema, target.table.name, values_extractor.key_columns(target),
+        sample = values.read_column(target.table.schema, target.table.name, target.key,
                                     target.column.name, values_extractor.SAMPLE_LIMIT)
         detection = detect([row.value for row in sample.rows])
         examined.append(Examined(target.table.qualified_name, target.column.name, detection, sample.truncated))
         if (claim := values_extractor.encoding_claim(workspace.source, target, detection)) is not None:
             claims.append(claim)
-    joins = measure_joins(workspace.source, catalog, inclusion)
+    joins = measure_joins(workspace.source, catalog, inclusion, keys.claims)
     claims += joins.claims
     # 主キーを共有する参照の被覆：宣言された外部キーと、事実だけで決めた候補（選び方に依らない。joins.shared_key_candidates）
     declared = {joins_modeler.join_of(t.schema, t.name, fk.columns, fk.target_schema, fk.target_table, fk.target_columns)
@@ -215,8 +242,43 @@ def extract(workspace: Workspace, reader: CatalogReader, scope: Scope, values: C
         claims += resembled.claims
     write_claim_ledger(workspace.claims, workspace.source, catalog.scope.schemas, claims)
     return Extracted(tuple(claims), len(catalog.tables), catalog.scope, tuple(examined), tuple(not_examined),
-                     tuple(covered), replace(joins.measured, chosen=len(joins_modeler.choose(claims))),
+                     tuple(covered), keys.measured, replace(joins.measured, chosen=len(joins_modeler.choose(claims))),
                      resembled.measured if resembled is not None else None)
+
+
+@dataclass(frozen=True)
+class MeasuredKeys:
+    claims: list[Claim]
+    measured: KeysMeasured
+
+
+def measure_keys(source: str, catalog: Catalog, uniqueness: UniquenessReader) -> MeasuredKeys:
+    """主キーの宣言の無い表の、データで一意な極小の列の組を探す（mandara.extractors.keys）。"""
+    claims: list[Claim] = []
+    found = keys_extractor.targets(catalog)
+    empty = no_columns = verified = 0
+    ambiguous: list[str] = []
+    for table in found:
+        names = keys_extractor.columns(table)
+        if not names:
+            no_columns += 1
+            continue
+        sample = uniqueness.rows(table.schema, table.name, names, keys_extractor.SAMPLE_ROWS)
+        empty += sample.rows == 0
+
+        def verify(columns: tuple[str, ...], table: CatalogTable = table, rows: int = sample.rows) -> bool:
+            nonlocal verified
+            verified += 1
+            counted = uniqueness.distinct(table.schema, table.name, columns)
+            if counted.rows != rows:
+                raise SourceError(f"{table.qualified_name} の行の数が読みの間に変わった（{rows} → {counted.rows}）")
+            return counted.distinct == counted.rows
+
+        uniques = keys_extractor.minimal_uniques(names, sample, verify)
+        if len(uniques) > 1:
+            ambiguous.append(table.qualified_name)
+        claims += keys_extractor.claims(source, keys_extractor.Found(table, sample.rows, tuple(uniques)))
+    return MeasuredKeys(claims, KeysMeasured(len(found), empty, no_columns, len(claims), verified, tuple(ambiguous)))
 
 
 @dataclass(frozen=True)
@@ -231,8 +293,9 @@ def _ref(claim: Claim) -> SourceRef:
     return claim.target
 
 
-def measure_joins(source: str, catalog: Catalog, inclusion: InclusionReader) -> MeasuredJoins:
-    """値の包含を測る（mandara.extractors.joins の段の順に足切り）。列の様子は1列1回だけ読む。"""
+def measure_joins(source: str, catalog: Catalog, inclusion: InclusionReader, observed: Sequence[Claim]) -> MeasuredJoins:
+    """値の包含を測る（mandara.extractors.joins の段の順に足切り）。列の様子は1列1回だけ読む。observed は
+    unique_in_data の主張（主キーの宣言の無い表のキーの候補）。"""
     profiles: dict[KeyRef, ColumnProfile] = {}
 
     def profile(table: CatalogTable, column: CatalogColumn) -> ColumnProfile:
@@ -242,7 +305,7 @@ def measure_joins(source: str, catalog: Catalog, inclusion: InclusionReader) -> 
                                               column.family in joins_extractor.ORDERED_FAMILIES)
         return profiles[ref]
 
-    found = joins_extractor.keys(catalog)
+    found = joins_extractor.keys(catalog, observed)
     for key in found:
         profile(key.table, key.column)
     candidates = joins_extractor.candidates(catalog, found)
@@ -290,6 +353,11 @@ def evaluate_joins(workspace: Workspace, truth: CatalogReader, scope: Scope) -> 
     found = {j for j in joins_evaluation.proposed(ontology) if split_qualified(j[0])[0] in schemas
              and split_qualified(j[2])[0] in schemas}
     return joins_evaluation.score_joins(found, joins_evaluation.truth(truth.read(scope)))
+
+
+def evaluate_keys(workspace: Workspace, truth: CatalogReader, scope: Scope) -> keys_evaluation.KeyScore:
+    """提案した OM の主キーを、元の DB で宣言されていた主キーと突き合わせる（T2.7。範囲は scope の表だけ）。"""
+    return keys_evaluation.score(load_ontology(workspace.ontology), truth.read(scope))
 
 
 def evaluate_resemblance(workspace: Workspace, gold: Path) -> resemblance_evaluation.ResemblanceScore:
@@ -415,6 +483,8 @@ class Refined:
     """バグの疑い（組の食い違い、伝播の後の検証違反）で止めた。それまでの結果は書いてある。実行は失敗にする。"""
     nameless: tuple["NamelessOutcome", ...] = ()
     """名前の手がかりの無い参照を問うた結果（表ごと。表の分類の前に、全部の表について1回）。"""
+    keys: tuple["KeyOutcome", ...] = ()
+    """主キーの宣言の無い表の主キーを問うた結果（T2.7。名前の手がかりの無い参照の前）。"""
     same_meaning: "SameMeaningRun | None" = None
     """値の似た列の組が同じ意味かを問うた結果（表の分類の後。T2.6）。None は、その段まで来なかった（止めた）。"""
 
@@ -443,6 +513,21 @@ class SameMeaningRun:
     """上書きで使う列が無くなった意味型。"""
     violations: tuple[str, ...]
     """当てた結果の検証違反（あれば何も当てていない。バグ）。"""
+
+
+@dataclass(frozen=True)
+class KeyOutcome:
+    table: str
+    status: str
+    """"answered"（答えを得た）/ "failed"（答えを得られなかった。主キーは無いまま）/ "not_reached"（予算で止めたので
+    問わなかった）/ "not_applied"（答えは得たが、当てた OM が検証を通らないので当てなかった）。"""
+    detail: str
+    candidates: tuple[str, ...]
+    """選択肢に出した組。"""
+    chosen: str | None
+    """主キーにした組。None は当てなかった（理由は dropped）。"""
+    dropped: tuple[llm_modeler.Dropped, ...]
+    answer: object = None
 
 
 @dataclass(frozen=True)
@@ -507,6 +592,18 @@ def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, f
         meaning.group_semantic_type(ontology, group)  # 入力の OM の組が食い違っていれば、問う前に InconsistentGroupError
     families = meaning.column_families(claims)
     resemblances = resemblance_modeler.index(claims)  # 古い版の信号の主張があれば、問う前に StaleMethodError
+    # 主キーの宣言の無い表の主キー（T2.7）：名前の手がかりの無い参照の前に決める（3b は表の 1 列のキーを問わない）
+    keyed, keys, stopped = _decide_keys(ontology, claims, decider)
+    if violations := check(keyed):
+        # 当てていない OM を書くので、記録も「当てなかった」にする（答えは課金済みなので残す）
+        keys = [replace(o, status="not_applied", detail="当てた OM が検証を通らない", chosen=None) if o.chosen else o
+                for o in keys]
+        return _finish(workspace, ontology, order, keys, [], [], f"バグの疑いで止めた: 主キーを当てた OM が検証を"
+                       f"通らない: {violations[:3]}", [t.name for t in order], defect=True)
+    ontology = keyed
+    order = [next(t for t in ontology.tables if t.id == o.id) for o in order]
+    if stopped is not None:  # 予算で止めた。それまでに得た答え（課金済み）は当てて書く
+        return _finish(workspace, ontology, order, keys, [], [], stopped, [t.name for t in order])
     # 名前の手がかりの無い参照（T2.2 の 3b）：問う前の確かめの後、表の分類の前に決める（決めた参照は、分類と LLM に参照として渡る）
     nameless_by = f"{nameless_joins.MODELER} ({decider.model})"
     decided, nameless, stopped = _decide_nameless(ontology, claims, decider, nameless_by)
@@ -514,12 +611,12 @@ def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, f
         # 足していない OM を書くので、記録も「当てなかった」にする（答えは課金済みなので残す）
         nameless = [replace(o, status="not_applied", detail="足した OM が検証を通らない", added=())
                     if o.added else o for o in nameless]
-        return _finish(workspace, ontology, order, nameless, [], f"バグの疑いで止めた: 推定した参照を足した OM が検証を"
+        return _finish(workspace, ontology, order, keys, nameless, [], f"バグの疑いで止めた: 推定した参照を足した OM が検証を"
                        f"通らない: {violations[:3]}", [t.name for t in order], defect=True)
     ontology = decided
     order = [next(t for t in ontology.tables if t.id == o.id) for o in order]
     if stopped is not None:  # 予算で止めた。それまでに得た答え（課金済み）は当てて書く
-        return _finish(workspace, ontology, order, nameless, [], stopped, [t.name for t in order])
+        return _finish(workspace, ontology, order, keys, nameless, [], stopped, [t.name for t in order])
 
     outcomes: list[TableOutcome] = []
     stopped: str | None = None
@@ -533,7 +630,7 @@ def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, f
         try:
             hints = llm_modeler.meaning_hints(ontology, table, groups)
         except defects as e:
-            return _finish(workspace, ontology, order, nameless, outcomes, f"バグの疑いで止めた: {type(e).__name__}: {e}",
+            return _finish(workspace, ontology, order, keys, nameless, outcomes, f"バグの疑いで止めた: {type(e).__name__}: {e}",
                            [t.name for t in order[i:]], defect=True)
         record: dict[str, object] = {}
         try:
@@ -542,8 +639,8 @@ def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, f
             stopped = str(e)
             if record:  # 途中まで課金済みの答えは記録に残す（この表には当てない）
                 outcomes.append(TableOutcome(table.name, "failed", f"止めた: {e}", (), (), record))
-                return _finish(workspace, ontology, order, nameless, outcomes, stopped, [t.name for t in order[i + 1:]])
-            return _finish(workspace, ontology, order, nameless, outcomes, stopped, [t.name for t in order[i:]])
+                return _finish(workspace, ontology, order, keys, nameless, outcomes, stopped, [t.name for t in order[i + 1:]])
+            return _finish(workspace, ontology, order, keys, nameless, outcomes, stopped, [t.name for t in order[i:]])
         except _TableFailed as e:
             outcomes.append(TableOutcome(table.name, "failed", str(e), (), (), e.answer))
             continue
@@ -557,7 +654,7 @@ def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, f
             # この表の答えは当てずに、それまでの OM を書く。答え（課金済み）は記録に残す
             stopped = f"バグの疑いで止めた: {type(e).__name__}: {e}"
             outcomes.append(TableOutcome(table.name, "failed", stopped, (), (), record))
-            return _finish(workspace, ontology, order, nameless, outcomes, stopped, [t.name for t in order[i + 1:]],
+            return _finish(workspace, ontology, order, keys, nameless, outcomes, stopped, [t.name for t in order[i + 1:]],
                            defect=True)
         ontology = propagated.ontology
         status = "kept" if applied.table_kept_as_is else ("refined" if applied.applied else "nothing_applied")
@@ -571,10 +668,10 @@ def refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, f
     same_by = f"{same_meaning.MODELER} ({decider.model})"
     ontology, same = _decide_same_meaning(ontology, claims, decider, resemblances, groups, families, same_by)
     if same.violations:  # 当てた OM が検証を通らない：何も当てず（答えは課金済みなので記録に残す）、バグとして止める
-        return _finish(workspace, ontology, order, nameless, outcomes, f"バグの疑いで止めた: 同じ意味の答えを当てた OM が"
+        return _finish(workspace, ontology, order, keys, nameless, outcomes, f"バグの疑いで止めた: 同じ意味の答えを当てた OM が"
                        f"検証を通らない: {list(same.violations)[:3]}", [], defect=True, same_meaning_run=same)
     stopped = next((t.detail for t in same.tables if t.status == "not_reached"), None)
-    return _finish(workspace, ontology, order, nameless, outcomes, stopped, [], same_meaning_run=same)
+    return _finish(workspace, ontology, order, keys, nameless, outcomes, stopped, [], same_meaning_run=same)
 
 
 def _decide_same_meaning(ontology: Ontology, claims: Sequence[Claim], decider: DecisionModel,
@@ -795,13 +892,48 @@ def _decisions_record(response: DecisionResponse) -> dict[str, object]:
         for key, a in sorted(response.answers.items())}}
 
 
-def _finish(workspace: Workspace, ontology: Ontology, order: Sequence[Table], nameless: Sequence[NamelessOutcome],
-            outcomes: list[TableOutcome], stopped: str | None, not_reached: list[str], defect: bool = False,
-            same_meaning_run: SameMeaningRun | None = None) -> Refined:
+def _finish(workspace: Workspace, ontology: Ontology, order: Sequence[Table], keys: Sequence[KeyOutcome],
+            nameless: Sequence[NamelessOutcome], outcomes: list[TableOutcome], stopped: str | None, not_reached: list[str],
+            defect: bool = False, same_meaning_run: SameMeaningRun | None = None) -> Refined:
     """same_meaning_run が None なのは、同じ意味の段まで来なかったとき（止めた）。"""
     write_ontology(workspace.ontology, ontology)
     return Refined(tuple(t.name for t in order), tuple(outcomes), stopped, tuple(not_reached), defect, tuple(nameless),
-                   same_meaning_run)
+                   keys=tuple(keys), same_meaning=same_meaning_run)
+
+
+def _decide_keys(ontology: Ontology, claims: Sequence[Claim],
+                 decider: DecisionModel) -> tuple[Ontology, list[KeyOutcome], str | None]:
+    """主キーの宣言の無い表の主キーを、表ごとに判断モデルに問い、選んだ組を主キーにする（mandara.modeler.keys）。
+
+    答えを得られなかった表は記録して次へ（主キーは無いまま）。予算の上限や見積もりの崩れでは、そこで止めて理由を返す
+    （それまでの答えは当てる）。"""
+    if keys_modeler.MAX_CANDIDATES + 2 > decider.max_options:
+        raise ValueError(f"主キーの選択肢 {keys_modeler.MAX_CANDIDATES + 2} が判断モデルの上限 {decider.max_options} を超える")
+    outcomes: list[KeyOutcome] = []
+    decided: list[keys_modeler.Decided] = []
+    stopped: str | None = None
+    for question in keys_modeler.questions(ontology, claims):
+        name, options = question.table.name, tuple(c.option for c in question.candidates)
+        if stopped is not None:
+            outcomes.append(KeyOutcome(name, "not_reached", stopped, options, None, ()))
+            continue
+        try:
+            response = decider.decide(question.request)
+        except (BudgetExceededError, EstimateViolatedError) as e:
+            stopped = str(e)
+            outcomes.append(KeyOutcome(name, "not_reached", stopped, options, None, ()))
+            continue
+        except LlmError as e:
+            outcomes.append(KeyOutcome(name, "failed", f"{type(e).__name__}: {e}", options, None, ()))
+            continue
+        read = keys_modeler.read(question, response)
+        answer = {**_decisions_record(response), "evidence": keys_modeler.evidence(question)}
+        if isinstance(read, keys_modeler.Decided):
+            decided.append(read)
+            outcomes.append(KeyOutcome(name, "answered", "", options, read.candidate.option, (), answer))
+        else:
+            outcomes.append(KeyOutcome(name, "answered", "", options, None, (read,), answer))
+    return keys_modeler.apply(ontology, decided), outcomes, stopped
 
 
 def _decide_nameless(ontology: Ontology, claims: Sequence[Claim], decider: DecisionModel,
@@ -990,7 +1122,8 @@ class Inference:
 
 
 def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, coverage: CoverageReader,
-        inclusion: InclusionReader, sampler: ValueSampler | None, scope: Scope, gold: Path | None, clock: Clock,
+        inclusion: InclusionReader, uniqueness: UniquenessReader, sampler: ValueSampler | None, scope: Scope,
+        gold: Path | None, clock: Clock,
         inference: Inference | None = None) -> RunResult:
     """抽出 → 提案 → （LLM があれば）推論 → （正解があれば）評価を通しで行い、実行の記録を書く。失敗も記録してから伝える。"""
     started = _utc(clock())
@@ -1001,14 +1134,15 @@ def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, cover
         "requested_scope": list(scope.schemas),
         "versions": {"extractor": catalog_extractor.EXTRACTOR, "values_extractor": values_extractor.EXTRACTOR,
                      "declaration_extractor": declaration_extractor.EXTRACTOR, "joins_extractor": joins_extractor.EXTRACTOR,
+                     "keys_extractor": keys_extractor.EXTRACTOR,
                      "modeler": modeler.MODELER, "joins_modeler": joins_modeler.MODELER,
-                     "nameless_joins_modeler": nameless_joins.MODELER,
+                     "nameless_joins_modeler": nameless_joins.MODELER, "keys_modeler": keys_modeler.MODELER,
                      "resemblance_extractor": resemblance_extractor.EXTRACTOR,
                      "same_meaning_modeler": same_meaning.MODELER},
         "completed": [],
     })
     with log.stage("extract"):
-        extracted = extract(workspace, reader, scope, values, coverage, inclusion, sampler)
+        extracted = extract(workspace, reader, scope, values, coverage, inclusion, uniqueness, sampler)
         log.update(scope=list(extracted.scope.schemas), tables=extracted.tables,
                    claims=dict(sorted(Counter(c.predicate for c in extracted.claims).items())),
                    encodings={"examined": [_examined_record(e) for e in extracted.examined],
@@ -1016,6 +1150,7 @@ def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, cover
                                                for n in extracted.not_examined]},
                    shared_keys=[{"table": c.table, "target": c.target, "rows": c.rows, "covered": c.covered,
                                  "claims": [_coverage_text(x) for x in c.claims]} for c in extracted.covered],
+                   keys={**vars(extracted.keys), "ambiguous": list(extracted.keys.ambiguous)},
                    joins=vars(extracted.joins),
                    resemblance=vars(extracted.resemblance) if extracted.resemblance is not None else "not measured")
     with log.stage("propose"):
@@ -1045,6 +1180,9 @@ def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, cover
                             "stage_failures": list(o.stage_failures),
                             "answer": o.answer}
                            for o in refined.outcomes],
+                "keys": [{"table": o.table, "status": o.status, "detail": o.detail, "candidates": list(o.candidates),
+                          "chosen": o.chosen, "dropped": [{"item": d.item, "reason": d.reason} for d in o.dropped],
+                          "answer": o.answer} for o in refined.keys],
                 "nameless": [{"table": o.table, "status": o.status, "detail": o.detail, "asked": list(o.asked),
                               "added": list(o.added), "not_references": list(o.not_references),
                               "dropped": [{"item": d.item, "reason": d.reason} for d in o.dropped], "answer": o.answer}

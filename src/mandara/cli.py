@@ -22,6 +22,7 @@ from mandara.connectors.postgres.catalog_reader import PostgresCatalogReader
 from mandara.connectors.postgres.column_reader import PostgresColumnReader
 from mandara.connectors.postgres.coverage_reader import PostgresCoverageReader
 from mandara.connectors.postgres.inclusion_reader import PostgresInclusionReader
+from mandara.connectors.postgres.uniqueness_reader import PostgresUniquenessReader
 from mandara.connectors.postgres.sample_reader import PostgresSampleReader
 from mandara.connectors.postgres.record_reader import PostgresRecordReader
 from mandara.evaluation.score import InvalidForScoringError, Report
@@ -150,6 +151,14 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--show", type=int, default=20, help="外れた結合を見せる数（既定 20）")
     p.set_defaults(handler=_eval_joins)
 
+    p = commands.add_parser("eval-keys", help="提案した OM の主キーを、元の DB で宣言されていた主キーと突き合わせる（T2.7）")
+    source_args(p)
+    p.add_argument("--schema", action="append", required=True, help="比べるスキーマ（繰り返し指定）")
+    p.add_argument("--truth", required=True, metavar="CONNINFO",
+                   help="主キーを宣言している元の DB の接続文字列（例 dbname=aw_truth3）。秘密はここに書かない")
+    p.add_argument("--show", type=int, default=20, help="外れた表を見せる数（既定 20）")
+    p.set_defaults(handler=_eval_keys)
+
     p = commands.add_parser("eval-resemblance",
                             help="値の似かた（T2.6）の信号ごとに、近いと言った組を正解 OM の同じ意味型の列の組と突き合わせる")
     source_args(p)
@@ -212,7 +221,8 @@ def _run(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
     started = time.monotonic()
     llm = _llm(args.env) if args.llm else None
     result = pipeline.run(workspace, _reader(args), _values(args), PostgresCoverageReader(args.conninfo),
-                          PostgresInclusionReader(args.conninfo), _sampler(args), scope, args.gold, _now,
+                          PostgresInclusionReader(args.conninfo), PostgresUniquenessReader(args.conninfo),
+                          _sampler(args), scope, args.gold, _now,
                           llm[0] if llm else None)
     _extract_line(out, style, result.extracted)
     _propose_line(out, style, result.proposed)
@@ -230,7 +240,7 @@ def _extract(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
     _banner(out, style, workspace, scope)
     _extract_line(out, style, pipeline.extract(workspace, _reader(args), scope, _values(args),
                                                PostgresCoverageReader(args.conninfo), PostgresInclusionReader(args.conninfo),
-                                               _sampler(args)))
+                                               PostgresUniquenessReader(args.conninfo), _sampler(args)))
     return 0
 
 
@@ -290,6 +300,19 @@ def _eval_joins(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
             print(f"  {style.dim(label)}  {text(j)}", file=out)
         if len(joins) > args.show:
             print(f"  {style.dim(label)}  ほか {len(joins) - args.show} 件", file=out)
+    return 0
+
+
+def _eval_keys(args: argparse.Namespace, out: TextIO, style: _Style) -> int:
+    score = pipeline.evaluate_keys(_workspace(args), PostgresCatalogReader(args.truth), Scope(tuple(args.schema)))
+    print(f"  {style.dim('keys')}  正解 {score.tables} 表 · {style.good(f'当たり {score.exact}')} · 部分 {len(score.subset)} · "
+          f"外れ {len(score.wrong)} · 未決 {len(score.undecided)}", file=out)
+    for label, misses in (("部分", score.subset), ("外れ", score.wrong), ("未決", score.undecided)):
+        for m in misses[:args.show]:
+            found = "—" if m.proposed is None else ", ".join(m.proposed)
+            print(f"  {style.dim(label)}  {m.table}  宣言 ({', '.join(m.declared)}) · 提案 ({found})", file=out)
+        if len(misses) > args.show:
+            print(f"  {style.dim(label)}  ほか {len(misses) - args.show} 表", file=out)
     return 0
 
 
@@ -442,6 +465,12 @@ def _refine_line(out: TextIO, style: _Style, refined: pipeline.Refined, inferenc
     breakdown = " · ".join(f"{k} {n}" for k, n in sorted(counts.items()))
     print(f"  {style.dim('refine')}    {breakdown}  {style.dim(f'{inference.decider.model} + {inference.model.model}')}  "
           f"¥{spent * settings.jpy_per_usd:.2f} / ¥{settings.budget_jpy:g}", file=out)
+    if refined.keys:
+        chosen = sum(1 for o in refined.keys if o.chosen is not None)
+        failed = sum(1 for o in refined.keys if o.status == "failed")
+        print(f"  {style.dim('keys')}      主キーを {len(refined.keys)} 表に問うた → 主キーにした {chosen} 表 · "
+              f"当てなかった {len(refined.keys) - chosen - failed}"
+              + (f" · {style.bad(f'{failed} 表は答えを得られなかった')}" if failed else ""), file=out)
     if refined.nameless:
         asked = sum(len(o.asked) for o in refined.nameless)
         added = [f"{o.table}.{a}" for o in refined.nameless for a in o.added]
@@ -549,6 +578,11 @@ def _extract_line(out: TextIO, style: _Style, extracted: pipeline.Extracted) -> 
             print(f"  {style.dim('encoding')}  {where} → 決まらない: {e.detection.reason}", file=out)
     for n in extracted.not_examined:
         print(f"  {style.dim('encoding')}  {n.table}.{n.column} → 見ていない: {n.reason}", file=out)
+    k = extracted.keys
+    if k.tables:
+        print(f"  {style.dim('keys')}      主キーの宣言の無い表 {k.tables} → {style.good(f'データで一意な組 {k.uniques}')}  "
+              f"{style.dim(f'DB で確かめた組 {k.verified} · 候補が複数の表 {len(k.ambiguous)} · 行の無い表 {k.empty} · '
+                           f'キーになりうる列の無い表 {k.no_columns}')}", file=out)
     j = extracted.joins
     print(f"  {style.dim('joins')}     {j.columns} 列 · 型の合う組 {j.typed:,} → 値の数・範囲 {j.narrowed:,} → 見本の重なり "
           f"{j.overlapping:,}（数えた） → 包含 100% {j.included:,} → {style.good(f'参照とみなした {j.chosen}')}", file=out)

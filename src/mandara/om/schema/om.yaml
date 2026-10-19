@@ -212,6 +212,10 @@ enums:
           整数の列なら、列の値の最小から最大までの整数の数 value_span と、その範囲にあるキーの値の数 target_values_in_span
           （整数でない列、値の無い列では持たない）。
           実データの測定で、宣言の無い参照（外部キー）の候補の事実。包含が成り立たない組も、否定の証拠として残す（仕様 6.7.2 B / D）
+      unique_in_data:
+        description: >-
+          表の columns の値の組が、実データで重複せず NULL も無い（行が distinct_values 行。T2.7）。組は極小（真部分集合は
+          一意でない）。宣言の unique とは別：測った時点の事実で、制約ではない
       shaped_as:
         description: >-
           列の値の形（実データ。T2.6）：NULL を除いた異なる値 distinct_values 個のうち sampled_values 個の見本を、構文パターンに

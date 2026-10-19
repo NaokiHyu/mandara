@@ -5,7 +5,8 @@
 
 Domain 層の純粋な関数。値を読むのは呼ぶ側（ColumnReader）。どの DB の値でも同じに働く。
 - 見るのは型族が binary の列だけ（形式の判別が要るのはバイト列。ほかの型族の値は DB の型で表現が決まっている）
-- 行を特定するのに主キーを使うので、主キーの無い表（ビューなど）の列は見ない。見なかった列は理由とともに返す
+- 行の順に主キーを使う。主キーの宣言の無い表は、データで一意な組（unique_in_data。T2.7）を使う（順に意味は持たせない。
+  見本を決定的にするだけ）。どちらも無い表（ビューなど）の列は見ない。見なかった列は理由とともに返す
 - 判別は mandara.codecs.detect。決まったときだけ主張にする。決まらなかった理由は呼ぶ側が記録に残す
 - 主張の ID は内容から決まる（見本の行数は含めない）。同じ判別なら、見本が変わっても同じ ID
 """
@@ -40,6 +41,8 @@ _DISCRIMINATOR_FAMILIES = frozenset({TypeFamily.text, TypeFamily.integer, TypeFa
 class Target:
     table: Table
     column: Column
+    key: tuple[str, ...]
+    """行の順に使う列（主キー、または データで一意な組）。"""
 
 
 @dataclass(frozen=True)
@@ -49,17 +52,25 @@ class NotExamined:
     reason: str
 
 
-def targets(catalog: Catalog) -> tuple[list[Target], list[NotExamined]]:
+def targets(catalog: Catalog, observed: Sequence[Claim]) -> tuple[list[Target], list[NotExamined]]:
+    """observed は unique_in_data の主張（主キーの宣言の無い表の行の順に、表ごとの最初の組を使う）。"""
+    in_data: dict[tuple[str, str], tuple[str, ...]] = {}
+    for c in observed:
+        if c.predicate != ClaimPredicate.unique_in_data.value:
+            raise ValueError(f"unique_in_data でない主張は渡さない: {c.id}")
+        in_data.setdefault((c.subject.schema_name, c.subject.table), tuple(c.columns or []))
     found: list[Target] = []
     not_examined: list[NotExamined] = []
     for table in catalog.tables:
+        key = table.primary_key.columns if table.primary_key is not None else in_data.get((table.schema, table.name))
         for column in table.columns:
             if column.family != TypeFamily.binary:
                 continue
-            if table.primary_key is None:
-                not_examined.append(NotExamined(table.qualified_name, column.name, "主キーが無く、行を特定して読めない"))
+            if key is None:
+                not_examined.append(NotExamined(table.qualified_name, column.name,
+                                                "主キーもデータで一意な組も無く、行を特定して読めない"))
             else:
-                found.append(Target(table, column))
+                found.append(Target(table, column, key))
     return found, not_examined
 
 
@@ -75,13 +86,6 @@ def encoding_claim(source: str, target: Target, detection: Detection) -> Claim |
         confidence=CLAIM_CONFIDENCE,
         encoding=detection.encoding,
     )
-
-
-def key_columns(target: Target) -> Sequence[str]:
-    key = target.table.primary_key
-    if key is None:
-        raise AssertionError(f"targets で主キーのある表だけを選んだはず: {target.table.qualified_name}")
-    return key.columns
 
 
 # ---------------------------------------------------------------- 参照の被覆（is-a の手がかり）

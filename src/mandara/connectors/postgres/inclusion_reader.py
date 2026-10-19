@@ -1,7 +1,10 @@
 """PostgreSQL の値の包含を読む（InclusionReader の実装）。
 
 Adapter 層。識別子は psycopg.sql で引用する。読み取り専用のトランザクションで読む。
-包含は、列の異なる値を1回まとめ（group by）、キーごとに EXISTS で数える（キーは主キーか一意なので索引が効く）。
+包含は、列の異なる値を1回まとめ（group by）、キーごとに、キーの異なる値（select distinct）へ左外部結合して数える。
+キーの値は異なるので、結合で行は増えない。結合はハッシュ結合などを選べ、メモリに収まらなくても動くので、キーに索引が
+無くても（主キーの宣言の無い表、T2.7）値ごとにキーをなめない（相関する EXISTS は、索引が無いと値ごとに表をなめる）。
+キーの NULL はどの値とも等しくならない（EXISTS と同じ数）。
 1つの列について、複数のキーを1回の問い合わせで数える（列を1回なめる）。
 """
 
@@ -31,10 +34,7 @@ class PostgresInclusionReader:
     def inclusion(self, schema: str, table: str, column: str, keys: Sequence[KeyRef], spans: bool) -> Inclusion:
         if not keys:
             raise ValueError("包含を数えるキーが要る")
-        matched = sql.SQL(", ").join(
-            sql.SQL("count(*) filter (where exists (select 1 from {t} k where k.{kc} = v.value))").format(
-                t=sql.Identifier(k.schema, k.table), kc=sql.Identifier(k.column))
-            for k in keys)
+        matched, joined = _matched(keys)
         key_values = sql.SQL(", ").join(
             sql.SQL("(select count(distinct k.{kc}) from {t} k)").format(
                 t=sql.Identifier(k.schema, k.table), kc=sql.Identifier(k.column))
@@ -47,9 +47,9 @@ class PostgresInclusionReader:
             for k in keys) if spans else sql.SQL("")
         span = sql.SQL("max(value)::numeric - min(value)::numeric + 1") if spans else sql.SQL("null")
         query = sql.SQL("with v as (select {c} as value, count(*) as n from {t} where {c} is not null group by {c}) "
-                        "select count(*), coalesce(max(n), 0), {span}, {matched}, {key_values}{in_span} from v").format(
-            c=sql.Identifier(column), t=sql.Identifier(schema, table), matched=matched, key_values=key_values,
-            span=span, in_span=in_span)
+                        "select count(*), coalesce(max(n), 0), {span}, {matched}, {key_values}{in_span} from v{joined}"
+                        ).format(c=sql.Identifier(column), t=sql.Identifier(schema, table), matched=matched,
+                                 key_values=key_values, span=span, in_span=in_span, joined=joined)
         row = self._one(query, f"{schema}.{table}.{column} の包含")
         n = len(keys)
         counts = [_count(x) for x in row[3:]]
@@ -60,13 +60,11 @@ class PostgresInclusionReader:
     def probe(self, schema: str, table: str, column: str, keys: Sequence[KeyRef], sample: int) -> tuple[int, ...]:
         if not keys or sample < 1:
             raise ValueError(f"見本の重なりにはキーと 1 以上の見本の数が要る: keys={len(keys)}, sample={sample}")
-        matched = sql.SQL(", ").join(
-            sql.SQL("count(*) filter (where exists (select 1 from {t} k where k.{kc} = v.value))").format(
-                t=sql.Identifier(k.schema, k.table), kc=sql.Identifier(k.column))
-            for k in keys)
+        matched, joined = _matched(keys)
         query = sql.SQL("with v as (select distinct {c} as value from {t} where {c} is not null order by 1 limit {n}) "
-                        "select {matched} from v").format(
-            c=sql.Identifier(column), t=sql.Identifier(schema, table), n=sql.Literal(sample), matched=matched)
+                        "select {matched} from v{joined}").format(
+            c=sql.Identifier(column), t=sql.Identifier(schema, table), n=sql.Literal(sample), matched=matched,
+            joined=joined)
         return tuple(_count(x) for x in self._one(query, f"{schema}.{table}.{column} の見本の重なり"))
 
     def _one(self, query: sql.Composed, what: str) -> tuple[object, ...]:
@@ -80,6 +78,17 @@ class PostgresInclusionReader:
         if row is None:
             raise AssertionError(f"集計の問い合わせが行を返さない（{what}）")
         return tuple(row)
+
+
+def _matched(keys: Sequence[KeyRef]) -> tuple[sql.Composed, sql.Composed]:
+    """キーごとの、v の値のうちキーにあるものの数（select の式）と、キーの異なる値への左外部結合（from に続ける句）。"""
+    aliases = [sql.Identifier(f"k{i}") for i in range(len(keys))]
+    matched = sql.SQL(", ").join(sql.SQL("count({a}.key)").format(a=a) for a in aliases)
+    joined = sql.SQL("").join(
+        sql.SQL(" left join (select distinct {kc} as key from {t}) {a} on {a}.key = v.value").format(
+            kc=sql.Identifier(k.column), t=sql.Identifier(k.schema, k.table), a=a)
+        for k, a in zip(keys, aliases, strict=True))
+    return matched, joined
 
 
 def _count(value: object) -> int:

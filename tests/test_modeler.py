@@ -252,7 +252,7 @@ def test_encoded_columns_are_proposed_with_their_encoding() -> None:
     from mandara.source.values import GeoPoint
 
     catalog, columns = _with_binary()
-    [target], not_examined = values.targets(catalog)
+    [target], not_examined = values.targets(catalog, [])
     assert target.column == columns[1] and not_examined == []
     claim = values.encoding_claim("src", target, detect([encode_sqlserver_geography(GeoPoint(1.0, 2.0)), None]))
     assert claim is not None
@@ -275,13 +275,18 @@ def test_encoded_as_on_an_unknown_column_is_an_error() -> None:
         propose("src", ("s",), [*extract("src", catalog), stray])
 
 
-def test_tables_without_a_primary_key_are_not_examined() -> None:
-    from mandara.extractors import values
+def test_tables_without_a_primary_key_are_examined_only_with_a_unique_column_set_in_the_data() -> None:
+    """主キーの宣言が無い表は、データで一意な組（unique_in_data）を行の順に使う。どちらも無ければ見ない。"""
+    from mandara.extractors import keys, values
 
     catalog, _ = _with_binary()
     view = replace(catalog.tables[0], kind=ObjectKind.view, primary_key=None)
-    found, not_examined = values.targets(Catalog(catalog.scope, (view,)))
+    found, not_examined = values.targets(Catalog(catalog.scope, (view,)), [])
     assert found == [] and [(n.table, n.column) for n in not_examined] == [("s.t", "loc")]
+    bare = replace(catalog.tables[0], primary_key=None)
+    unique = keys.claims("src", keys.Found(bare, 3, (("id",),)))
+    [target], not_examined = values.targets(Catalog(catalog.scope, (bare,)), unique)
+    assert (target.column.name, target.key, not_examined) == ("loc", ("id",), [])
 
 
 def test_two_encodings_for_one_column_are_an_error() -> None:
@@ -306,6 +311,7 @@ def test_extract_records_every_examined_column(tmp_path: Path) -> None:
     from mandara.source.coverage import Coverage
     from mandara.source.inclusion import ColumnProfile, Inclusion, KeyRef
     from mandara.source.rows import ColumnRow, ColumnSample
+    from mandara.source.uniqueness import Distinct, RowSample
     from mandara.source.values import GeoPoint
 
     catalog, columns = _with_binary()
@@ -341,8 +347,16 @@ def test_extract_records_every_examined_column(tmp_path: Path) -> None:
         def probe(self, schema: str, table: str, column: str, keys: Sequence[KeyRef], sample: int) -> tuple[int, ...]:
             raise AssertionError(f"見本を読まないはず: {schema}.{table}.{column}")
 
+    class NoKeys:  # 主キーの宣言のある表とビューだけなので、キーは探さない
+        def rows(self, schema: str, table: str, columns: Sequence[str], limit: int) -> RowSample:
+            raise AssertionError(f"読まないはず: {schema}.{table}")
+
+        def distinct(self, schema: str, table: str, columns: Sequence[str]) -> Distinct:
+            raise AssertionError(f"数えないはず: {schema}.{table}")
+
     ws = pipeline.Workspace(tmp_path / "src", "src")
-    extracted = pipeline.extract(ws, Catalogs(), Scope(("s",)), Values(), NoCoverage(), OnlyKeys(), None)
+    extracted = pipeline.extract(ws, Catalogs(), Scope(("s",)), Values(), NoCoverage(), OnlyKeys(), NoKeys(), None)
+    assert extracted.keys == pipeline.KeysMeasured(0, 0, 0, 0, 0, ())
     assert (extracted.joins.columns, extracted.joins.overlapping, extracted.joins.chosen) == (0, 0, 0)
     assert extracted.covered == ()
     found = {e.column: (e.detection.encoding, e.detection.reason, e.detection.values, e.detection.nulls, e.truncated)

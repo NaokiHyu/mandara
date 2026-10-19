@@ -80,7 +80,7 @@ def test_candidates_match_by_type_family_and_skip_the_key_itself() -> None:
     table = Table("s", "history", ObjectKind.table, None, (_column("id"), small, text), Key("pk", ("id",)), (), (), ())
     view = Table("s", "v", ObjectKind.view, None, (small,), None, (), (), ())
     catalog = Catalog(Scope(("s",)), (key_table, table, view))
-    found = joins_extractor.keys(catalog)
+    found = joins_extractor.keys(catalog, [])
     assert sorted((k.table.name, k.column.name) for k in found) == [("department", "departmentid"), ("history", "id")]
     by = {(c.table.name, c.column.name): sorted(k.table.name for k in c.keys)
           for c in joins_extractor.candidates(catalog, found)}
@@ -312,7 +312,7 @@ def test_adventureworks_declared_foreign_keys_are_recovered_from_values_alone() 
     reader = PostgresInclusionReader(CONNINFO)
     from mandara.app.pipeline import measure_joins
     from mandara.extractors import catalog as catalog_extractor
-    measured = measure_joins("adventureworks", catalog, reader)
+    measured = measure_joins("adventureworks", catalog, reader, [])
     declared = [c for c in catalog_extractor.extract("adventureworks", catalog)
                 if c.predicate == ClaimPredicate.identified_by.value]  # 主キーだけ（外部キーの主張は渡さない）
     chosen = joins.choose([*declared, *measured.claims])
@@ -349,7 +349,7 @@ def test_inferred_relations_never_duplicate_declared_joins() -> None:
     from mandara.om.ontology import SELF
     catalog = PostgresCatalogReader(CONNINFO).read(Scope(SCHEMAS))
     claims = [*catalog_extractor.extract("adventureworks", catalog),
-              *measure_joins("adventureworks", catalog, PostgresInclusionReader(CONNINFO)).claims]
+              *measure_joins("adventureworks", catalog, PostgresInclusionReader(CONNINFO), []).claims]
     ontology = propose("adventureworks", SCHEMAS, claims).ontology
     seen: list[tuple[str, tuple[tuple[str, str], ...], str]] = []
     for t in ontology.tables:

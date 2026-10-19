@@ -179,6 +179,8 @@ def brief(table_claims: InferenceClaims, vocabulary: Mapping[str, SemanticType],
             lines.append(f"comment: {_q(c.text)} ({c.id})")
     for c in by[ClaimPredicate.identified_by.value]:
         lines.append(f"primary key: {', '.join(map(_q, c.columns or []))} ({c.id})")
+    for c in by[ClaimPredicate.unique_in_data.value]:  # 主キーに選んだ組だけが来る（mandara.modeler.joins.claims_for）
+        lines.append(f"primary key (not declared; unique in the data): {', '.join(map(_q, c.columns or []))} ({c.id})")
     for c in by[ClaimPredicate.unique.value]:
         lines.append(f"unique: {', '.join(map(_q, c.columns or []))} ({c.id})")
     lines.append("columns:")

@@ -61,6 +61,7 @@ SHAPES: dict[str, Shape] = {
                                                   "discriminator_values"),
     ClaimPredicate.included_in.value: _shape("table", "columns", "target", "target_columns", "distinct_values",
                                              "matched_values", "target_values", "max_repeats", optional=("value_span", "target_values_in_span")),
+    ClaimPredicate.unique_in_data.value: _shape("table", "columns", "distinct_values"),
     ClaimPredicate.shaped_as.value: _shape("column", "patterns", "pattern_shares", "shape_level", "distinct_values",
                                            "sampled_values"),
     ClaimPredicate.resembles.value: _shape("table", "columns", "target", "target_columns", "method", "score", "baseline",
@@ -208,6 +209,9 @@ def _check_claim(claim: Claim) -> Iterator[ClaimViolation]:
         elif span is not None and in_span is not None and (
                 distinct == 0 or span < distinct or not matched <= in_span <= min(span, claim.target_values or 0)):
             yield wrong("値の範囲の数が合わない（範囲の整数 ≥ 値の数、含まれる数 ≤ 範囲のキーの値 ≤ 範囲の整数・キーの値の数）")
+    if claim.predicate == ClaimPredicate.unique_in_data.value and claim.distinct_values is not None:
+        if claim.distinct_values < 1:
+            yield wrong("行の無い表の一意は主張にしない（行の数は 1 以上）")
     if claim.predicate == ClaimPredicate.shaped_as.value and claim.patterns and claim.pattern_shares:
         shares = claim.pattern_shares
         if len(claim.patterns) != len(shares):

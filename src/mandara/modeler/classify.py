@@ -150,6 +150,13 @@ def references(table_claims: InferenceClaims) -> list[Claim]:
     return [c for c in table_claims if c.predicate in (ClaimPredicate.references.value, ClaimPredicate.included_in.value)]
 
 
+def primary_key(table_claims: Sequence[Claim]) -> Claim | None:
+    """表の主キーの主張：宣言（identified_by）。無ければ、主キーに選んだデータで一意な組（unique_in_data。
+    mandara.modeler.joins.claims_for が残すのは選んだ組だけ。T2.7）。"""
+    declared = _by(table_claims, ClaimPredicate.identified_by)
+    return next(iter(declared or _by(table_claims, ClaimPredicate.unique_in_data)), None)
+
+
 def _table_name(table_claims: Sequence[Claim]) -> str:
     declared = _by(table_claims, ClaimPredicate.declared_as)
     if not declared:
@@ -187,8 +194,10 @@ def state(table_claims: InferenceClaims) -> dict[str, object]:
     comments = [c.text for c in _by(table_claims, ClaimPredicate.described_as) if c.subject.column is None]
     if comments:
         out["comment"] = comments[0]
-    for c in _by(table_claims, ClaimPredicate.identified_by):
-        out["primary_key"] = list(c.columns or [])
+    if (primary := primary_key(table_claims)) is not None:
+        out["primary_key"] = list(primary.columns or [])
+        if primary.predicate == ClaimPredicate.unique_in_data.value:
+            out["primary_key_source"] = "not declared; chosen among the column sets that are unique in the data"
     if unique := [list(c.columns or []) for c in _by(table_claims, ClaimPredicate.unique)]:
         out["unique"] = unique
     out["columns"] = columns
@@ -205,7 +214,7 @@ def state(table_claims: InferenceClaims) -> dict[str, object]:
 def _table_evidence(table_claims: InferenceClaims) -> list[str]:
     """表の判断の根拠：表としての宣言、表のコメント、キー、外部キー。"""
     wanted = {ClaimPredicate.declared_as.value, ClaimPredicate.identified_by.value, ClaimPredicate.unique.value,
-              ClaimPredicate.references.value, ClaimPredicate.included_in.value}
+              ClaimPredicate.references.value, ClaimPredicate.included_in.value, ClaimPredicate.unique_in_data.value}
     return sorted(c.id for c in table_claims if c.predicate in wanted
                   or (c.predicate == ClaimPredicate.described_as.value and c.subject.column is None))
 
@@ -236,7 +245,7 @@ def _fk_facts(fk: Claim, table_claims: Sequence[Claim], shared: bool) -> tuple[l
         facts.append(f"This reference is not declared in the source; it is inferred from the data: all "
                      f"{fk.distinct_values} distinct values of the column appear in the target key "
                      f"({fk.target_values} key values; each column value is in at most {fk.max_repeats} rows).")
-    primary = next(iter(_by(table_claims, ClaimPredicate.identified_by)), None)
+    primary = primary_key(table_claims)
     if shared and primary is not None:
         facts.append("The foreign key columns are the whole primary key of the `table` and point to the primary key of "
                      "the target: a row shares its identity with the target row.")
@@ -270,7 +279,7 @@ def _fk_facts(fk: Claim, table_claims: Sequence[Claim], shared: bool) -> tuple[l
 
 def _key_facts(table_claims: InferenceClaims) -> list[str]:
     """表の種類の手がかり：主キーが、どの表への外部キーと、ほかのどの列でできているか。"""
-    primary = next(iter(_by(table_claims, ClaimPredicate.identified_by)), None)
+    primary = primary_key(table_claims)
     if primary is None:
         return ["The `table` has no declared primary key."]
     key = list(primary.columns or [])
@@ -838,7 +847,7 @@ def parse_grain(data: object) -> GrainAnswer:
 
 
 def grain_evidence(table_claims: Sequence[Claim]) -> list[str]:
-    wanted = {ClaimPredicate.declared_as.value, ClaimPredicate.identified_by.value}
+    wanted = {ClaimPredicate.declared_as.value, ClaimPredicate.identified_by.value, ClaimPredicate.unique_in_data.value}
     return sorted(c.id for c in table_claims if c.predicate in wanted
                   or (c.predicate == ClaimPredicate.described_as.value and c.subject.column is None))
 

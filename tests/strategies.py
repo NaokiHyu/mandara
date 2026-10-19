@@ -315,6 +315,8 @@ def claims(
         payload["fixed_unit"] = draw(st.sampled_from(tuple(Unit)))
     if "encoding" in shape.fields:
         payload["encoding"] = draw(st.sampled_from(tuple(SourceEncoding)))
+    if predicate == ClaimPredicate.unique_in_data:  # データで一意な組：行の数は 1 以上
+        payload["distinct_values"] = draw(st.integers(1, 100_000))
     if predicate == ClaimPredicate.shaped_as:  # 値の形：割合は多い順で和は 1 以下、見本は異なる値の数以下
         patterns = draw(st.lists(texts, min_size=1, max_size=5, unique=True))
         weights = sorted(draw(st.lists(st.integers(1, 100), min_size=len(patterns), max_size=len(patterns))),

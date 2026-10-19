@@ -1,7 +1,8 @@
 """宣言の無い参照の測定：列の値が、別の表のキーの値にどれだけ含まれるか → 主張（included_in。source.kind: data）。
 
 Domain 層の純粋な関数。値を読むのは呼ぶ側（InclusionReader）。仕様 6.2、6.7.2 B / D。
-- 参照先の候補は、1 列のキー（主キー、または NULL の無い列の一意）。複合キーへの参照はまだ測らない
+- 参照先の候補は、1 列のキー（主キー、または NULL の無い列の一意。主キーの宣言の無い表では、データで一意な 1 列
+  （unique_in_data、T2.7））。複合キーへの参照はまだ測らない
 - 参照元の候補は、表（ビューではない）の列で、キーと同じ型族のもの（ソースの型名は問わない。smallint の列が integer の
   キーを指すこともあるし、ファイルのソースでは型名がばらつく）。キーの列そのものは除く
 - 全部を数える前に、安い順に足切りする（足切りは事実の主張にしない。落とした数は呼ぶ側が記録に残す）：
@@ -20,6 +21,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from mandara.extractors.catalog import quote
+from mandara.extractors.keys import KEY_FAMILIES
 from mandara.om.claims import new_claim
 from mandara.om.model import Claim, ClaimPredicate, ClaimSource, ClaimSourceKind, ObjectKind, SourceRef, TypeFamily
 from mandara.source.catalog import Catalog, Column, Table
@@ -33,9 +35,6 @@ PROBE_SAMPLE = 50
 ORDERED_FAMILIES = frozenset({TypeFamily.integer, TypeFamily.decimal, TypeFamily.float, TypeFamily.date,
                               TypeFamily.timestamp})
 """最小・最大で範囲を比べてよい型族（文字列は照合順序が DB に依るので比べない）。"""
-_KEY_FAMILIES = frozenset({TypeFamily.integer, TypeFamily.decimal, TypeFamily.text, TypeFamily.uuid, TypeFamily.date,
-                           TypeFamily.timestamp})
-"""参照先のキーになりうる型族（真偽・バイト列・XML などのキーは参照の対象にしない）。"""
 
 
 @dataclass(frozen=True)
@@ -57,18 +56,26 @@ class Candidate:
     keys: tuple[Key, ...]
 
 
-def keys(catalog: Catalog) -> list[Key]:
-    """1 列のキー：表の主キー、または NULL の無い列の一意。"""
+def keys(catalog: Catalog, observed: Sequence[Claim]) -> list[Key]:
+    """1 列のキー：表の主キー、または NULL の無い列の一意。主キーの宣言の無い表では、observed（unique_in_data の主張）の
+    1 列の組も（データで一意で NULL が無い）。"""
+    in_data: dict[tuple[str, str], list[tuple[str, ...]]] = {}
+    for c in observed:
+        if c.predicate != ClaimPredicate.unique_in_data.value:
+            raise ValueError(f"unique_in_data でない主張は渡さない: {c.id}")
+        in_data.setdefault((c.subject.schema_name, c.subject.table), []).append(tuple(c.columns or []))
     out: list[Key] = []
     for table in catalog.tables:
         if table.kind != ObjectKind.table.value:
             continue
         by_name = {c.name: c for c in table.columns}
-        single = [k.columns for k in (table.primary_key, *table.uniques) if k is not None and len(k.columns) == 1]
+        single = [k.columns for k in (table.primary_key, *table.uniques) if k is not None and len(k.columns) == 1
+                  and (by_name[k.columns[0]].nullable is False or k is table.primary_key)]
+        if table.primary_key is None:
+            single += [u for u in in_data.get((table.schema, table.name), []) if len(u) == 1]
         for (name,) in dict.fromkeys(single):
             column = by_name[name]
-            if column.family in _KEY_FAMILIES and (column.nullable is False or (table.primary_key is not None
-                                                                                and table.primary_key.columns == (name,))):
+            if column.family in KEY_FAMILIES:
                 out.append(Key(table, column))
     return out
 

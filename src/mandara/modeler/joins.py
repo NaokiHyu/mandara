@@ -127,6 +127,20 @@ def _measured(claim: Claim) -> _Measured:
                      f"{t.schema_name}.{t.table}", t.table, keys[0], distinct, matched, key_values, repeats)
 
 
+def own_keys(claims: Sequence[Claim]) -> dict[str, tuple[str, ...]]:
+    """表 → 規則が主キーにする組：宣言された主キー。無ければ、データで一意な組が 1 つだけのときのその組
+    （mandara.modeler.rules と同じ。T2.7）。判断モデルが選ぶ主キーは、この段（抽出のすぐ後の規則）ではまだ無い。"""
+    declared: dict[str, tuple[str, ...]] = {}
+    in_data: dict[str, list[tuple[str, ...]]] = defaultdict(list)
+    for c in claims:
+        name = f"{c.subject.schema_name}.{c.subject.table}"
+        if c.predicate == ClaimPredicate.identified_by.value:
+            declared[name] = tuple(c.columns or [])
+        elif c.predicate == ClaimPredicate.unique_in_data.value:
+            in_data[name].append(tuple(c.columns or []))
+    return {**{n: u[0] for n, u in in_data.items() if len(u) == 1}, **declared}
+
+
 def choose(claims: Sequence[Claim]) -> list[Chosen]:
     """参照とみなす included_in の主張（表と列の順）。
 
@@ -137,8 +151,7 @@ def choose(claims: Sequence[Claim]) -> list[Chosen]:
     3. 値の集合が同じ表どうし（互いに包含）が両向きに選ばれたら、ハブの弱い側を指していた列は、その候補を捨てて次を選ぶ
        （2 本の循環を作らない。例：person と password はどちらも同じ人の集合で、person のほうが多くの表から指される）
     """
-    keys = {f"{c.subject.schema_name}.{c.subject.table}": tuple(c.columns or []) for c in claims
-            if c.predicate == ClaimPredicate.identified_by.value}
+    keys = own_keys(claims)
     by_column: dict[tuple[str, str], list[tuple[_Measured, int]]] = defaultdict(list)
     for c in claims:
         if c.predicate != ClaimPredicate.included_in.value:
@@ -172,7 +185,12 @@ def choose(claims: Sequence[Claim]) -> list[Chosen]:
 def claims_for(table: Table, table_claims: Sequence[Claim]) -> InferenceClaims:
     """推論（判断モデルと LLM）に渡す表の主張：値の包含の測定（included_in）は、表の関係の根拠になっているもの（参照と
     みなしたもの）だけを残す。後段は、宣言された外部キー（references）と残った included_in を、同じ「参照」として扱う
-    （mandara.modeler.classify.references）。参照とみなさなかった測定は、推論の材料にしない（候補が多すぎ、偶然の包含を含む）。"""
+    （mandara.modeler.classify.references）。参照とみなさなかった測定は、推論の材料にしない（候補が多すぎ、偶然の包含を含む）。
+    データで一意な組（unique_in_data。T2.7）も、表の主キーに選んだものだけを残す（後段は宣言の主キーと同じに扱う。
+    mandara.modeler.classify.primary_key）。"""
     evidence = {e for r in table.relations or [] for e in r.evidence or []}
+    primary = frozenset(table.identity.primary) if table.identity is not None else None
     return InferenceClaims(tuple(c for c in table_claims
-                                 if c.predicate != ClaimPredicate.included_in.value or c.id in evidence))
+                                 if (c.predicate != ClaimPredicate.included_in.value or c.id in evidence)
+                                 and (c.predicate != ClaimPredicate.unique_in_data.value
+                                      or frozenset(c.columns or []) == primary)))

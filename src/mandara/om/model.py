@@ -343,6 +343,10 @@ class ClaimPredicate(str, Enum):
     """
     表の columns（NULL を除く）の値を数えた結果：異なる値が distinct_values 個、そのうち target の target_columns （キー）にあるのが matched_values 個。target のキーの値は target_values 個。1 つの値の行は最大 max_repeats 行。 整数の列なら、列の値の最小から最大までの整数の数 value_span と、その範囲にあるキーの値の数 target_values_in_span （整数でない列、値の無い列では持たない）。 実データの測定で、宣言の無い参照（外部キー）の候補の事実。包含が成り立たない組も、否定の証拠として残す（仕様 6.7.2 B / D）
     """
+    unique_in_data = "unique_in_data"
+    """
+    表の columns の値の組が、実データで重複せず NULL も無い（行が distinct_values 行。T2.7）。組は極小（真部分集合は 一意でない）。宣言の unique とは別：測った時点の事実で、制約ではない
+    """
     shaped_as = "shaped_as"
     """
     列の値の形（実データ。T2.6）：NULL を除いた異なる値 distinct_values 個のうち sampled_values 個の見本を、構文パターンに 一般化した上位の patterns と、それぞれに当たる見本の割合 pattern_shares。shape_level は MDL で選んだ一般化の段 （1 = 文字の種類と長さ、2 = 文字の種類、3 = 文字の種類の集合）。 値の文字列は入れない（共通の接頭辞のような定数も）

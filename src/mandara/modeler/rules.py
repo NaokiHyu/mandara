@@ -126,6 +126,9 @@ def _table(
     if declared is None:
         raise AssertionError(f"propose で確かめたはずの declared_as が無い: {key}")
     primary = _one(claims, ClaimPredicate.identified_by)
+    if primary is None and len(in_data := _all(claims, ClaimPredicate.unique_in_data)) == 1:
+        # 主キーの宣言が無く、データで一意な極小の組が 1 つだけ（T2.7）。2 つ以上なら選ばない（mandara.modeler.keys が問う）
+        primary = in_data[0]
     references = _all(claims, ClaimPredicate.references)
     not_null = {_column(c): c for c in _all(claims, ClaimPredicate.not_null)}
 

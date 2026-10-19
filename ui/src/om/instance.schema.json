@@ -540,6 +540,7 @@
                 "covers_all",
                 "discriminated_by",
                 "included_in",
+                "unique_in_data",
                 "shaped_as",
                 "resembles"
             ],
