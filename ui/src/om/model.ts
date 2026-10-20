@@ -427,6 +427,21 @@ export interface Table extends Annotation {
     relations?: Relation[],
     /** relation の表だけが持てる。この表の行が実現する、もの同士の関係 */
     edge?: Edge,
+    /** 提案の表の確信度の内訳（4.4）。表の提案は、所属（エンティティグループ）・種類・主キーの判断が重なったもので、 表の confidence はその最小値。どこが弱いかをレビューに見せ、部品ごとに較正するために分けて持つ。 辺（edge）と関係・列は自分の confidence を持つので、ここには入れない */
+    confidence_parts?: TableConfidence,
+}
+
+
+/**
+ * 表の確信度の部品。書くのは、その判断を提案したときだけ（種類が未決なら kind は無い。主キーが無いか宣言なら identity は無い）。表の confidence は、書かれた部品の最小値に等しい（4.5）
+ */
+export interface TableConfidence {
+    /** 所属（エンティティグループ）の確信度 */
+    entity_group?: number,
+    /** 表の種類の確信度 */
+    kind?: number,
+    /** 推測した主キーの確信度（宣言された主キーなら書かない） */
+    identity?: number,
 }
 
 
@@ -740,6 +755,10 @@ export interface ReviewQuestion {
     needs_kind: boolean,
     /** 一括承認の候補（確信度が bulk_minimum 以上で、種類を選ばなくてよい） */
     bulk_candidate: boolean,
+    /** 表の問いなら、表の確信度の内訳（どの判断が弱いか） */
+    confidence_parts?: TableConfidence,
+    /** 内訳のうち、部品ごとの見直しの目安（較正で当たりが落ちる確信度）を下回る部品の名前。レビューで先に見るところ。 一括承認の候補かどうかには関わらない */
+    weak_parts?: string[],
 }
 
 

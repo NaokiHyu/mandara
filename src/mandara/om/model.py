@@ -652,8 +652,9 @@ class Table(Annotation):
                        'RelatedGroup',
                        'LinkGroup']} })
     source: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'Claim', 'SourceRef']} })
-    entity_group: str = Field(default=..., description="""エンティティグループ：ドメインの意味的な集まり（仕様の用語集と 4.2）。境界づけられたコンテキストではない（それはスキーマコンテキスト。4.3）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'DomainSummary']} })
+    entity_group: str = Field(default=..., description="""エンティティグループ：ドメインの意味的な集まり（仕様の用語集と 4.2）。境界づけられたコンテキストではない（それはスキーマコンテキスト。4.3）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'TableConfidence', 'DomainSummary']} })
     kind: Optional[TableKind] = Field(default=None, description="""表種別。提案の段階では未決（無い）でもよい（規則や証拠で決まらないものを既定値で埋めない）。 approved の表には必須""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table',
+                       'TableConfidence',
                        'ClaimSource',
                        'OntologyListing',
                        'ReviewAnswer',
@@ -661,7 +662,7 @@ class Table(Annotation):
                        'RelatedGroup']} })
     derived: Optional[bool] = Field(default=None, description="""計算・集計で導出された表（ビューなど）。kind（何を表すか）とは別の軸で、どの kind とも組み合わさる。 コマンド不可。part-of の全体側にならない。ソースが実体の表なら書かない""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table']} })
     grain: Optional[str] = Field(default=None, description="""1行が何を表すか（10.4）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'DomainSummary']} })
-    identity: Optional[Identity] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Table']} })
+    identity: Optional[Identity] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'TableConfidence']} })
     columns: Optional[dict[str, Column]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Table',
                        'KeyColumns',
                        'Relation',
@@ -671,6 +672,7 @@ class Table(Annotation):
                        'RelatedGroup']} })
     relations: Optional[list[Relation]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Table']} })
     edge: Optional[Edge] = Field(default=None, description="""relation の表だけが持てる。この表の行が実現する、もの同士の関係""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table']} })
+    confidence_parts: Optional[TableConfidence] = Field(default=None, description="""提案の表の確信度の内訳（4.4）。表の提案は、所属（エンティティグループ）・種類・主キーの判断が重なったもので、 表の confidence はその最小値。どこが弱いかをレビューに見せ、部品ごとに較正するために分けて持つ。 辺（edge）と関係・列は自分の confidence を持つので、ここには入れない""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'ReviewQuestion']} })
     status: ReviewStatus = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation']} })
     confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0, json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation', 'Claim', 'ReviewQuestion']} })
     evidence: Optional[list[str]] = Field(default=None, description="""主張台帳（6.6）の主張ID""", json_schema_extra = { "linkml_meta": {'domain_of': ['Annotation', 'ReviewQuestion']} })
@@ -691,6 +693,23 @@ class Table(Annotation):
             err_msg = f"Invalid id format: {v}"
             raise ValueError(err_msg)
         return v
+
+
+class TableConfidence(ConfiguredBaseModel):
+    """
+    表の確信度の部品。書くのは、その判断を提案したときだけ（種類が未決なら kind は無い。主キーが無いか宣言なら identity は無い）。表の confidence は、書かれた部品の最小値に等しい（4.5）
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
+
+    entity_group: Optional[float] = Field(default=None, description="""所属（エンティティグループ）の確信度""", ge=0.0, le=1.0, json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'TableConfidence', 'DomainSummary']} })
+    kind: Optional[float] = Field(default=None, description="""表の種類の確信度""", ge=0.0, le=1.0, json_schema_extra = { "linkml_meta": {'domain_of': ['Table',
+                       'TableConfidence',
+                       'ClaimSource',
+                       'OntologyListing',
+                       'ReviewAnswer',
+                       'DomainSummary',
+                       'RelatedGroup']} })
+    identity: Optional[float] = Field(default=None, description="""推測した主キーの確信度（宣言された主キーなら書かない）""", ge=0.0, le=1.0, json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'TableConfidence']} })
 
 
 class Edge(Annotation):
@@ -1047,6 +1066,7 @@ class ClaimSource(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om'})
 
     kind: ClaimSourceKind = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table',
+                       'TableConfidence',
                        'ClaimSource',
                        'OntologyListing',
                        'ReviewAnswer',
@@ -1074,6 +1094,7 @@ class OntologyListing(ConfiguredBaseModel):
                        'InstanceSummary',
                        'Instance']} })
     kind: OntologySourceKind = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table',
+                       'TableConfidence',
                        'ClaimSource',
                        'OntologyListing',
                        'ReviewAnswer',
@@ -1132,6 +1153,8 @@ class ReviewQuestion(ConfiguredBaseModel):
     evidence_total: int = Field(default=..., description="""根拠の主張の数（evidence に出さなかったものを含む）""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['ReviewQuestion']} })
     needs_kind: bool = Field(default=..., description="""承認するには表の種類を選ぶ""", json_schema_extra = { "linkml_meta": {'domain_of': ['ReviewQuestion']} })
     bulk_candidate: bool = Field(default=..., description="""一括承認の候補（確信度が bulk_minimum 以上で、種類を選ばなくてよい）""", json_schema_extra = { "linkml_meta": {'domain_of': ['ReviewQuestion']} })
+    confidence_parts: Optional[TableConfidence] = Field(default=None, description="""表の問いなら、表の確信度の内訳（どの判断が弱いか）""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'ReviewQuestion']} })
+    weak_parts: Optional[list[str]] = Field(default=None, description="""内訳のうち、部品ごとの見直しの目安（較正で当たりが落ちる確信度）を下回る部品の名前。レビューで先に見るところ。 一括承認の候補かどうかには関わらない""", json_schema_extra = { "linkml_meta": {'domain_of': ['ReviewQuestion']} })
 
 
 class EvidenceLine(ConfiguredBaseModel):
@@ -1150,6 +1173,7 @@ class ReviewAnswer(ConfiguredBaseModel):
     location: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ReviewQuestion', 'ReviewAnswer']} })
     decision: ReviewDecision = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ReviewAnswer']} })
     kind: Optional[TableKind] = Field(default=None, description="""種類が未決の表を承認するときに選んだ種類""", json_schema_extra = { "linkml_meta": {'domain_of': ['Table',
+                       'TableConfidence',
                        'ClaimSource',
                        'OntologyListing',
                        'ReviewAnswer',
@@ -1241,8 +1265,9 @@ class DomainSummary(ConfiguredBaseModel):
                        'Instance',
                        'RelatedGroup',
                        'LinkGroup']} })
-    entity_group: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'DomainSummary']} })
+    entity_group: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table', 'TableConfidence', 'DomainSummary']} })
     kind: TableKind = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table',
+                       'TableConfidence',
                        'ClaimSource',
                        'OntologyListing',
                        'ReviewAnswer',
@@ -1573,6 +1598,7 @@ class RelatedGroup(GroupProfile):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/mandara/om', 'mixins': ['GroupProfile']})
 
     kind: RelatedKind = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Table',
+                       'TableConfidence',
                        'ClaimSource',
                        'OntologyListing',
                        'ReviewAnswer',
@@ -1818,6 +1844,7 @@ SemanticType.model_rebuild()
 EnumValue.model_rebuild()
 AliasEntry.model_rebuild()
 Table.model_rebuild()
+TableConfidence.model_rebuild()
 Edge.model_rebuild()
 Identity.model_rebuild()
 KeyColumns.model_rebuild()

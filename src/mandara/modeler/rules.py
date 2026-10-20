@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import TypedDict
 
 from mandara.om.claims import check_claims
+from mandara.om.confidence import overall
 from mandara.om.invariants import Violation, check
 from mandara.om.model import (
     Cardinality,
@@ -33,6 +34,7 @@ from mandara.om.model import (
     RelationType,
     ReviewStatus,
     Table,
+    TableConfidence,
     TableKind,
     Vocabulary,
 )
@@ -152,7 +154,7 @@ def _table(
     declared_joins = {joins.claim_join(fk) for fk in references}
     inferred = [c for c in inferred if joins.claim_join(c.claim) not in declared_joins]
     kind, kind_evidence = _kind(declared, primary, [*references, *(c.claim for c in inferred)])
-    confidence = min([ENTITY_GROUP_CONFIDENCE, *([KIND_CONFIDENCE] if kind is not None else list[float]())])
+    parts = TableConfidence(entity_group=ENTITY_GROUP_CONFIDENCE, kind=KIND_CONFIDENCE if kind is not None else None)
     evidence = [declared.id, *(c.id for c in [primary, *alternates] if c is not None), *nulls_evidence, *kind_evidence]
 
     # 中身が同じ外部キー（名前だけ違う冗長な制約）は、1つの関係にまとめて根拠を併記する
@@ -209,7 +211,8 @@ def _table(
         identity=identity,
         columns=columns or None,
         relations=relations or None,
-        **_proposed(confidence, evidence),
+        **_proposed(overall(parts), evidence),
+        confidence_parts=parts,
         note="entity_group はスキーマ名からの推定" + ("" if kind is not None else "。kind は未決（規則では決まらない）"),
     )
     return table, skipped

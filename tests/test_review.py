@@ -19,10 +19,13 @@ from hypothesis import strategies as st
 
 from mandara.cli import main
 from mandara.om.invariants import check
-from mandara.om.model import AliasEntry, Column, Edge, EnumValue, Relation, ReviewStatus, Table, TableKind
+from mandara.om.confidence import PARTS, overall, present
+from mandara.om.model import (AliasEntry, Column, Edge, EnumValue, Relation, ReviewStatus, ReviewSubject, Table,
+                              TableConfidence, TableKind, Vocabulary)
 from mandara.om.ontology import Ontology
 from mandara.omstore.yaml_store import OntologyWriteRefusedError, load_ontology, write_ontology, write_reviewed_ontology
-from mandara.review.decisions import Approve, Reject, ReviewError, apply, questions, review_changes
+from mandara.review.decisions import (WEAK_BELOW, Approve, Reject, ReviewError, apply, is_bulk_candidate, questions,
+                                      review_changes)
 
 from tests.strategies import ontologies
 
@@ -222,3 +225,31 @@ def test_review_command_end_to_end(tmp_path: Path) -> None:
     code, _, err = _cli("run", *_ws(tmp_path), "--conninfo", "dbname=adventureworks",
                         *(a for s in SCHEMAS for a in ("--schema", s)))
     assert code == 2 and "人の判断" in err
+
+
+@given(ontologies(), st.floats(min_value=0.0, max_value=1.0), st.floats(min_value=0.0, max_value=1.0))
+def test_table_questions_show_the_parts_below_their_mark(ontology: Ontology, group: float, kind: float) -> None:
+    """法則：表の問いだけが確信度の内訳を持ち、weak_parts は目安（WEAK_BELOW）を下回る部品ちょうど。一括承認の候補は内訳で変わらない。"""
+    first = ontology.tables[0]
+    parts = TableConfidence(entity_group=group, kind=kind if first.kind is not None else None)
+    table = first.model_copy(update={"status": "proposed", "confidence": overall(parts), "evidence": ["clm_x"],
+                                     "inferred_by": "x", "confidence_parts": parts})
+    o = replace(ontology, tables=(table, *ontology.tables[1:]))
+    assume(not check(o))
+    [q] = [q for q in questions(o) if q.location == table.id]
+    assert q.parts == parts
+    assert q.weak_parts == tuple(n for n, v in present(parts).items() if v < WEAK_BELOW[n])
+    assert is_bulk_candidate(q, 0.95) == is_bulk_candidate(replace(q, parts=None), 0.95)
+    assert all(x.parts is None for x in questions(o) if x.subject != ReviewSubject.table)
+
+
+def test_every_part_has_a_mark_and_a_part_at_its_mark_is_not_weak() -> None:
+    assert set(WEAK_BELOW) == set(PARTS)
+    table = Table(id="tbl_t", name="s.t", source="src", entity_group="s", kind=TableKind.domain,
+                  status=ReviewStatus.proposed, confidence=0.0, evidence=["clm_x"], inferred_by="x")
+    at = TableConfidence(**WEAK_BELOW)
+    below = TableConfidence(**{n: v - 0.01 for n, v in WEAK_BELOW.items()})
+    for parts, weak in ((at, ()), (below, PARTS)):
+        proposed = table.model_copy(update={"confidence_parts": parts, "confidence": overall(parts)})
+        [q] = questions(Ontology(vocabulary=Vocabulary(), tables=(proposed,)))
+        assert q.weak_parts == weak

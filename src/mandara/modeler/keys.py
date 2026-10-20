@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from mandara.llm.decision import Choice, DecisionRequest, DecisionResponse
 from mandara.modeler import classify, joins
 from mandara.modeler.llm import Dropped
+from mandara.om.confidence import with_part
 from mandara.om.model import Claim, ClaimPredicate, Identity, Table
 from mandara.om.names import qualify
 from mandara.om.ontology import Ontology
@@ -155,12 +156,9 @@ def apply(ontology: Ontology, decided: Sequence[Decided]) -> Ontology:
             continue
         if t.identity is not None:
             raise ValueError(f"主キーのある表に主キーを当てない（問いを作った後に OM が変わった）: {t.name}")
-        if t.confidence is None:
-            raise ValueError(f"提案の表に確信度が無い（規則が付けたはず）: {t.name}")
-        tables.append(t.model_copy(update={
-            "identity": Identity(primary=list(d.candidate.columns)),
-            "evidence": sorted({*(t.evidence or []), d.candidate.claim.id}),
-            "confidence": min(t.confidence, d.confidence)}))
+        keyed = t.model_copy(update={"identity": Identity(primary=list(d.candidate.columns)),
+                                     "evidence": sorted({*(t.evidence or []), d.candidate.claim.id})})
+        tables.append(with_part(keyed, "identity", d.confidence))
     return Ontology(vocabulary=ontology.vocabulary, tables=tuple(tables))
 
 

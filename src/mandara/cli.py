@@ -308,6 +308,9 @@ def _eval_calibration(args: argparse.Namespace, out: TextIO, style: _Style) -> i
             rate = f"{b.correct / b.proposed * 100:.0f}%" if b.proposed else "—"
             cells.append(f"{b.low:.2f}–{b.high:.2f} {b.correct}/{b.proposed} {rate}")
         print(f"  {style.dim(f'{aspect:<12}')}{' · '.join(cells)}", file=out)
+    if calibration.without_parts:
+        print(f"  {style.dim('note')}        確信度の内訳が無い表 {calibration.without_parts} 個は、表の部品の観点に数えていない",
+              file=out)
     return 0
 
 

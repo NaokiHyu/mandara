@@ -6,14 +6,18 @@ Domain 層の純粋な関数。
 - 答えは「承認」「却下」。表の種類が未決の表は、承認するときに人が種類を選ぶ（approved の表には種類が要る）
 - 当てた結果は、判断の項目（status、reviewed_by、reviewed_at と、未決だった表の種類）以外を変えない。
   これを review_changes で検査できる（書き込む側の境界で使う）
+- 表の問いには、表の確信度の内訳を添え、部品ごとの見直しの目安（WEAK_BELOW）を下回る部品を「先に見るところ」として示す。
+  一括承認の候補かどうかは表の確信度（内訳の最小値）で決まり、内訳では変えない
 """
 
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date
 
+from mandara.om.confidence import present
 from mandara.om.invariants import check
-from mandara.om.model import Column, Edge, EnumValue, Relation, ReviewStatus, ReviewSubject, Table, TableKind
+from mandara.om.model import (Column, Edge, EnumValue, Relation, ReviewStatus, ReviewSubject, Table, TableConfidence,
+                              TableKind)
 from mandara.om.names import split_qualified
 from mandara.om.ontology import SELF, Annotated, Ontology
 
@@ -28,6 +32,14 @@ def _derived_note(table: Table) -> str:
     """計算で導出された表（ビューなど）なら、そう添える。種類（何を表すか）は別に問う。"""
     return "（計算で導出された表）" if table.derived else ""
 
+
+WEAK_BELOW: dict[str, float] = {"entity_group": 0.7, "kind": 0.9, "identity": 0.7}
+"""部品ごとの見直しの目安：これ未満の部品は、レビューで先に見るところ。段 4 の実行（aw_bare4_parts、2026-10-20。表 89、
+うち正解のある表 14）の分布と較正から決めた：
+- entity_group：規則の 0.7 だけ（89 表）。0.7 帯は 14/14 当たり（正解もスキーマ名なので甘い）。0.7 未満を目安にする
+- kind：規則の 0.9 が 53 表で 11/12 当たり。0.9 未満は判断モデルが決めたもの（11 表、0.64〜0.88。外れはここに出た）
+- identity：推測した主キーは 0.6〜0.7（40 表、0.7 に 32）。0.7 帯は 8/9 当たり。0.7 未満（8 表）を目安にする
+正解のある表が少ないので、実行が増えたら見直す。"""
 
 EVIDENCE_LINES = 3
 """問いに添える根拠の行数の上限（仕様 9.3）。"""
@@ -45,6 +57,15 @@ class Question:
     evidence: tuple[str, ...]
     needs_kind: bool
     """承認するには表の種類を選ぶ必要がある。"""
+    parts: TableConfidence | None = None
+    """表の問いなら、表の確信度の内訳。"""
+
+    @property
+    def weak_parts(self) -> tuple[str, ...]:
+        """内訳のうち、見直しの目安を下回る部品（レビューで先に見るところ）。"""
+        if self.parts is None:
+            return ()
+        return tuple(n for n, v in present(self.parts).items() if v < WEAK_BELOW[n])
 
     @property
     def evidence_shown(self) -> tuple[str, ...]:
@@ -129,8 +150,9 @@ def _question(where: str, annotation: Annotated, ontology: Ontology, names: dict
             subject, text = ReviewSubject.enum_value, f"意味型 {semantic_type} の値 {annotation.code} は「{annotation.label}」ですか？"
         case _:
             raise AssertionError(f"想定外の注釈: {type(annotation).__name__}")
+    parts = annotation.confidence_parts if isinstance(annotation, Table) else None
     return Question(where, table_id, subject, text, annotation.confidence, tuple(annotation.evidence or []),
-                    needs_kind)
+                    needs_kind, parts)
 
 
 def _column_text(table: Table, column: Column, ontology: Ontology) -> str:

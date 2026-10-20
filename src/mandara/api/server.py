@@ -133,6 +133,7 @@ def to_review_queue(source: OntologySource, queue: pipeline.ReviewQueue, reviewi
             evidence=[EvidenceLine(id=e, text=queue.evidence[e]) for e in q.evidence_shown],
             evidence_total=len(q.evidence), needs_kind=q.needs_kind,
             bulk_candidate=is_bulk_candidate(q, pipeline.BULK_MINIMUM),
+            confidence_parts=q.parts, weak_parts=list(q.weak_parts) or None,
         ) for q in queue.questions],
     )
     return contract.model_dump(mode="json", by_alias=True, exclude_none=True)

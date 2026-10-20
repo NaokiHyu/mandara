@@ -2,7 +2,7 @@
 // 書き込みは API（CLI と同じユースケース）だけが行う。当てられない答えは API の理由をそのまま見せ、選び直してもらう。
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, getReview, postAll, postAnswer, postBulk, postTable, WrittenButStaleError } from "./api";
-import type { OntologyDocument, ReviewAnswer, ReviewQuestion, ReviewQueue } from "./om/model";
+import type { OntologyDocument, ReviewAnswer, ReviewQuestion, ReviewQueue, TableConfidence } from "./om/model";
 import { KIND_KEYS, SUBJECT_LABEL, SUBJECTS, approveAllBatch, asSubject, confidenceHistogram, countBySubject, keyAction,
          nextLocation, tableBatch, visible, type Subject } from "./review";
 import { Corners } from "./parts";
@@ -227,6 +227,9 @@ function QuestionCard({ question, index, total, writable, bulkMinimum, reviewer,
       </div>
       <h1 className="question">{question.text}</h1>
       <Confidence value={question.confidence} high={bulkMinimum} />
+      {question.confidence_parts !== undefined && (
+        <ConfidenceParts parts={question.confidence_parts} weak={question.weak_parts ?? []} />
+      )}
       <ul className="evidence" aria-label="根拠">
         {question.evidence.map((e, i) => (
           <li key={e.id}>
@@ -378,6 +381,22 @@ function ReviewStats({ questions, bulkMinimum, answered }: {
 }
 
 /** 確信度。high（一括承認の閾値）以上を緑にする。0.7 は見た目の段の区切りで、判断には使わない。 */
+const PART_LABEL: Record<keyof TableConfidence, string> = { entity_group: "所属", kind: "種類", identity: "主キー" };
+
+/** 表の確信度の内訳。見直しの目安を下回る部品（weak）を先に見るところとして示す。 */
+function ConfidenceParts({ parts, weak }: { parts: TableConfidence; weak: readonly string[] }) {
+  const names = (Object.keys(PART_LABEL) as (keyof TableConfidence)[]).filter((n) => parts[n] !== undefined);
+  return (
+    <ul className="conf-parts" aria-label="確信度の内訳">
+      {names.map((n) => (
+        <li key={n} className={weak.includes(n) ? "weak" : undefined}>
+          {PART_LABEL[n]} {parts[n]!.toFixed(2)}{weak.includes(n) && " ⚠ 先に見る"}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function Confidence({ value, high, compact = false }: { value: number | undefined; high: number; compact?: boolean }) {
   if (value === undefined) return <span className="dim conf">—</span>;
   const level = value >= high ? "high" : value >= 0.7 ? "mid" : "low";

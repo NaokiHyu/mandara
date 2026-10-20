@@ -27,6 +27,7 @@ from typing import Literal, TypedDict
 from pydantic import BaseModel, ConfigDict, Field
 
 from mandara.modeler.meaning import MeaningGroups, SameMeaning, group_semantic_type
+from mandara.om.confidence import overall
 from mandara.om.invariants import Violation, check
 from mandara.om.model import (
     Additivity,
@@ -43,6 +44,7 @@ from mandara.om.model import (
     RelationType,
     ReviewStatus,
     Table,
+    TableConfidence,
     TableKind,
     TypeFamily,
     Unit,
@@ -498,9 +500,11 @@ def _apply_table(answer: TableAnswer, table: Table, relations: list[Relation], f
             if item in asked:
                 work.drop(item, f"表は人が判断済み（{table.status}）")
         return {}
+    if table.confidence_parts is None:
+        raise ValueError(f"提案の表に確信度の内訳が無い（規則が付けたはず）: {table.name}")
     update: dict[str, object] = {}
     evidence_all: set[str] = set(table.evidence or [])
-    confidences = [table.confidence if table.confidence is not None else 1.0]
+    parts = table.confidence_parts
     kind = table.kind
     if "kind" in asked and answer.kind is not None:
         if table.kind is not None and answer.kind.value != table.kind:
@@ -511,7 +515,7 @@ def _apply_table(answer: TableAnswer, table: Table, relations: list[Relation], f
             kind = answer.kind.value
             update["kind"] = kind
             evidence_all |= set(evidence)
-            confidences.append(answer.kind_confidence)
+            parts = parts.model_copy(update={"kind": min(answer.kind_confidence, MAX_CONFIDENCE)})
             work.applied.append("kind")
     if "grain" in asked and answer.grain is not None:
         if table.grain == answer.grain.strip():
@@ -541,7 +545,8 @@ def _apply_table(answer: TableAnswer, table: Table, relations: list[Relation], f
             raise ValueError(f"作者の名前に区切り {AUTHOR_SEPARATOR!r} がある: {work.inferred_by!r}")
         authors = table.inferred_by.split(AUTHOR_SEPARATOR) if table.inferred_by else []
         authors += [] if work.inferred_by in authors else [work.inferred_by]
-        update |= work.annotation(min(confidences), sorted(evidence_all)) | {"inferred_by": AUTHOR_SEPARATOR.join(authors)}
+        update |= work.annotation(overall(parts), sorted(evidence_all)) | {
+            "inferred_by": AUTHOR_SEPARATOR.join(authors), "confidence": overall(parts), "confidence_parts": parts}
     return update
 
 
@@ -576,6 +581,11 @@ def _revert(v: Violation, table: Table, columns: dict[str, Column], relations: l
         return
     if v.location == table.id and v.rule.name == "MISSING_GRAIN" and "kind" in table_update:
         del table_update["kind"]
+        parts = table_update["confidence_parts"]
+        if not isinstance(parts, TableConfidence) or table.confidence_parts is None:
+            raise AssertionError(f"種類を当てた答えに確信度の内訳が無い: {table.name}")
+        parts = parts.model_copy(update={"kind": table.confidence_parts.kind})
+        table_update |= {"confidence_parts": parts, "confidence": overall(parts)}
         work.applied.remove("kind")
         work.drop("kind", reason + "（grain が無い）")
 

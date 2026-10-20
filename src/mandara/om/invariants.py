@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol
 
+from mandara.om.confidence import present
 from mandara.om.encoding_traits import ENCODING_TARGETS
 from mandara.om.model import (
     AliasEntry,
@@ -60,6 +61,7 @@ class Rule(Enum):
     UNIT_COLUMN = "単位を持つ列の指定が不正（自分自身、単位のコードでない列）"
     ENCODING_MISMATCH = "列の encoding の変換先の型が、意味型の値の型と違う"
     EDGE_SHAPE = "辺（edge）の宣言が不正"
+    CONFIDENCE_PARTS = "表の確信度の内訳が不正（confidence が部品の最小値でない、無い判断の部品がある、部品が無い）"
 
 
 @dataclass(frozen=True)
@@ -161,6 +163,7 @@ def _check_table(table: Table, ontology: Ontology) -> Iterator[Violation]:
     semantic_types = ontology.vocabulary.semantic_types or {}
 
     yield from _check_annotation(table, loc)
+    yield from _check_confidence_parts(table, loc)
     yield from _check_keys(columns, f"{loc}.columns")
     if table.kind is None:
         if table.status == ReviewStatus.approved.value:
@@ -190,6 +193,22 @@ def _check_table(table: Table, ontology: Ontology) -> Iterator[Violation]:
         yield Violation(Rule.DUPLICATE_RELATION, f"{loc}.relations", joins)
 
     yield from _check_edge(table, ontology)
+
+
+def _check_confidence_parts(table: Table, loc: str) -> Iterator[Violation]:
+    if table.confidence_parts is None:
+        return
+    parts = present(table.confidence_parts)
+    if not parts:
+        yield Violation(Rule.CONFIDENCE_PARTS, f"{loc}.confidence_parts", "部品が 1 つも無い")
+        return
+    if table.confidence != min(parts.values()):
+        yield Violation(Rule.CONFIDENCE_PARTS, f"{loc}.confidence_parts",
+                        f"confidence={table.confidence} が部品の最小値 {min(parts.values())} と違う")
+    if "kind" in parts and table.kind is None:
+        yield Violation(Rule.CONFIDENCE_PARTS, f"{loc}.confidence_parts", "種類が無いのに kind の部品がある")
+    if "identity" in parts and table.identity is None:
+        yield Violation(Rule.CONFIDENCE_PARTS, f"{loc}.confidence_parts", "主キーが無いのに identity の部品がある")
 
 
 def _needs_grain(table: Table, semantic_types: dict[str, SemanticType]) -> bool:

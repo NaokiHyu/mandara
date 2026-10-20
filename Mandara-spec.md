@@ -323,11 +323,14 @@ mappings:
 | `reviewed_by` / `reviewed_at` | 承認時 | 承認者と日時 |
 | `note` | 任意 | 人間のメモ |
 
+表の提案は、所属（エンティティグループ）・種類・主キーの判断が重なったものなので、表は `confidence` の内訳 `confidence_parts`（`entity_group` / `kind` / `identity`）を持てる。書くのは、その判断を提案したときだけ（種類が未決なら `kind` は無い。宣言された主キーなら `identity` は無い）。表の `confidence` は内訳の最小値に等しい（4.5）。辺・関係・列は自分の `confidence` を持つので内訳に入れない。レビュー（9.3）は内訳を見せ、部品ごとの見直しの目安を下回る部品を先に見るところとして示す。一括承認の候補かどうかは表の `confidence` で決まり、内訳では変わらない。較正（評価）は部品ごとに行う。
+
 ### 4.5 不変条件（バリデーション）
 - 語彙に無い値を使っていない。①の enum（表種別、関係型、値の型、単位など）の外の値は、OMファイルを読み込む境界で拒否する（最初の1件で止まる）
 - `event` の表と `derived: true` の表にコマンドが定義されていない。`derived: true` の表が `part-of` の全体側になっていない
 - 推移的な関係（`is-a`、`part-of`、`classified-as`、`derived-from`）が、表をまたいで循環していない
 - 列の `encoding` の変換先の型が、意味型の型と一致する
+- 表の `confidence_parts` があれば、部品が 1 つ以上あり、表の `confidence` がその最小値に等しく、無い判断（種類・主キー）の部品を持たない
 - `edge` は `relation` の表にだけあり、`from` / `to` はその表の、互いに異なる n:1 の has（reference）を指す。辺の型は has / part-of / classified-as。`part-of` の辺の全体側が `derived: true` の表でない
 - 参照先の安定IDが存在する。`derived-from` が指す関数が `functions/` に存在する
 - `approved` のアノテーションに `reviewed_by` がある

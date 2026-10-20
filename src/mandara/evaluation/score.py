@@ -21,6 +21,7 @@ from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import cast
 
+from mandara.om.confidence import present
 from mandara.om.invariants import Violation, check
 from mandara.om.model import Relation, RelationType, Table
 from mandara.om.ontology import SELF, Ontology
@@ -281,10 +282,14 @@ class CalibrationBin:
 @dataclass(frozen=True)
 class Calibration:
     """提案の確信度が、正解と突き合わせてどれだけ当たっているか（観点ごと、帯ごと）。一括承認の帯を決める材料。
-    観点：表の種類（kind）、関係（端点が正解にあり型も合う。端点の外れも誤りに数える）、列の意味型の値の型（column_type）。
-    確信度の無い注釈と、閾値（最初の帯の下端）未満の注釈は数えない（提案されない）。"""
+    観点：表の確信度の部品（entity_group / kind / identity。所属・種類・主キーの列の組が正解と同じ）、関係（端点が正解にあり
+    型も合う。端点の外れも誤りに数える）、列の意味型の値の型（column_type）。
+    確信度の無い注釈と、閾値（最初の帯の下端）未満の注釈は数えない（提案されない）。表の部品は内訳（confidence_parts）から
+    読む。内訳の無い表（内訳を持つ前の OM）の部品は数えず、その数を without_parts に出す。"""
 
     aspects: dict[str, tuple[CalibrationBin, ...]]
+    without_parts: int
+    """確信度の内訳が無いので、部品の観点に数えなかった表の数。"""
 
 
 def _bin_of(confidence: float) -> int | None:
@@ -305,11 +310,22 @@ def calibrate(proposed: Ontology, gold: Ontology) -> Calibration:
     gold_tables = {t.name: t for t in gold_view.tables()}
     gold_relations = {endpoint: f for f, (_, endpoint) in zip(_relation_types(gold_view), gold_view.relations())}
     gold_types = {(t, c, ty) for t, c, ty in _column_types(gold_view)}
-    items: dict[str, list[tuple[float, bool]]] = {"kind": [], "relation": [], "column_type": []}
+    items: dict[str, list[tuple[float, bool]]] = {"entity_group": [], "kind": [], "identity": [], "relation": [],
+                                                  "column_type": []}
     vocabulary = proposed.vocabulary.semantic_types or {}
+    without_parts = 0
     for table in view.tables():
-        if table.kind is not None and table.confidence is not None:
-            items["kind"].append((table.confidence, gold_tables[table.name].kind == table.kind))
+        expected = gold_tables[table.name]
+        if table.confidence_parts is None:
+            without_parts += 1
+        else:
+            parts = present(table.confidence_parts)
+            if "entity_group" in parts:
+                items["entity_group"].append((parts["entity_group"], expected.entity_group == table.entity_group))
+            if "kind" in parts:
+                items["kind"].append((parts["kind"], expected.kind == table.kind))
+            if "identity" in parts:
+                items["identity"].append((parts["identity"], _same_primary(expected, table)))
         for relation in table.relations or []:
             endpoint = view.endpoint(table, relation)
             if endpoint is None or relation.confidence is None:
@@ -331,4 +347,11 @@ def calibrate(proposed: Ontology, gold: Ontology) -> Calibration:
                 counts[i][1] += int(correct)
         aspects[aspect] = tuple(CalibrationBin(CALIBRATION_BINS[i], CALIBRATION_BINS[i + 1], n, ok)
                                 for i, (n, ok) in enumerate(counts))
-    return Calibration(aspects)
+    return Calibration(aspects, without_parts)
+
+
+def _same_primary(expected: Table, proposed: Table) -> bool:
+    """主キーの列の組が同じ（並びは問わない）。"""
+    if expected.identity is None or proposed.identity is None:
+        return expected.identity is None and proposed.identity is None
+    return set(expected.identity.primary) == set(proposed.identity.primary)

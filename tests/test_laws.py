@@ -22,6 +22,7 @@ from mandara.om.model import (
     ColumnPair,
     Edge,
     EnumValue,
+    TableConfidence,
     HasKind,
     Identity,
     IsARealization,
@@ -189,6 +190,9 @@ MUTATIONS: dict[Rule, Mutation] = {
         "bad": SemanticType(name="bad", type=ValueType.text, additivity=Additivity.additive)}})),
     Rule.UNIT_COLUMN: lambda o: _add(o, _table("tbl_m", columns=[
         _col("id"), _col("price", semantic_type="amount", unit=UnitSource(column="price"))])),
+    Rule.CONFIDENCE_PARTS: lambda o: _replace_first(o, _first(o).model_copy(update={
+        "status": "proposed", "confidence": 0.9, "evidence": ["clm_x"], "inferred_by": "x",
+        "confidence_parts": TableConfidence(entity_group=0.7)})),
     Rule.ENUM_SHAPE: lambda o: replace(
         o,
         vocabulary=o.vocabulary.model_copy(update={"semantic_types": {

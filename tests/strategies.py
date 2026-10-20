@@ -13,6 +13,7 @@ from datetime import date
 from hypothesis import strategies as st
 
 from mandara.om.claims import SHAPES, new_claim
+from mandara.om.confidence import overall
 from mandara.om.model import (
     Additivity,
     Claim,
@@ -38,6 +39,7 @@ from mandara.om.model import (
     SourceEncoding,
     SourceRef,
     Table,
+    TableConfidence,
     TableKind,
     TypeFamily,
     Unit,
@@ -247,6 +249,11 @@ def ontologies(draw: st.DrawFn, max_tables: int = 5) -> Ontology:
             table = table.model_copy(update=draw(provenance().filter(lambda f: f["status"] != "approved")))
         else:
             table = annotate(table)
+        if table.status == ReviewStatus.proposed.value and draw(st.booleans()):  # 確信度の内訳（表の confidence は最小値）
+            conf = st.floats(min_value=0.0, max_value=1.0)
+            parts = TableConfidence(entity_group=draw(conf), kind=draw(st.none() | conf) if kind is not None else None,
+                                    identity=draw(st.none() | conf))
+            table = table.model_copy(update={"confidence_parts": parts, "confidence": overall(parts)})
         tables.append(table)
     return Ontology(vocabulary=VOCABULARY, tables=tuple(tables))
 

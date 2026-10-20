@@ -640,6 +640,9 @@ def _refine(workspace: Workspace, model: LanguageModel, decider: DecisionModel, 
     if decided := [w for w, a in ontology.annotations() if a.status != ReviewStatus.proposed.value]:
         raise OntologyWriteRefusedError(
             f"人の判断を含む OM は詰め直さない（{len(decided)} 件。例 {decided[:3]}）。再実行での統合は T6.1")
+    if unparted := [t.name for t in ontology.tables if t.confidence_parts is None]:
+        raise OntologyWriteRefusedError(
+            f"確信度の内訳の無い表がある（内訳を持つ前に作った OM。run で作り直す）: {len(unparted)} 表。例 {unparted[:3]}")
     by_table: dict[str, list[Claim]] = {}
     for claim in claims:
         for name in resemblance_modeler.tables_of(claim):

@@ -2741,6 +2741,17 @@
                         "null"
                     ]
                 },
+                "confidence_parts": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/TableConfidence"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "\u8868\u306e\u554f\u3044\u306a\u3089\u3001\u8868\u306e\u78ba\u4fe1\u5ea6\u306e\u5185\u8a33\uff08\u3069\u306e\u5224\u65ad\u304c\u5f31\u3044\u304b\uff09"
+                },
                 "evidence": {
                     "description": "\u6839\u62e0\uff08\u4ed5\u69d8 9.3\uff1a3\u884c\u307e\u3067\uff09",
                     "items": {
@@ -2773,6 +2784,16 @@
                 },
                 "text": {
                     "type": "string"
+                },
+                "weak_parts": {
+                    "description": "\u5185\u8a33\u306e\u3046\u3061\u3001\u90e8\u54c1\u3054\u3068\u306e\u898b\u76f4\u3057\u306e\u76ee\u5b89\uff08\u8f03\u6b63\u3067\u5f53\u305f\u308a\u304c\u843d\u3061\u308b\u78ba\u4fe1\u5ea6\uff09\u3092\u4e0b\u56de\u308b\u90e8\u54c1\u306e\u540d\u524d\u3002\u30ec\u30d3\u30e5\u30fc\u3067\u5148\u306b\u898b\u308b\u3068\u3053\u308d\u3002 \u4e00\u62ec\u627f\u8a8d\u306e\u5019\u88dc\u304b\u3069\u3046\u304b\u306b\u306f\u95a2\u308f\u3089\u306a\u3044",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
                 }
             },
             "required": [
@@ -3156,6 +3177,17 @@
                         "null"
                     ]
                 },
+                "confidence_parts": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/TableConfidence"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "\u63d0\u6848\u306e\u8868\u306e\u78ba\u4fe1\u5ea6\u306e\u5185\u8a33\uff084.4\uff09\u3002\u8868\u306e\u63d0\u6848\u306f\u3001\u6240\u5c5e\uff08\u30a8\u30f3\u30c6\u30a3\u30c6\u30a3\u30b0\u30eb\u30fc\u30d7\uff09\u30fb\u7a2e\u985e\u30fb\u4e3b\u30ad\u30fc\u306e\u5224\u65ad\u304c\u91cd\u306a\u3063\u305f\u3082\u306e\u3067\u3001 \u8868\u306e confidence \u306f\u305d\u306e\u6700\u5c0f\u5024\u3002\u3069\u3053\u304c\u5f31\u3044\u304b\u3092\u30ec\u30d3\u30e5\u30fc\u306b\u898b\u305b\u3001\u90e8\u54c1\u3054\u3068\u306b\u8f03\u6b63\u3059\u308b\u305f\u3081\u306b\u5206\u3051\u3066\u6301\u3064\u3002 \u8fba\uff08edge\uff09\u3068\u95a2\u4fc2\u30fb\u5217\u306f\u81ea\u5206\u306e confidence \u3092\u6301\u3064\u306e\u3067\u3001\u3053\u3053\u306b\u306f\u5165\u308c\u306a\u3044"
+                },
                 "derived": {
                     "description": "\u8a08\u7b97\u30fb\u96c6\u8a08\u3067\u5c0e\u51fa\u3055\u308c\u305f\u8868\uff08\u30d3\u30e5\u30fc\u306a\u3069\uff09\u3002kind\uff08\u4f55\u3092\u8868\u3059\u304b\uff09\u3068\u306f\u5225\u306e\u8ef8\u3067\u3001\u3069\u306e kind \u3068\u3082\u7d44\u307f\u5408\u308f\u3055\u308b\u3002 \u30b3\u30de\u30f3\u30c9\u4e0d\u53ef\u3002part-of \u306e\u5168\u4f53\u5074\u306b\u306a\u3089\u306a\u3044\u3002\u30bd\u30fc\u30b9\u304c\u5b9f\u4f53\u306e\u8868\u306a\u3089\u66f8\u304b\u306a\u3044",
                     "type": [
@@ -3298,6 +3330,41 @@
                 "locations"
             ],
             "title": "TableApproval",
+            "type": "object"
+        },
+        "TableConfidence": {
+            "additionalProperties": false,
+            "description": "\u8868\u306e\u78ba\u4fe1\u5ea6\u306e\u90e8\u54c1\u3002\u66f8\u304f\u306e\u306f\u3001\u305d\u306e\u5224\u65ad\u3092\u63d0\u6848\u3057\u305f\u3068\u304d\u3060\u3051\uff08\u7a2e\u985e\u304c\u672a\u6c7a\u306a\u3089 kind \u306f\u7121\u3044\u3002\u4e3b\u30ad\u30fc\u304c\u7121\u3044\u304b\u5ba3\u8a00\u306a\u3089 identity \u306f\u7121\u3044\uff09\u3002\u8868\u306e confidence \u306f\u3001\u66f8\u304b\u308c\u305f\u90e8\u54c1\u306e\u6700\u5c0f\u5024\u306b\u7b49\u3057\u3044\uff084.5\uff09",
+            "properties": {
+                "entity_group": {
+                    "description": "\u6240\u5c5e\uff08\u30a8\u30f3\u30c6\u30a3\u30c6\u30a3\u30b0\u30eb\u30fc\u30d7\uff09\u306e\u78ba\u4fe1\u5ea6",
+                    "maximum": 1.0,
+                    "minimum": 0.0,
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                },
+                "identity": {
+                    "description": "\u63a8\u6e2c\u3057\u305f\u4e3b\u30ad\u30fc\u306e\u78ba\u4fe1\u5ea6\uff08\u5ba3\u8a00\u3055\u308c\u305f\u4e3b\u30ad\u30fc\u306a\u3089\u66f8\u304b\u306a\u3044\uff09",
+                    "maximum": 1.0,
+                    "minimum": 0.0,
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                },
+                "kind": {
+                    "description": "\u8868\u306e\u7a2e\u985e\u306e\u78ba\u4fe1\u5ea6",
+                    "maximum": 1.0,
+                    "minimum": 0.0,
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                }
+            },
+            "title": "TableConfidence",
             "type": "object"
         },
         "TableKind": {
