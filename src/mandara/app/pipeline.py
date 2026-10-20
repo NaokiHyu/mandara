@@ -835,9 +835,8 @@ def _ask_table(table: Table, table_claims: joins_modeler.InferenceClaims, ontolo
     mine = {c.semantic_type for c in (table.columns or {}).values() if c.semantic_type is not None}
     used = {c.semantic_type for t in ontology.tables if t.id != table.id for c in (t.columns or {}).values()
             if c.semantic_type is not None}
-    around = classify.neighbors(ontology, table, table_claims)
     asked = classify.classify(table, table_claims, vocabulary, hints, shared, decider.max_options,
-                              f"classify {table.name}", elsewhere_only=used - mine, around=around)
+                              f"classify {table.name}", elsewhere_only=used - mine)
     background: coordinator.Background | None = None
     if primer is not None and (asked.request is not None or asked.new_only):
         coordinated: object = None
@@ -857,7 +856,7 @@ def _ask_table(table: Table, table_claims: joins_modeler.InferenceClaims, ontolo
             asked = classify.classify(table, table_claims,
                                       pack_modeler.candidates(vocabulary, background.semantic_types), hints, shared,
                                       decider.max_options, f"classify {table.name}", elsewhere_only=used - mine,
-                                      background=background, around=around)
+                                      background=background)
     response = None
     if asked.request is not None:
         try:
