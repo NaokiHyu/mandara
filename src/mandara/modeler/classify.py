@@ -28,7 +28,6 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mandara.llm.decision import Choice, ChoiceAnswer, DecisionRequest, DecisionResponse
 from mandara.modeler.llm import (
-    MAX_CONFIDENCE,
     NAME,
     ColumnAnswer,
     Dropped,
@@ -847,82 +846,6 @@ def read_properties(table_claims: Sequence[Claim], named: Named, asked: Properti
     return out, dropped
 
 
-def type_probability(asked: Properties, response: DecisionResponse | None, name: str) -> float:
-    """名付けた意味型の値の型の確率（候補が 1 つなら 1）。"""
-    allowed = asked.candidates.get(name, ())
-    if len(allowed) <= 1:
-        return 1.0
-    if response is None or f"type {name}" not in response.answers:
-        raise ValueError(f"値の型を問うたのに答えが無い: {name}")
-    return response.answers[f"type {name}"].probability
-
-
-# ---------------------------------------------------------------- 3b. 名付けた意味型の確かめ（判断モデル）
-
-
-@dataclass(frozen=True)
-class Confirm:
-    request: DecisionRequest | None
-    named: dict[str, str]
-    """問いの ID（"confirm <列>"）→ 名付けた意味型の名前。"""
-    alternatives: dict[str, frozenset[str]]
-    """問いの ID → 対抗にした既存の意味型（分類の問いで列に出したもの）。"""
-
-
-def confirm(table_claims: InferenceClaims, asked: "Classify", new_types: Sequence[SemanticTypeAnswer],
-            named: Named, vocabulary: Mapping[str, SemanticType], purpose: str,
-            background: Background | None = None) -> Confirm:
-    """名付けた意味型を、列ごとに判断モデルで確かめる。選択肢は、名付けた意味型と、分類の問いでその列に出した既存の意味型
-    （対抗）と「決められない」。名付けた意味型の確率を測るための問いで、確信度の上限 NAMED_CONFIDENCE（名前の確からしさを
-    測っていない）を、測った確率に置き換える根拠にする。対抗の無い列（当てうる既存の意味型が無く、分類で問わなかった列）は
-    問わない（選択肢が 1 つでは確率にならない）。"""
-    questions: dict[str, Choice] = {}
-    owners: dict[str, str] = {}
-    rivals: dict[str, frozenset[str]] = {}
-    described: dict[str, str] = {}
-    for t in new_types:
-        for column in _columns_of(named, t.name):
-            asked_column = asked.request.questions.get(f"column {column}") if asked.request is not None else None
-            if asked_column is None:
-                continue
-            alternatives = [o for o in asked_column.options if o not in (NEW, UNCLEAR) and o in vocabulary]
-            if not alternatives:
-                continue
-            key = f"confirm {column}"
-            options: dict[str, str | None] = {t.name: _type_brief(SemanticType(name=t.name, type=t.type, role=t.role))}
-            options |= {a: _type_brief(vocabulary[a]) for a in alternatives}
-            options[UNCLEAR] = _UNCLEAR
-            described[t.name] = f"{t.description} ({_type_brief(SemanticType(name=t.name, type=t.type, role=t.role))})"
-            described |= {a: _type_option(vocabulary[a]) for a in alternatives}
-            questions[key] = Choice({"column": column, "question": "What do the values of `column` in the `table` mean? "
-                                                                   "Each option except unclear is a semantic type "
-                                                                   "described in `semantic_types`."}, options)
-            owners[key] = t.name
-            rivals[key] = frozenset(alternatives)
-    material = with_background(state(table_claims), background) | {"semantic_types": dict(sorted(described.items()))}
-    request = DecisionRequest(purpose, material, questions) if questions else None
-    return Confirm(request, owners, rivals)
-
-
-def read_confirm(asked: Confirm, response: DecisionResponse | None) -> tuple[dict[str, float], list[Dropped]]:
-    """（列 → 名付けた意味型の測った確率）と、落とす列。名付けた意味型を閾値以上で選べば、その確率（上限 MAX_CONFIDENCE）。
-    対抗の既存の意味型を閾値以上で選べば、名付けた意味型と判断モデルが食い違うので、列を理由つきで落とす。
-    どちらでもなければ（閾値未満、決められない）何もしない（確信度は NAMED_CONFIDENCE の上限のまま）。"""
-    confirmed: dict[str, float] = {}
-    dropped: list[Dropped] = []
-    answers: Mapping[str, ChoiceAnswer] = response.answers if response is not None else {}
-    for key, answer in sorted(answers.items()):
-        column = key.removeprefix("confirm ")
-        if answer.choice == UNCLEAR or answer.probability < THRESHOLD:
-            continue
-        if answer.choice == asked.named[key]:
-            confirmed[column] = min(answer.probability, MAX_CONFIDENCE)
-        elif answer.choice in asked.alternatives[key]:
-            dropped.append(Dropped(f"column {column}", f"名付けた意味型 {asked.named[key]} に対して、判断モデルは既存の "
-                                                       f"{answer.choice} を選んだ（確率 {answer.probability:.2f}）"))
-    return confirmed, dropped
-
-
 def _optional(item: str, answer: ChoiceAnswer | None, dropped: list[Dropped]) -> str | None:
     """none を含む選択の答え。決まらなければ None（理由は記録）。"""
     if answer is None:
@@ -1023,12 +946,7 @@ def needs_grain(kind: str | None, column_types: Mapping[str, SemanticType]) -> b
 def assemble(table: Table, table_claims: Sequence[Claim], asked: Classify, classified: Classified,
              new_types: Sequence[SemanticTypeAnswer], named: Named | None,
              unit_answers: Mapping[str, tuple[Unit | None, str | None, float]], unit_evidence: Mapping[str, list[str]],
-             grain: str | None, confirmed: Mapping[str, float] | None = None,
-             type_probabilities: Mapping[str, float] | None = None) -> tuple[TableAnswer, list[Dropped]]:
-    """confirmed は、名付けた意味型を判断モデルで確かめた列の確率（read_confirm）。確かめた列の確信度は、それと値の型の確率
-    （type_probabilities。意味型の名前 → type_probability）の小さいほう。"""
-    confirmed = confirmed or {}
-    type_probabilities = type_probabilities or {}
+             grain: str | None) -> tuple[TableAnswer, list[Dropped]]:
     """読んだ答えを、従来の答えの形にする（検証は apply_answer）。使わなかった答えは理由つきで返す。"""
     dropped: list[Dropped] = []
     kind = TableKind(classified.kind.value) if classified.kind is not None else None
@@ -1052,8 +970,6 @@ def assemble(table: Table, table_claims: Sequence[Claim], asked: Classify, class
             if t is None:
                 continue  # 名前か性質が決まらなかった（理由は命名・性質の段で記録してある）
             semantic_type, confidence = t.name, min(picked.probability, t.confidence)
-            if name in confirmed:  # 確かめた確率で、命名の上限を置き換える（値の型の確率は超えない）
-                semantic_type, confidence = t.name, min(confirmed[name], type_probabilities[t.name])
         else:
             semantic_type, confidence = picked.value, picked.probability
         unit = unit_answers.get(name)

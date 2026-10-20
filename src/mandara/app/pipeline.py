@@ -875,8 +875,6 @@ def _ask_table(table: Table, table_claims: joins_modeler.InferenceClaims, ontolo
     new_columns = sorted(c for c, p in classified.columns.items() if p.value == classify.NEW)
     named: classify.Named | None = None
     new_types: list[llm_modeler.SemanticTypeAnswer] = []
-    confirmed: dict[str, float] = {}
-    type_probabilities: dict[str, float] = {}
     if new_columns:
         decided = classify.decided_lines(classified, table_claims, vocabulary)
         # 名付け器が既存の名前を答えたとき、当ててよい意味型（判断モデルに出していない、列に当てられるもの）
@@ -941,22 +939,6 @@ def _ask_table(table: Table, table_claims: joins_modeler.InferenceClaims, ontolo
                     named = classify.Named((), named.dropped)
             new_types, dropped = classify.read_properties(table_claims, named, props, props_response)
             notes += dropped
-            type_probabilities = {t.name: classify.type_probability(props, props_response, t.name) for t in new_types}
-            # 名付けた意味型を判断モデルで確かめる（対抗のある列だけ）。確かめた確率で命名の上限 0.7 を置き換える
-            checked = classify.confirm(table_claims, asked, new_types, named, vocabulary, f"confirm {table.name}",
-                                       background)
-            if checked.request is not None:
-                try:
-                    checked_response = decider.decide(checked.request)
-                    record["confirm"] = _decisions_record(checked_response)
-                    confirmed, contested = classify.read_confirm(checked, checked_response)
-                    notes += contested
-                    for d in contested:  # 判断モデルが既存の別の意味型を選んだ列は、名付けた意味型を当てない
-                        classified.columns.pop(d.item.removeprefix("column "), None)
-                except (BudgetExceededError, EstimateViolatedError):
-                    raise
-                except LlmError as e:
-                    record["confirm"] = {"error": failed("確かめ", e)}
 
     # 単位：単位の要る意味型の列
     final_types = {name: d for name, d in ((n, vocabulary.get(c.semantic_type or "")) for n, c in
@@ -1015,7 +997,7 @@ def _ask_table(table: Table, table_claims: joins_modeler.InferenceClaims, ontolo
     if not record.keys() - {"coordinate"}:  # 何も問わなかった（背景は問いの材料で、それだけでは答えにならない）
         return _Asked(None, notes, failures)
     answer, dropped = classify.assemble(table, table_claims, asked, classified, new_types, named, unit_answers,
-                                        unit_asked.evidence, grain, confirmed, type_probabilities)
+                                        unit_asked.evidence, grain)
     return _Asked(answer, notes + dropped, failures)
 
 
