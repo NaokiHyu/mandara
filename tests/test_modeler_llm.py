@@ -673,16 +673,39 @@ def test_brief_quotes_free_text_inside_the_data_section() -> None:
 def test_refine_refuses_before_asking_when_humans_decided(workspace: Workspace) -> None:
     from datetime import date
 
-    from mandara.omstore.yaml_store import OntologyWriteRefusedError, write_reviewed_ontology
+    from mandara.app.pipeline import write_reviewed
+    from mandara.omstore.yaml_store import OntologyWriteRefusedError
     from mandara.review.decisions import Reject, apply
 
     ontology = load_ontology(workspace.ontology)
-    write_reviewed_ontology(workspace.ontology, apply(ontology, ontology.tables[0].id, Reject(), "alice",
-                                                      date(2026, 10, 15)))
+    write_reviewed(workspace, apply(ontology, ontology.tables[0].id, Reject(), "alice", date(2026, 10, 15)))
     decider = ScriptedDecider({})
     with pytest.raises(OntologyWriteRefusedError):
         _refine(workspace, ScriptedModel({}), decider, [])
     assert decider.asked == []  # 予算を使う前に止まる
+
+
+def test_run_asks_the_same_questions_with_or_without_gold(tmp_path: Path) -> None:
+    """正解（gold）は評価だけに使う。正解を渡しても渡さなくても、推論で問う問い（とその順）は同じで、表は名前の順に問う。"""
+    from datetime import UTC, datetime
+
+    gold = Path(__file__).parent.parent / "evals/datasets/adventureworks/gold/ontology"
+    conninfo = "dbname=adventureworks"
+
+    def run(name: str, with_gold: Path | None) -> tuple[list[str], list[str]]:
+        model, decider, budget = ScriptedModel({}), ScriptedDecider({}), Budget(1.0)
+        pipeline.run(Workspace(tmp_path / name, "adventureworks"), PostgresCatalogReader(conninfo),
+                     PostgresColumnReader(conninfo), PostgresCoverageReader(conninfo),
+                     PostgresInclusionReader(conninfo), PostgresUniquenessReader(conninfo),
+                     None, SCOPE, with_gold, lambda: datetime(2026, 10, 21, tzinfo=UTC),
+                     pipeline.Inference(BudgetedModel(model, CHEAP, budget),
+                                        BudgetedDecisionModel(decider, CHEAP_JEV, budget)))
+        return decider.asked, model.asked
+
+    without = run("without", None)
+    assert run("with", gold) == without
+    classified = [a.removeprefix("classify ") for a in _classified(without[0])]
+    assert classified == sorted(classified)
 
 
 def test_refine_rejects_unknown_first_tables(workspace: Workspace) -> None:

@@ -71,8 +71,8 @@ from mandara.omstore.yaml_store import (
     dump_table,
     dump_vocabulary,
     load_ontology,
+    replace_ontology,
     write_ontology,
-    write_reviewed_ontology,
 )
 from mandara.review.decisions import (
     Approve,
@@ -84,6 +84,7 @@ from mandara.review.decisions import (
     is_bulk_candidate,
     is_table_batch_member,
     questions,
+    review_changes,
 )
 from mandara.source.catalog import Catalog, CatalogReader, Scope, SourceError
 from mandara.source.catalog import Column as CatalogColumn
@@ -1163,7 +1164,15 @@ def review_queue(workspace: Workspace) -> ReviewQueue:
 def answer(workspace: Workspace, location: str, decision: Decision, reviewer: str, on: date) -> None:
     """1つの問いに答え、すぐ書く（途中でやめても、そこまでの判断は残る）。"""
     ontology = load_ontology(workspace.ontology)
-    write_reviewed_ontology(workspace.ontology, apply(ontology, location, decision, reviewer, on))
+    write_reviewed(workspace, apply(ontology, location, decision, reviewer, on))
+
+
+def write_reviewed(workspace: Workspace, ontology: Ontology) -> None:
+    """レビューの結果を書く。今ある OM との違いが判断（status、reviewed_*、未決だった表の種類）だけであることを確かめてから
+    置き換える。レビューのユースケースは、すべてここを通して書く。"""
+    if problems := review_changes(load_ontology(workspace.ontology), ontology):
+        raise OntologyWriteRefusedError("レビューで判断以外が変わろうとした: " + "; ".join(problems[:5]))
+    replace_ontology(workspace.ontology, ontology)
 
 
 def bulk_candidates(workspace: Workspace, threshold: float) -> list[Question]:
@@ -1185,7 +1194,7 @@ def bulk_approve(workspace: Workspace, locations: Sequence[str], threshold: floa
     for location in locations:
         ontology = apply(ontology, location, Approve(), reviewer, on)
     if locations:
-        write_reviewed_ontology(workspace.ontology, ontology)
+        write_reviewed(workspace, ontology)
     return len(locations)
 
 
@@ -1212,7 +1221,7 @@ def approve_all(workspace: Workspace, locations: Sequence[str], reviewer: str, o
         raise LedgerMismatchError(f"見せた一覧（{len(locations)} 件）と今の候補（{len(candidates)} 件）が食い違う。一覧を出し直す")
     for location in candidates:
         ontology = apply(ontology, location, Approve(), reviewer, on)
-    write_reviewed_ontology(workspace.ontology, ontology)
+    write_reviewed(workspace, ontology)
     return len(candidates)
 
 
@@ -1227,7 +1236,7 @@ def approve_table(workspace: Workspace, table_id: str, locations: Sequence[str],
         raise LedgerMismatchError(f"見せた一覧と今の候補が食い違う（{len(stale)} 件。例 {stale[:3]}）。一覧を出し直す")
     for location in locations:
         ontology = apply(ontology, location, Approve(), reviewer, on)
-    write_reviewed_ontology(workspace.ontology, ontology)
+    write_reviewed(workspace, ontology)
     return len(locations)
 
 
@@ -1414,9 +1423,10 @@ def run(workspace: Workspace, reader: CatalogReader, values: ColumnReader, cover
     refined = None
     if inference is not None:
         with log.stage("refine"):
-            first = [t.name for t in load_ontology(gold).tables] if gold is not None else []
+            # 問う順は表の名前の順。正解（gold）は評価だけに使い、推論には渡さない（問う順は語彙の育ち方と、予算で止まったときに
+            # 問えた表を変えるので、正解の表を先に問うと点数が正解に寄る）
             try:
-                refined = refine(workspace, inference.model, inference.decider, first, primer, knowledge)
+                refined = refine(workspace, inference.model, inference.decider, (), primer, knowledge)
             finally:
                 spends = inference.budget.spends
                 log.update(llm={"model": inference.model.model, "decision_model": inference.decider.model,

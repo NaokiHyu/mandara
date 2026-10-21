@@ -11,7 +11,6 @@ Domain 層の純粋な関数（LLM の呼び出しは Application がポート�
   - document の項目は、引用が文書に実在すること（空白の違いは無視する）。無ければ項目を落とす（general に読み替えない）
 """
 
-import hashlib
 import re
 from collections import defaultdict
 from collections.abc import Sequence
@@ -25,6 +24,7 @@ from mandara.modeler.llm import Dropped, InvalidAnswerError
 from mandara.modeler.llm import data_text as _q
 from mandara.om.model import Claim, ClaimPredicate, Primer, PrimerDocument, PrimerEntry, PrimerGroup, PrimerOrigin
 from mandara.om.names import qualify
+from mandara.source.documents import Document
 
 WRITER = "writer 0.2"
 """手引きの書き手。問い方や確かめ方を変えたら版を上げる。"""
@@ -35,17 +35,6 @@ MIN_QUOTE_CHARS = 20
 
 class EmptyLedgerError(Exception):
     """台帳に表が無い（抽出してから書く）。"""
-
-
-@dataclass(frozen=True)
-class Document:
-    name: str
-    """文書の置き場所からの相対パス。"""
-    text: str
-
-    @property
-    def sha256(self) -> str:
-        return hashlib.sha256(self.text.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)

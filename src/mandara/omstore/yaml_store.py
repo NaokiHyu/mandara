@@ -6,7 +6,8 @@ Adapter 層。
 - 配置規則に合わないファイル・シンボリックリンクはエラー。黙って読み飛ばさない
 - 生成した OM（work/<source>/ontology）を書くときは丸ごと置き換える。ただし人の判断（approved / rejected）を
   含む OM は上書きしない（再実行での統合は T6.1 の責務）
-- レビューの結果を書くときは、今ある OM との違いが判断だけであることを確かめてから置き換える
+- 人の判断を含む OM を置き換えるのは replace_ontology。何が変わってよいか（レビューなら判断だけ）は呼ぶ側（Application）が
+  確かめる。この層は検証（4.5）と置き換えだけを受け持つ
 """
 
 from collections.abc import Iterator, Sequence
@@ -16,7 +17,6 @@ from mandara.om.invariants import Violation, check
 from mandara.om.model import ReviewStatus, Table, Vocabulary
 from mandara.om.names import split_qualified
 from mandara.om.ontology import Ontology
-from mandara.review.decisions import review_changes
 from mandara.omstore import codec
 from mandara.omstore.codec import OmLoadError
 from mandara.omstore.tree import decode_name, encode_name, files_in, replace_tree
@@ -121,12 +121,10 @@ def write_ontology(root: Path, ontology: Ontology) -> None:
     _replace(root, ontology)
 
 
-def write_reviewed_ontology(root: Path, ontology: Ontology) -> None:
-    """レビューの結果を書く。今ある OM との違いが判断（status、reviewed_*、未決だった表の種類）だけであることを確かめる。"""
+def replace_ontology(root: Path, ontology: Ontology) -> None:
+    """人の判断を含みうる OM で root を置き換える。書く前に検証する。今ある OM との違いが許されるかは呼ぶ側が確かめる。"""
     if violations := check(ontology):
         raise InvalidOntologyError(violations)
-    if problems := review_changes(load_ontology(root), ontology):
-        raise OntologyWriteRefusedError("レビューで判断以外が変わろうとした: " + "; ".join(problems[:5]))
     _replace(root, ontology)
 
 

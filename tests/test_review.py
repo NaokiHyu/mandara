@@ -3,7 +3,7 @@
 - 当てた結果は、判断の項目（と未決だった表の種類）以外を変えない。検証も通ったまま
 - 判断済みは当て直せない。未決の表の承認には種類が要る
 - 問いは、未判断の注釈ごとにちょうど1つ。表が先
-- 書く側の境界（write_reviewed_ontology）は、判断以外の変更を拒否する
+- レビューの書き込み（pipeline.write_reviewed）は、判断以外の変更を拒否する
 - コマンド：一括承認、対話での答え、レビュー後の再実行の拒否（AdventureWorks で通しに）
 """
 
@@ -23,7 +23,8 @@ from mandara.om.confidence import PARTS, overall, present
 from mandara.om.model import (AliasEntry, Column, Edge, EnumValue, Relation, ReviewStatus, ReviewSubject, Table,
                               TableConfidence, TableKind, Vocabulary)
 from mandara.om.ontology import Ontology
-from mandara.omstore.yaml_store import OntologyWriteRefusedError, load_ontology, write_ontology, write_reviewed_ontology
+from mandara.app.pipeline import Workspace, write_reviewed
+from mandara.omstore.yaml_store import OntologyWriteRefusedError, load_ontology, write_ontology
 from mandara.review.decisions import (WEAK_BELOW, Approve, Reject, ReviewError, apply, is_bulk_candidate, questions,
                                       review_changes)
 
@@ -159,16 +160,17 @@ def test_reviewer_is_required() -> None:
 GOLD = Path(__file__).parent.parent / "evals/datasets/adventureworks/gold/ontology"
 
 
-def test_store_refuses_non_decision_changes(tmp_path: Path) -> None:
-    root = tmp_path / "ontology"
+def test_review_write_refuses_non_decision_changes(tmp_path: Path) -> None:
+    workspace = Workspace(tmp_path, "adventureworks")
     gold = load_ontology(GOLD)
-    write_ontology(root, gold)
+    write_ontology(workspace.ontology, gold)
     table = gold.tables[0]
     tampered = replace(gold, tables=(table.model_copy(update={"note": "書き換え"}), *gold.tables[1:]))
     with pytest.raises(OntologyWriteRefusedError, match="判断以外"):
-        write_reviewed_ontology(root, tampered)
-    write_reviewed_ontology(root, apply(gold, table.id, Reject(), "alice", TODAY))
-    reviewed = load_ontology(root).table(table.id)
+        write_reviewed(workspace, tampered)
+    assert load_ontology(workspace.ontology) == gold  # 拒んだときは何も書かない
+    write_reviewed(workspace, apply(gold, table.id, Reject(), "alice", TODAY))
+    reviewed = load_ontology(workspace.ontology).table(table.id)
     assert reviewed is not None and reviewed.status == "rejected"
 
 

@@ -131,14 +131,14 @@ def test_write_pack_writes_the_pack_and_records_the_answer_outside_it(tmp_path: 
 
     from mandara.app import pipeline
     from mandara.llm.model import StructuredRequest, StructuredResponse, Usage
-    from mandara.modeler import writer
     from mandara.om.model import Primer, PrimerDocument
     from mandara.omstore.document_store import write_primer
+    from mandara.source.documents import Document
 
     docs = tmp_path / "docs"
     docs.mkdir()
     (docs / "README.md").write_text("A bicycle parts wholesaler.", encoding="utf-8")
-    readme = writer.Document("README.md", "A bicycle parts wholesaler.")
+    readme = Document("README.md", "A bicycle parts wholesaler.")
     write_primer(docs, Primer(written_by="w", documents=[PrimerDocument(name=readme.name, sha256=readme.sha256)],
                               summary="s", entity_groups=[], entries=[]))
 

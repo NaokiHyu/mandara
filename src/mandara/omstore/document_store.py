@@ -10,10 +10,10 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
-from mandara.modeler.writer import Document
 from mandara.om.model import Primer
 from mandara.omstore import codec
 from mandara.omstore.codec import OmLoadError
+from mandara.source.documents import Document
 
 PRIMER = "primer.yaml"
 TEXT_SUFFIXES = frozenset({".md", ".txt"})
